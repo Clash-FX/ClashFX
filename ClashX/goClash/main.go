@@ -26,6 +26,7 @@ import (
 	"github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/hub/route"
+	"github.com/metacubex/mihomo/listener"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 	"github.com/oschwald/geoip2-golang"
@@ -414,6 +415,14 @@ func clashSetTunEnabled(enabled bool) *C.char {
 	}
 
 	executor.ApplyConfig(cfg, false)
+
+	if enabled && !listener.GetTunConf().Enable {
+		tunMu.Lock()
+		tunEnabled = false
+		tunMu.Unlock()
+		return C.CString("TUN failed: operation not permitted (requires elevated privileges)")
+	}
+
 	return C.CString("success")
 }
 
