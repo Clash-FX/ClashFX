@@ -137,6 +137,7 @@ ProxyConfigRemoteProcessProtocol
     dispatch_async(dispatch_get_main_queue(), ^{
         if (self.mihomoTask && self.mihomoTask.isRunning) {
             [self.mihomoTask terminate];
+            [self.mihomoTask waitUntilExit];
             self.mihomoTask = nil;
         }
 
@@ -153,6 +154,14 @@ ProxyConfigRemoteProcessProtocol
         task.standardOutput = pipe;
         task.standardError = pipe;
 
+        pipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *handle) {
+            NSData *data = [handle availableData];
+            if (data.length > 0) {
+                NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                NSLog(@"[mihomo_core] %@", output);
+            }
+        };
+
         NSError *error = nil;
         [task launchAndReturnError:&error];
         if (error) {
@@ -161,6 +170,13 @@ ProxyConfigRemoteProcessProtocol
         }
 
         self.mihomoTask = task;
+
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (!task.isRunning) {
+                NSLog(@"[mihomo_core] Process exited early with status: %d", task.terminationStatus);
+            }
+        });
+
         reply(nil);
     });
 }

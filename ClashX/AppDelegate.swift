@@ -102,6 +102,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if WebPortalManager.hasWebProtal {
             WebPortalManager.shared.addWebProtalMenuItem(&statusMenu)
         }
+        setupLanguageMenu()
         // 启用自动更新检查（使用fork项目的GitHub Pages）
         AutoUpgardeManager.shared.setup()
         AutoUpgardeManager.shared.setupCheckForUpdatesMenuItem(checkForUpdateMenuItem)
@@ -640,7 +641,8 @@ extension AppDelegate {
 
     private func enableEnhancedMode(completion: @escaping (String?) -> Void) {
         let tempConfigPath = kConfigFolderPath + ".enhanced_config.yaml"
-        let writeResult = clashWriteEnhancedConfig(tempConfigPath.goStringBuffer())?.toString() ?? ""
+        let selectedConfigPath = Paths.localConfigPath(for: ConfigManager.selectConfigName)
+        let writeResult = clashWriteEnhancedConfig(selectedConfigPath.goStringBuffer(), tempConfigPath.goStringBuffer())?.toString() ?? ""
         guard !writeResult.hasPrefix("error:") else {
             completion(writeResult)
             return
@@ -650,19 +652,24 @@ extension AppDelegate {
               let portInfo = try? JSONSerialization.jsonObject(with: jsonData) as? [String: String],
               let extController = portInfo["externalController"],
               let port = extController.components(separatedBy: ":").last else {
-            completion("Failed to parse enhanced config info")
+            completion(NSLocalizedString("Failed to parse enhanced config", comment: ""))
             return
         }
         let secret = portInfo["secret"] ?? ""
 
         guard let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else {
-            completion("mihomo_core binary not found in app bundle")
+            completion(NSLocalizedString("mihomo_core not found", comment: ""))
+            return
+        }
+
+        guard let helper = PrivilegedHelperManager.shared.helper() else {
+            completion(NSLocalizedString("Helper not available", comment: ""))
             return
         }
 
         clashSuspendCore()
 
-        PrivilegedHelperManager.shared.helper()?.startMihomoCore(
+        helper.startMihomoCore(
             withBinaryPath: binaryPath,
             configPath: tempConfigPath,
             homeDir: kConfigFolderPath
@@ -675,17 +682,31 @@ extension AppDelegate {
                     ConfigManager.shared.apiPort = port
                     ConfigManager.shared.apiSecret = secret
                     ConfigManager.shared.isEnhancedModeActive = true
-                    self?.waitForExternalCore(port: port, secret: secret, retriesLeft: 10) {
-                        self?.syncConfig()
-                        self?.resetStreamApi()
-                        completion(nil)
+                    self?.waitForExternalCore(port: port, secret: secret, retriesLeft: 10) { success in
+                        if success {
+                            self?.syncConfig()
+                            self?.resetStreamApi()
+                            completion(nil)
+                        } else {
+                            // External core never responded — roll back
+                            Logger.log("External core failed to start, rolling back", level: .error)
+                            helper.stopMihomoCore { _ in
+                                DispatchQueue.main.async {
+                                    ConfigManager.shared.isEnhancedModeActive = false
+                                    ConfigManager.shared.isRunning = false
+                                    clashReopenCacheDB()
+                                    self?.startProxy()
+                                    completion(NSLocalizedString("Enhanced Mode failed: core not responding", comment: ""))
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    private func waitForExternalCore(port: String, secret: String, retriesLeft: Int, ready: @escaping () -> Void) {
+    private func waitForExternalCore(port: String, secret: String, retriesLeft: Int, ready: @escaping (Bool) -> Void) {
         let url = URL(string: "http://127.0.0.1:\(port)/configs")!
         var request = URLRequest(url: url, timeoutInterval: 2)
         if !secret.isEmpty {
@@ -695,14 +716,15 @@ extension AppDelegate {
             DispatchQueue.main.async {
                 if let http = response as? HTTPURLResponse, http.statusCode == 200 {
                     Logger.log("External core API ready on port \(port)")
-                    ready()
+                    ready(true)
                 } else if retriesLeft > 0 {
+                    Logger.log("Waiting for external core (\(retriesLeft) retries left)...", level: .debug)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                         self?.waitForExternalCore(port: port, secret: secret, retriesLeft: retriesLeft - 1, ready: ready)
                     }
                 } else {
-                    Logger.log("External core API not responding after retries, proceeding anyway", level: .warning)
-                    ready()
+                    Logger.log("External core API not responding after all retries", level: .error)
+                    ready(false)
                 }
             }
         }.resume()
@@ -718,7 +740,7 @@ extension AppDelegate {
                 if ConfigManager.shared.isRunning {
                     completion(nil)
                 } else {
-                    completion("Failed to restart built-in core")
+                    completion(NSLocalizedString("Failed to restart built-in core", comment: ""))
                 }
             }
         }
@@ -876,6 +898,73 @@ extension AppDelegate {
 
     @IBAction func actionMoreSetting(_ sender: Any) {
         ClashWindowController<SettingTabViewController>.create().showWindow(sender)
+    }
+
+    // MARK: - Language
+
+    private static let supportedLanguages: [(code: String, nativeName: String)] = [
+        ("", NSLocalizedString("Follow System", comment: "")),
+        ("en", "English"),
+        ("zh-Hans", "简体中文"),
+        ("zh-Hant", "繁體中文"),
+    ]
+
+    func setupLanguageMenu() {
+        let langItem = NSMenuItem()
+        langItem.title = NSLocalizedString("Language", comment: "")
+
+        let submenu = NSMenu()
+        for lang in Self.supportedLanguages {
+            let item = NSMenuItem(
+                title: lang.nativeName,
+                action: #selector(actionSelectLanguage(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = lang.code
+            item.state = Settings.appLanguage == lang.code ? .on : .off
+            submenu.addItem(item)
+            if lang.code.isEmpty {
+                submenu.addItem(.separator())
+            }
+        }
+        langItem.submenu = submenu
+
+        if let settingsIndex = statusMenu.items.firstIndex(where: { $0.action == #selector(actionMoreSetting(_:)) }) {
+            statusMenu.insertItem(langItem, at: settingsIndex + 1)
+        }
+    }
+
+    @objc func actionSelectLanguage(_ sender: NSMenuItem) {
+        guard let code = sender.representedObject as? String,
+              code != Settings.appLanguage else { return }
+
+        Settings.appLanguage = code
+        if code.isEmpty {
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        } else {
+            UserDefaults.standard.set([code], forKey: "AppleLanguages")
+        }
+        UserDefaults.standard.synchronize()
+
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("Language", comment: "")
+        alert.informativeText = NSLocalizedString("Language change requires restart", comment: "")
+        alert.addButton(withTitle: NSLocalizedString("Restart Now", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Later", comment: ""))
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            restartApp()
+        }
+    }
+
+    private func restartApp() {
+        let path = Bundle.main.bundlePath
+        let task = Process()
+        task.launchPath = "/bin/sh"
+        task.arguments = ["-c", "sleep 0.5 && open \"\(path)\""]
+        task.launch()
+        NSApp.terminate(nil)
     }
 }
 

@@ -479,8 +479,12 @@ func clashResumeCore() *C.char {
 }
 
 //export clashWriteEnhancedConfig
-func clashWriteEnhancedConfig(outputPath *C.char) *C.char {
-	buf, err := readConfig(constant.Path.Config())
+func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char) *C.char {
+	srcPath := C.GoString(configPath)
+	if srcPath == "" {
+		srcPath = constant.Path.Config()
+	}
+	buf, err := readConfig(srcPath)
 	if err != nil {
 		return C.CString("error:" + err.Error())
 	}
