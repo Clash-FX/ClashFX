@@ -32,16 +32,16 @@
 "Cancel" = "取消";
 
 /* No comment provided by engineer. */
-"ClashX fail to create ~/.config/clash folder. Please check privileges or manually create folder and restart ClashX." = "ClashX 创建 ~/.config/clash 文件夹失败，请检查权限设置或者手动创建文件夹后重启 ClashX";
+"ClashFX fail to create ~/.config/clash folder. Please check privileges or manually create folder and restart ClashFX." = "ClashFX 创建 ~/.config/clash 文件夹失败，请检查权限设置或者手动创建文件夹后重启 ClashFX";
 
 /* No comment provided by engineer. */
-"ClashX needs to install/update a helper tool with administrator privileges, otherwise ClashX won't be able to configure system proxy." = "ClashX 需要使用管理员权限安装/更新一个帮助程序，否则 ClashX 将无法设置系统代理。";
+"ClashFX needs to install/update a helper tool with administrator privileges, otherwise ClashFX won't be able to configure system proxy." = "ClashFX 需要使用管理员权限安装/更新一个帮助程序，否则 ClashFX 将无法设置系统代理。";
 
 /* No comment provided by engineer. */
-"ClashX Start Error!" = "ClashX 启动出错";
+"ClashFX Start Error!" = "ClashFX 启动出错";
 
 /* No comment provided by engineer. */
-"ClashX use a daemon helper to setup your system proxy. Please enable ClashX in the Login Items under the Allow in the Background section and relaunch the app" = "ClashX需要通过后台Daemon进程来设置系统代理，请在\"系统偏好设置->登录项->允许在后台 中\"允许ClashX";
+"ClashFX use a daemon helper to setup your system proxy. Please enable ClashFX in the Login Items under the Allow in the Background section and relaunch the app" = "ClashFX需要通过后台Daemon进程来设置系统代理，请在\"系统偏好设置->登录项->允许在后台 中\"允许ClashFX";
 
 /* No comment provided by engineer. */
 "Click OK to quit the app and apply change." = "确认清理并退出软件";
@@ -128,7 +128,7 @@
 "iCloud not available" = "iCloud 不可用";
 
 /* No comment provided by engineer. */
-"If you can not find ClashX in the settings, you can try reset daemon" = "如果在设置里没找到ClashX,可以尝试重置守护程序";
+"If you can not find ClashFX in the settings, you can try reset daemon" = "如果在设置里没找到ClashFX,可以尝试重置守护程序";
 
 /* No comment provided by engineer. */
 "Install" = "安装";
@@ -146,7 +146,7 @@
 "Local Clients" = "本地程序";
 
 /* No comment provided by engineer. */
-"Need to Restart the ClashX to Take effect, Please start clashX manually" = "需要重启ClashX生效，请手动启动ClashX";
+"Need to Restart the ClashFX to Take effect, Please start clashFX manually" = "需要重启ClashFX生效，请手动启动ClashFX";
 
 /* No comment provided by engineer. */
 "Never" = "从未";
@@ -173,10 +173,10 @@
 "Open System Login Item Setting" = "打开系统登录项设置";
 
 /* No comment provided by engineer. */
-"Please enable the location service for ClashX to detect your current WiFi network's SSID name and provide the auto-suspend services." = "请允许ClashX使用定位服务来获取当前所连接的WiFi名称从而提供按需暂停服务。";
+"Please enable the location service for ClashFX to detect your current WiFi network's SSID name and provide the auto-suspend services." = "请允许ClashFX使用定位服务来获取当前所连接的WiFi名称从而提供按需暂停服务。";
 
 /* No comment provided by engineer. */
-"Ports Open Fail, Please try to restart ClashX" = "端口打开失败，请尝试重启ClashX";
+"Ports Open Fail, Please try to restart ClashFX" = "端口打开失败，请尝试重启ClashFX";
 
 /* No comment provided by engineer. */
 "Prelease" = "Prelease";
@@ -185,13 +185,13 @@
 "Proxy Mode" = "出站模式";
 
 /* No comment provided by engineer. */
-"Proxy settings are changed by another process. ClashX is no longer the default system proxy." = "系统代理设置已被另一个进程修改，ClashX不再是系统默认代理";
+"Proxy settings are changed by another process. ClashFX is no longer the default system proxy." = "系统代理设置已被另一个进程修改，ClashFX不再是系统默认代理";
 
 /* No comment provided by engineer. */
 "Quit" = "退出";
 
 /* No comment provided by engineer. */
-"Quit ClashX?" = "退出ClashX?";
+"Quit ClashFX?" = "退出ClashFX?";
 
 /* No comment provided by engineer. */
 "Recent Connections" = "最近连接";
@@ -275,7 +275,7 @@
 "The status icon is coverd or hide by other app." = "菜单栏图标被刘海屏遮挡或者被其他app隐藏，请检查菜单栏状态。";
 
 /* No comment provided by engineer. */
-"This version of ClashX contains a break change due to clash core 1.0 released. Check if your config is not working properly." = "由于Clash Core发布1.0版本，使用此版本的 ClashX 可能需要更新配置内容\n前往 https://github.com/Dreamacro/clash/wiki/breaking-changes-in-1.0.0 查看详情";
+"This version of ClashFX contains a break change due to clash core 1.0 released. Check if your config is not working properly." = "由于Clash Core发布1.0版本，使用此版本的 ClashFX 可能需要更新配置内容\n前往 https://github.com/Dreamacro/clash/wiki/breaking-changes-in-1.0.0 查看详情";
 
 /* No comment provided by engineer. */
 "total: %d, success: %d" = "共计: %d, 成功: %d";
@@ -338,7 +338,7 @@
 "Language" = "语言";
 
 /* No comment provided by engineer. */
-"Language change requires restart" = "语言更改需要重启 ClashX，现在重启吗？";
+"Language change requires restart" = "语言更改需要重启 ClashFX，现在重启吗？";
 
 /* No comment provided by engineer. */
 "Restart Now" = "立即重启";

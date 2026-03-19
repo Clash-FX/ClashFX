@@ -23,9 +23,9 @@ class ApiRequest {
 
     private var proxyRespCache: ClashProxyResp?
 
-    private lazy var logQueue = DispatchQueue(label: "com.ClashX.core.log")
+    private lazy var logQueue = DispatchQueue(label: "com.clashfx.core.log")
 
-    static let clashRequestQueue = DispatchQueue(label: "com.clashx.clashRequestQueue")
+    static let clashRequestQueue = DispatchQueue(label: "com.clashfx.clashRequestQueue")
 
     private init() {
         let configuration = URLSessionConfiguration.default

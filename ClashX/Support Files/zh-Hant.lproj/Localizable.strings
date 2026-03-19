@@ -32,16 +32,16 @@
 "Cancel" = "取消";
 
 /* No comment provided by engineer. */
-"ClashX fail to create ~/.config/clash folder. Please check privileges or manually create folder and restart ClashX." = "ClashX 創建 ~/.config/clash 文件夾失敗，請檢查權限設定或者手動創建文件夾後重啟 ClashX";
+"ClashFX fail to create ~/.config/clash folder. Please check privileges or manually create folder and restart ClashFX." = "ClashFX 創建 ~/.config/clash 文件夾失敗，請檢查權限設定或者手動創建文件夾後重啟 ClashFX";
 
 /* No comment provided by engineer. */
-"ClashX needs to install/update a helper tool with administrator privileges, otherwise ClashX won't be able to configure system proxy." = "ClashX 需要使用管理員權限安裝/更新一個幫助程序，否則 ClashX 將無法設定系統代理。";
+"ClashFX needs to install/update a helper tool with administrator privileges, otherwise ClashFX won't be able to configure system proxy." = "ClashFX 需要使用管理員權限安裝/更新一個幫助程序，否則 ClashFX 將無法設定系統代理。";
 
 /* No comment provided by engineer. */
-"ClashX Start Error!" = "ClashX 啟動出錯";
+"ClashFX Start Error!" = "ClashFX 啟動出錯";
 
 /* No comment provided by engineer. */
-"ClashX use a daemon helper to setup your system proxy. Please enable ClashX in the Login Items under the Allow in the Background section and relaunch the app" = "ClashX需要通過後台Daemon進程來設定系統代理，請在\"系統偏好設定->登錄項->允許在後台 中\"允許ClashX";
+"ClashFX use a daemon helper to setup your system proxy. Please enable ClashFX in the Login Items under the Allow in the Background section and relaunch the app" = "ClashFX需要通過後台Daemon進程來設定系統代理，請在\"系統偏好設定->登錄項->允許在後台 中\"允許ClashFX";
 
 /* No comment provided by engineer. */
 "Click OK to quit the app and apply change." = "確認清理併退出軟件";
@@ -128,7 +128,7 @@
 "iCloud not available" = "iCloud 不可用";
 
 /* No comment provided by engineer. */
-"If you can not find ClashX in the settings, you can try reset daemon" = "如果在設定裡沒找到ClashX,可以嘗試重置守護程序";
+"If you can not find ClashFX in the settings, you can try reset daemon" = "如果在設定裡沒找到ClashFX,可以嘗試重置守護程序";
 
 /* No comment provided by engineer. */
 "Install" = "安裝";
@@ -146,7 +146,7 @@
 "Local Clients" = "本地程式";
 
 /* No comment provided by engineer. */
-"Need to Restart the ClashX to Take effect, Please start clashX manually" = "需要重啟ClashX生效，請手動啟動ClashX";
+"Need to Restart the ClashFX to Take effect, Please start clashFX manually" = "需要重啟ClashFX生效，請手動啟動ClashFX";
 
 /* No comment provided by engineer. */
 "Never" = "從未";
@@ -173,10 +173,10 @@
 "Open System Login Item Setting" = "打開系統登錄項設定";
 
 /* No comment provided by engineer. */
-"Please enable the location service for ClashX to detect your current WiFi network's SSID name and provide the auto-suspend services." = "請允許 ClashX 使用定位服務，以獲取您目前連接的 WiFi 名稱，並提供按需暫停服務。";
+"Please enable the location service for ClashFX to detect your current WiFi network's SSID name and provide the auto-suspend services." = "請允許 ClashFX 使用定位服務，以獲取您目前連接的 WiFi 名稱，並提供按需暫停服務。";
 
 /* No comment provided by engineer. */
-"Ports Open Fail, Please try to restart ClashX" = "端口打開失敗，請嘗試重啟ClashX";
+"Ports Open Fail, Please try to restart ClashFX" = "端口打開失敗，請嘗試重啟ClashFX";
 
 /* No comment provided by engineer. */
 "Prelease" = "Prelease";
@@ -185,13 +185,13 @@
 "Proxy Mode" = "出站模式";
 
 /* No comment provided by engineer. */
-"Proxy settings are changed by another process. ClashX is no longer the default system proxy." = "代理設定被另一個程式更改。ClashX 不再是默認的系統代理";
+"Proxy settings are changed by another process. ClashFX is no longer the default system proxy." = "代理設定被另一個程式更改。ClashFX 不再是默認的系統代理";
 
 /* No comment provided by engineer. */
 "Quit" = "退出";
 
 /* No comment provided by engineer. */
-"Quit ClashX?" = "退出 ClashX?";
+"Quit ClashFX?" = "退出 ClashFX?";
 
 /* No comment provided by engineer. */
 "Recent Connections" = "最近連線";
@@ -275,7 +275,7 @@
 "The status icon is coverd or hide by other app." = "狀態圖標被其他應用覆蓋或隱藏";
 
 /* No comment provided by engineer. */
-"This version of ClashX contains a break change due to clash core 1.0 released. Check if your config is not working properly." = "此版本的 ClashX 包含因 clash core 1.0 發布而導致的中斷更改。請檢查您的配置是否無法正常工作";
+"This version of ClashFX contains a break change due to clash core 1.0 released. Check if your config is not working properly." = "此版本的 ClashFX 包含因 clash core 1.0 發布而導致的中斷更改。請檢查您的配置是否無法正常工作";
 
 /* No comment provided by engineer. */
 "total: %d, success: %d" = "共計: %d, 成功: %d";
@@ -338,7 +338,7 @@
 "Language" = "語言";
 
 /* No comment provided by engineer. */
-"Language change requires restart" = "語言更改需要重新啟動 ClashX，現在重新啟動嗎？";
+"Language change requires restart" = "語言更改需要重新啟動 ClashFX，現在重新啟動嗎？";
 
 /* No comment provided by engineer. */
 "Restart Now" = "立即重新啟動";

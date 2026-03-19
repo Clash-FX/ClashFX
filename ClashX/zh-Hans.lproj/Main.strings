@@ -179,7 +179,7 @@
 "h1H-7k-9HS.title" = "设置更新间隔";
 
 /* Class = "NSTabViewController"; title = "Settings"; ObjectID = "LAj-p8-9gd"; */
-"LAj-p8-9gd.title" = "ClashX 设置";
+"LAj-p8-9gd.title" = "ClashFX 设置";
 
 /* Class = "NSTabViewItem"; label = "General"; ObjectID = "Ltt-Vq-Hh1"; */
 "Ltt-Vq-Hh1.label" = "通用";
@@ -313,8 +313,8 @@
 /* Class = "NSButtonCell"; title = "Enable IPv6"; ObjectID = "KRm-2U-T4s"; */
 "KRm-2U-T4s.title" = "启用IPv6";
 
-/* Class = "NSMenuItem"; title = "Quit ClashX"; ObjectID = "TsN-g8-OjG"; */
-"TsN-g8-OjG.title" = "退出 ClashX";
+/* Class = "NSMenuItem"; title = "Quit ClashFX"; ObjectID = "TsN-g8-OjG"; */
+"TsN-g8-OjG.title" = "退出 ClashFX";
 
 /* Class = "NSTextFieldCell"; title = "Crash Log Folder"; ObjectID = "LFb-xY-CNV"; */
 "LFb-xY-CNV.title" = "崩溃日志文件夹";

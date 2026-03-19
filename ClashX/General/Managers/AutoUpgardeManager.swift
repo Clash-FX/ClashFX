@@ -132,15 +132,15 @@ extension AutoUpgardeManager.Channel {
         switch self {
         #if !PRO_VERSION
             case .stable:
-                return "https://clashx-pro.github.io/ClashX/appcast.xml"
+                return "https://clash-fx.github.io/ClashFX/appcast.xml"
             case .prelease:
-                return "https://clashx-pro.github.io/ClashX/appcast.xml"
+                return "https://clash-fx.github.io/ClashFX/appcast.xml"
         #endif
         case .appcenter:
             #if PRO_VERSION
                 return "https://api.appcenter.ms/v0.1/public/sparkle/apps/1cd052f7-e118-4d13-87fb-35176f9702c1"
             #else
-                return "https://clashx-pro.github.io/ClashX/appcast.xml"
+                return "https://clash-fx.github.io/ClashFX/appcast.xml"
             #endif
         }
     }

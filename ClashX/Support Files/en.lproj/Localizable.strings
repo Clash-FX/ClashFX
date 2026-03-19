@@ -32,16 +32,16 @@
 "Cancel" = "Cancel";
 
 /* No comment provided by engineer. */
-"ClashX fail to create ~/.config/clash folder. Please check privileges or manually create folder and restart ClashX." = "ClashX fail to create ~/.config/clash folder. Please check privileges or manually create folder and restart ClashX.";
+"ClashFX fail to create ~/.config/clash folder. Please check privileges or manually create folder and restart ClashFX." = "ClashFX fail to create ~/.config/clash folder. Please check privileges or manually create folder and restart ClashFX.";
 
 /* No comment provided by engineer. */
-"ClashX needs to install/update a helper tool with administrator privileges, otherwise ClashX won't be able to configure system proxy." = "ClashX needs to install/update a helper tool with administrator privileges, otherwise ClashX won't be able to configure system proxy.";
+"ClashFX needs to install/update a helper tool with administrator privileges, otherwise ClashFX won't be able to configure system proxy." = "ClashFX needs to install/update a helper tool with administrator privileges, otherwise ClashFX won't be able to configure system proxy.";
 
 /* No comment provided by engineer. */
-"ClashX Start Error!" = "ClashX Start Error!";
+"ClashFX Start Error!" = "ClashFX Start Error!";
 
 /* No comment provided by engineer. */
-"ClashX use a daemon helper to setup your system proxy. Please enable ClashX in the Login Items under the Allow in the Background section and relaunch the app" = "ClashX use a daemon helper to setup your system proxy. Please enable ClashX in the Login Items under the Allow in the Background section and relaunch the app";
+"ClashFX use a daemon helper to setup your system proxy. Please enable ClashFX in the Login Items under the Allow in the Background section and relaunch the app" = "ClashFX use a daemon helper to setup your system proxy. Please enable ClashFX in the Login Items under the Allow in the Background section and relaunch the app";
 
 /* No comment provided by engineer. */
 "Click OK to quit the app and apply change." = "Click OK to quit the app and apply change.";
@@ -128,7 +128,7 @@
 "iCloud not available" = "iCloud not available";
 
 /* No comment provided by engineer. */
-"If you can not find ClashX in the settings, you can try reset daemon" = "If you can not find ClashX in the settings, you can try reset daemon";
+"If you can not find ClashFX in the settings, you can try reset daemon" = "If you can not find ClashFX in the settings, you can try reset daemon";
 
 /* No comment provided by engineer. */
 "Install" = "Install";
@@ -146,7 +146,7 @@
 "Local Clients" = "Local Clients";
 
 /* No comment provided by engineer. */
-"Need to Restart the ClashX to Take effect, Please start clashX manually" = "Need to Restart the ClashX to Take effect, Please start clashX manually";
+"Need to Restart the ClashFX to Take effect, Please start clashFX manually" = "Need to Restart the ClashFX to Take effect, Please start clashFX manually";
 
 /* No comment provided by engineer. */
 "Never" = "Never";
@@ -173,10 +173,10 @@
 "Open System Login Item Setting" = "Open System Login Item Setting";
 
 /* No comment provided by engineer. */
-"Please enable the location service for ClashX to detect your current WiFi network's SSID name and provide the auto-suspend services." = "Please enable the location service for ClashX to detect your current WiFi network's SSID name and provide the auto-suspend services.";
+"Please enable the location service for ClashFX to detect your current WiFi network's SSID name and provide the auto-suspend services." = "Please enable the location service for ClashFX to detect your current WiFi network's SSID name and provide the auto-suspend services.";
 
 /* No comment provided by engineer. */
-"Ports Open Fail, Please try to restart ClashX" = "Ports Open Fail, Please try to restart ClashX";
+"Ports Open Fail, Please try to restart ClashFX" = "Ports Open Fail, Please try to restart ClashFX";
 
 /* No comment provided by engineer. */
 "Prelease" = "Prelease";
@@ -185,13 +185,13 @@
 "Proxy Mode" = "Proxy Mode";
 
 /* No comment provided by engineer. */
-"Proxy settings are changed by another process. ClashX is no longer the default system proxy." = "Proxy settings are changed by another process. ClashX is no longer the default system proxy.";
+"Proxy settings are changed by another process. ClashFX is no longer the default system proxy." = "Proxy settings are changed by another process. ClashFX is no longer the default system proxy.";
 
 /* No comment provided by engineer. */
 "Quit" = "Quit";
 
 /* No comment provided by engineer. */
-"Quit ClashX?" = "Quit ClashX?";
+"Quit ClashFX?" = "Quit ClashFX?";
 
 /* No comment provided by engineer. */
 "Recent Connections" = "Recent Connections";
@@ -275,7 +275,7 @@
 "The status icon is coverd or hide by other app." = "The status icon is coverd or hide by other app.";
 
 /* No comment provided by engineer. */
-"This version of ClashX contains a break change due to clash core 1.0 released. Check if your config is not working properly." = "This version of ClashX contains a break change due to clash core 1.0 released. Check if your config is not working properly.";
+"This version of ClashFX contains a break change due to clash core 1.0 released. Check if your config is not working properly." = "This version of ClashFX contains a break change due to clash core 1.0 released. Check if your config is not working properly.";
 
 /* No comment provided by engineer. */
 "total: %d, success: %d" = "total: %d, success: %d";
@@ -338,7 +338,7 @@
 "Language" = "Language";
 
 /* No comment provided by engineer. */
-"Language change requires restart" = "Language change requires restart. Restart ClashX now?";
+"Language change requires restart" = "Language change requires restart. Restart ClashFX now?";
 
 /* No comment provided by engineer. */
 "Restart Now" = "Restart Now";

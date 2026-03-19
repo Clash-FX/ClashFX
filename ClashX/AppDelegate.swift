@@ -172,7 +172,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ aNotification: Notification) {
         UserDefaults.standard.set(0, forKey: "launch_fail_times")
-        Logger.log("ClashX will terminate")
+        Logger.log("ClashFX will terminate")
         if ConfigManager.shared.isEnhancedModeActive {
             PrivilegedHelperManager.shared.helper()?.stopMihomoCore { _ in }
         }

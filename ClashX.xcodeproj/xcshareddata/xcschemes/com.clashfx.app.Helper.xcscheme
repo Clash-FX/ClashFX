@@ -15,8 +15,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "F9A7C0682306E874007163C7"
-               BuildableName = "com.west2online.ClashX.ProxyConfigHelper"
-               BlueprintName = "com.west2online.ClashX.ProxyConfigHelper"
+               BuildableName = "com.clashfx.app.Helper"
+               BlueprintName = "com.clashfx.app.Helper"
                ReferencedContainer = "container:ClashX.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -46,8 +46,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "F9A7C0682306E874007163C7"
-            BuildableName = "com.west2online.ClashX.ProxyConfigHelper"
-            BlueprintName = "com.west2online.ClashX.ProxyConfigHelper"
+            BuildableName = "com.clashfx.app.Helper"
+            BlueprintName = "com.clashfx.app.Helper"
             ReferencedContainer = "container:ClashX.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -63,8 +63,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "F9A7C0682306E874007163C7"
-            BuildableName = "com.west2online.ClashX.ProxyConfigHelper"
-            BlueprintName = "com.west2online.ClashX.ProxyConfigHelper"
+            BuildableName = "com.clashfx.app.Helper"
+            BlueprintName = "com.clashfx.app.Helper"
             ReferencedContainer = "container:ClashX.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

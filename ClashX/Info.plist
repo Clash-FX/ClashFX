@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>ClashX use location info to detect your current WiFi network SSID name and provide the auto suspend services.</string>
+	<string>ClashFX uses location info to detect your current WiFi network SSID name and provide the auto suspend services.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>ClashX use location info to detect your current WiFi network SSID name and provide the auto suspend services.</string>
+	<string>ClashFX uses location info to detect your current WiFi network SSID name and provide the auto suspend services.</string>
 	<key>BETA</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -45,10 +45,10 @@
 			<key>CFBundleURLIconFile</key>
 			<string>Icon</string>
 			<key>CFBundleURLName</key>
-			<string>com.west2online.ClashX</string>
+			<string>com.clashfx.app</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>clashx</string>
+				<string>clashfx</string>
 			</array>
 		</dict>
 		<dict>
@@ -57,7 +57,7 @@
 			<key>CFBundleURLIconFile</key>
 			<string>Icon</string>
 			<key>CFBundleURLName</key>
-			<string>com.west2online.Clash</string>
+			<string>com.clashfx.clash</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>clash</string>
@@ -94,7 +94,7 @@
 	<key>NSAppleScriptEnabled</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2021年 yichengchen. All rights reserved.</string>
+	<string>Copyright © 2026 ClashFX. All rights reserved.</string>
 	<key>NSMainStoryboardFile</key>
 	<string>Main</string>
 	<key>NSPrincipalClass</key>
@@ -105,12 +105,12 @@
 	<false/>
 	<key>NSUbiquitousContainers</key>
 	<dict>
-		<key>iCloud.com.west2online.ClashX</key>
+		<key>iCloud.com.clashfx.app</key>
 		<dict>
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
 			<true/>
 			<key>NSUbiquitousContainerName</key>
-			<string>ClashX</string>
+			<string>ClashFX</string>
 			<key>NSUbiquitousContainerSupportedFolderLevels</key>
 			<string>Any</string>
 		</dict>
@@ -119,19 +119,19 @@
 	<string>ProxySetting.sdef</string>
 	<key>SMAuthorizedClients</key>
 	<array>
-		<string>identifier "com.west2online.ClashX" and anchor apple generic and certificate leaf[subject.CN] = "Mac Developer: chen yicheng (96U846XGYH)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */</string>
+		<string>identifier "com.clashfx.app" and anchor apple generic and certificate leaf[subject.CN] = "Mac Developer: chen yicheng (96U846XGYH)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */</string>
 	</array>
 	<key>SMPrivilegedExecutables</key>
 	<dict>
-		<key>com.west2online.ClashX.ProxyConfigHelper</key>
-		<string>anchor apple generic and identifier "com.west2online.ClashX.ProxyConfigHelper" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = MEWHFZ92DY)</string>
+		<key>com.clashfx.app.Helper</key>
+		<string>anchor apple generic and identifier "com.clashfx.app.Helper" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = MEWHFZ92DY)</string>
 	</dict>
 	<key>SUDisallowSelectChannel</key>
 	<false/>
 	<key>SUPublicEDKey</key>
 	<string>O+gNSh16a5FEGHwPrffpFzE35WbN/wjOctobXqHrUWU=</string>
 	<key>SUFeedURL</key>
-	<string>https://clashx-pro.github.io/ClashX/appcast.xml</string>
+	<string>https://clash-fx.github.io/ClashFX/appcast.xml</string>
 	<key>coreVersion</key>
 	<string>1.19.21</string>
 </dict>

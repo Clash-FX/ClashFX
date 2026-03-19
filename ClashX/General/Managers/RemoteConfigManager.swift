@@ -54,7 +54,7 @@ class RemoteConfigManager {
         }
         Logger.log("set up autoUpateTimer")
 
-        refreshActivity = NSBackgroundActivityScheduler(identifier: "com.ClashX.configupdate")
+        refreshActivity = NSBackgroundActivityScheduler(identifier: "com.clashfx.configupdate")
         refreshActivity?.repeats = true
         refreshActivity?.interval = 60 * 60 * 2 // Two hour
         refreshActivity?.tolerance = 60 * 60

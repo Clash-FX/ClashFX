@@ -42,7 +42,7 @@ class ClashWebViewContoller: NSViewController {
         webview.uiDelegate = self
         webview.navigationDelegate = self
 
-        webview.customUserAgent = "ClashX Runtime"
+        webview.customUserAgent = "ClashFX Runtime"
         if #available(macOS 13.3, *) {
             webview.isInspectable = true
         }
@@ -92,7 +92,7 @@ class ClashWebViewContoller: NSViewController {
 
     func loadWebRecourses() {
         WKWebsiteDataStore.default().removeData(ofTypes: [WKWebsiteDataTypeOfflineWebApplicationCache, WKWebsiteDataTypeMemoryCache], modifiedSince: Date(timeIntervalSince1970: 0), completionHandler: {})
-        // defaults write com.west2online.ClashX webviewUrl "your url"
+        // defaults write com.clashfx.app webviewUrl "your url"
         if let userDefineUrl = UserDefaults.standard.string(forKey: "webviewUrl"), let url = URL(string: userDefineUrl) {
             Logger.log("get user define url: \(url)")
             webview.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 0))

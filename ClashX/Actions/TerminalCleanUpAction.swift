@@ -20,7 +20,7 @@ enum TerminalConfirmAction {
 
         if ConfigManager.shared.proxyPortAutoSet && !ConfigManager.shared.isProxySetByOtherVariable.value || NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true) ||
             NetworkChangeNotifier.hasInterfaceProxySetToClash() {
-            Logger.log("ClashX quit need clean proxy setting")
+            Logger.log("ClashFX quit need clean proxy setting")
             shouldWait = true
             group.enter()
 
@@ -30,7 +30,7 @@ enum TerminalConfirmAction {
         }
 
         if !shouldWait {
-            Logger.log("ClashX quit without clean waiting")
+            Logger.log("ClashFX quit without clean waiting")
             return .terminateNow
         }
 
@@ -43,7 +43,7 @@ enum TerminalConfirmAction {
             let res = group.wait(timeout: .now() + 5)
             switch res {
             case .success:
-                Logger.log("ClashX quit after clean up finish")
+                Logger.log("ClashFX quit after clean up finish")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     NSApp.reply(toApplicationShouldTerminate: true)
                 }
@@ -51,7 +51,7 @@ enum TerminalConfirmAction {
                     NSApp.reply(toApplicationShouldTerminate: true)
                 }
             case .timedOut:
-                Logger.log("ClashX quit after clean up timeout")
+                Logger.log("ClashFX quit after clean up timeout")
                 DispatchQueue.main.async {
                     NSApp.reply(toApplicationShouldTerminate: true)
                 }
@@ -61,14 +61,14 @@ enum TerminalConfirmAction {
             }
         }
 
-        Logger.log("ClashX quit wait for clean up")
+        Logger.log("ClashFX quit wait for clean up")
         return .terminateLater
     }
 
     static func confirmAction() -> Bool {
         if NSApp.activationPolicy() == .regular {
             let alert = NSAlert()
-            alert.messageText = NSLocalizedString("Quit ClashX?", comment: "")
+            alert.messageText = NSLocalizedString("Quit ClashFX?", comment: "")
             alert.informativeText = NSLocalizedString("The active connections will be interrupted.", comment: "")
             alert.alertStyle = .informational
             alert.addButton(withTitle: NSLocalizedString("Quit", comment: ""))

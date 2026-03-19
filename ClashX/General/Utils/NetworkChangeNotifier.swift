@@ -96,7 +96,7 @@ class NetworkChangeNotifier {
     static func hasInterfaceProxySetToClash() -> Bool {
         let currentPort = ConfigManager.shared.currentConfig?.usedHttpPort
         let currentSocks = ConfigManager.shared.currentConfig?.usedSocksPort
-        if let prefRef = SCPreferencesCreate(nil, "ClashX" as CFString, nil),
+        if let prefRef = SCPreferencesCreate(nil, "ClashFX" as CFString, nil),
            let sets = SCPreferencesGetValue(prefRef, kSCPrefNetworkServices) {
             for key in sets.allKeys {
                 let dict = sets[key] as? NSDictionary
@@ -118,7 +118,7 @@ class NetworkChangeNotifier {
     }
 
     static func getPrimaryInterface() -> String? {
-        let store = SCDynamicStoreCreate(nil, "ClashX" as CFString, nil, nil)
+        let store = SCDynamicStoreCreate(nil, "ClashFX" as CFString, nil, nil)
         if store == nil {
             return nil
         }
@@ -129,7 +129,7 @@ class NetworkChangeNotifier {
     }
 
     static func getPrimaryIsDhcp() -> Bool {
-        let store = SCDynamicStoreCreate(nil, "ClashX" as CFString, nil, nil)
+        let store = SCDynamicStoreCreate(nil, "ClashFX" as CFString, nil, nil)
         if store == nil {
             return false
         }
@@ -147,7 +147,7 @@ class NetworkChangeNotifier {
     }
 
     static func getCurrentDns() -> [String] {
-        let store = SCDynamicStoreCreate(nil, "ClashX" as CFString, nil, nil)
+        let store = SCDynamicStoreCreate(nil, "ClashFX" as CFString, nil, nil)
         if store == nil {
             return []
         }
