@@ -55,6 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var isSpeedTesting = false
 
     var runAfterConfigReload: (() -> Void)?
+    var isConfigUpdating = false
 
     private var lastStreamResetTime: Date = .distantPast
     private var pendingStreamResetWork: DispatchWorkItem?
@@ -107,6 +108,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             WebPortalManager.shared.addWebProtalMenuItem(&statusMenu)
         }
         setupLanguageMenu()
+        setupConfigEditorMenuItem()
         // 启用自动更新检查（使用fork项目的GitHub Pages）
         AutoUpgardeManager.shared.setup()
         AutoUpgardeManager.shared.setupCheckForUpdatesMenuItem(checkForUpdateMenuItem)
@@ -142,6 +144,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             Logger.log("do not setup built in logger/traffic, useDirectApi = false")
         }
+        if Settings.enhancedMode {
+            Logger.log("Cleaning up stale mihomo_core from previous session", level: .warning)
+            PrivilegedHelperManager.shared.helper()?.stopMihomoCore { _ in }
+            // Don't reset Settings.enhancedMode here — restoreEnhancedModeIfNeeded()
+            // will read it and properly re-enable enhanced mode after the built-in core starts.
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+
         // start proxy
         Logger.log("initClashCore")
         initClashCore()
@@ -463,10 +473,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let secret: String
         }
 
-        // setup ui config first
-        if let htmlPath = Bundle.main.path(forResource: "index", ofType: "html", inDirectory: "dashboard") {
-            let uiPath = URL(fileURLWithPath: htmlPath).deletingLastPathComponent().path
-            setUIPath(uiPath.goStringBuffer())
+        // setup ui config first — copy bundled dashboard into ~/.config/clashfx/
+        // so it passes mihomo's safe-path check (which rejects DerivedData paths)
+        if let bundleDashboard = Bundle.main.resourceURL?.appendingPathComponent("dashboard"),
+           FileManager.default.fileExists(atPath: bundleDashboard.path) {
+            let clashHome = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".config/clashfx/dashboard")
+            let fm = FileManager.default
+            // Replace with latest bundled version each launch
+            try? fm.removeItem(at: clashHome)
+            try? fm.copyItem(at: bundleDashboard, to: clashHome)
+            setUIPath(clashHome.path.goStringBuffer())
         }
 
         Logger.log("Trying start proxy, build-in mode: \(Settings.builtInApiMode), allow lan: \(ConfigManager.allowConnectFromLan) custom port: \(Settings.proxyPort)")
@@ -533,9 +550,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func updateConfig(configName: String? = nil, showNotification: Bool = true, completeHandler: ((ErrorString?) -> Void)? = nil) {
+        guard !isConfigUpdating else {
+            Logger.log("updateConfig: skipped, already updating", level: .warning)
+            completeHandler?("Config update already in progress")
+            return
+        }
         startProxy()
         guard ConfigManager.shared.isRunning else { return }
 
+        isConfigUpdating = true
+        clashPauseCallbacks()
         let config = configName ?? ConfigManager.selectConfigName
 
         ClashProxy.cleanCache()
@@ -543,6 +567,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ApiRequest.requestConfigUpdate(configName: config) {
             [weak self] err in
             guard let self = self else { return }
+
+            clashResumeCallbacks()
+            self.isConfigUpdating = false
 
             defer {
                 completeHandler?(err)
@@ -705,6 +732,8 @@ extension AppDelegate {
                     return
                 }
 
+                // Pause callbacks before suspending core to prevent error storms
+                clashPauseCallbacks()
                 clashSuspendCore()
 
                 helper.startMihomoCore(
@@ -714,6 +743,7 @@ extension AppDelegate {
                 ) { [weak self] error in
                     DispatchQueue.main.async {
                         if let error = error {
+                            clashResumeCallbacks()
                             _ = clashResumeCore()
                             completion(error)
                         } else {
@@ -722,6 +752,7 @@ extension AppDelegate {
                             ConfigManager.shared.isEnhancedModeActive = true
                             self?.waitForExternalCore(port: port, secret: secret, retriesLeft: 10) { success in
                                 if success {
+                                    clashResumeCallbacks()
                                     self?.verifyTunStatus(port: port, secret: secret)
                                     completion(nil)
                                 } else {
@@ -731,6 +762,7 @@ extension AppDelegate {
                                             ConfigManager.shared.isEnhancedModeActive = false
                                             ConfigManager.shared.isRunning = false
                                             clashReopenCacheDB()
+                                            clashResumeCallbacks()
                                             self?.startProxy()
                                             completion(NSLocalizedString("Enhanced Mode failed: core not responding", comment: ""))
                                         }
@@ -771,16 +803,19 @@ extension AppDelegate {
     private func disableEnhancedMode(completion: @escaping (String?) -> Void) {
         PrivilegedHelperManager.shared.helper()?.stopMihomoCore { [weak self] _ in
             DispatchQueue.main.async {
+                clashPauseCallbacks()
                 ConfigManager.shared.isEnhancedModeActive = false
                 ConfigManager.shared.isRunning = false
                 clashReopenCacheDB()
                 self?.startProxy()
                 guard ConfigManager.shared.isRunning else {
+                    clashResumeCallbacks()
                     completion(NSLocalizedString("Failed to restart built-in core", comment: ""))
                     return
                 }
                 let selectedConfig = ConfigManager.selectConfigName
                 ApiRequest.requestConfigUpdate(configName: selectedConfig) { _ in
+                    clashResumeCallbacks()
                     completion(nil)
                 }
             }
@@ -875,13 +910,20 @@ extension AppDelegate {
                     Settings.enhancedMode = false
                     self?.enhancedModeMenuItem.state = .off
                     Logger.log("Failed to restore Enhanced Mode: \(error)", level: .error)
+                    self?.syncConfig()
+                    MenuItemFactory.recreateProxyMenuItems()
+                    self?.resetStreamApi()
                 } else {
                     self?.enhancedModeMenuItem.state = .on
                     Logger.log("Enhanced Mode restored successfully")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self?.syncConfig()
+                        self?.resetStreamApi()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            MenuItemFactory.recreateProxyMenuItems()
+                        }
+                    }
                 }
-                self?.syncConfig()
-                MenuItemFactory.recreateProxyMenuItems()
-                self?.resetStreamApi()
             }
         }
 
@@ -1122,7 +1164,20 @@ extension AppDelegate {
 // MARK: Config actions
 
 extension AppDelegate {
-    @IBAction func actionOpenConfigEditor(_ sender: Any) {
+    func setupConfigEditorMenuItem() {
+        guard let configMenu = configSeparatorLine.menu else { return }
+        let editorItem = NSMenuItem(
+            title: NSLocalizedString("Config Editor", comment: ""),
+            action: #selector(actionOpenConfigEditor(_:)),
+            keyEquivalent: "e"
+        )
+        editorItem.target = self
+        if let separatorIndex = configMenu.items.firstIndex(of: configSeparatorLine) {
+            configMenu.insertItem(editorItem, at: separatorIndex + 1)
+        }
+    }
+
+    @objc func actionOpenConfigEditor(_ sender: Any) {
         ConfigEditorWindowController.show()
     }
 

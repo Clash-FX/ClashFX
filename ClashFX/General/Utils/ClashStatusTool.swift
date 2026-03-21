@@ -21,8 +21,10 @@ class ClashStatusTool {
                 portCheckRetried = true
                 Logger.log("checkPortConfig: retrying after killing stale processes...", level: .warning)
                 killStaleMihomoCore()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    AppDelegate.shared.startProxy()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    ConfigManager.shared.isRunning = false
+                    AppDelegate.shared.isConfigUpdating = false
+                    AppDelegate.shared.updateConfig(showNotification: false)
                 }
                 return
             }
@@ -31,7 +33,7 @@ class ClashStatusTool {
             alert.messageText = NSLocalizedString("ClashFX Start Error!", comment: "")
             alert.informativeText = NSLocalizedString("Ports Open Fail, Please try to restart ClashFX", comment: "")
             alert.addButton(withTitle: NSLocalizedString("Quit", comment: ""))
-            alert.addButton(withTitle: "Edit Config")
+            alert.addButton(withTitle: NSLocalizedString("Edit Config", comment: ""))
             DispatchQueue.main.async {
                 let ret = alert.runModal()
                 if ret == .alertSecondButtonReturn {

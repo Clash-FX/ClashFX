@@ -1,6 +1,21 @@
 /* No comment provided by engineer. */
 "Active Connections" = "アクティブな接続";
 
+/* Config Editor */
+"Config Editor" = "設定エディタ";
+"Save" = "保存";
+"Save & Reload" = "保存して再読み込み";
+"YAML Parse Error" = "YAML 解析エラー";
+"Edit Config" = "設定を編集";
+"Raw" = "ソース";
+"Visual" = "ビジュアル";
+"General" = "一般";
+"Proxies" = "プロキシ";
+"Proxy Groups" = "プロキシグループ";
+"Rules" = "ルール";
+"Saved" = "保存済み";
+"Modified" = "変更あり";
+
 /* No comment provided by engineer. */
 "Add a remote config" = "リモート設定を追加";
 

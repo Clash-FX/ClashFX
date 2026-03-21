@@ -7,9 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		079C0498F443DE06CFD1A2E0 /* FormHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1541315BE9AC1A5200C8FDA /* FormHelpers.swift */; };
 		0AD7506B2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD7506A2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift */; };
 		0AD7506D2A5B9B26001FFBBD /* ConnectionLeftTextCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD7506C2A5B9B26001FFBBD /* ConnectionLeftTextCellView.swift */; };
 		0AEF6EAF2A5F961B00EFEE23 /* SectionedTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEF6EAE2A5F961B00EFEE23 /* SectionedTableView.swift */; };
+		0EECD2C27DF4C927C6BD3A6C /* ConfigDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = E27D6472BB33EF4C3BFD3270 /* ConfigDocument.swift */; };
+		1296D474DA25E4B15AAD3022 /* RulesEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A49543FCFE83E1FFCFA3FC /* RulesEditorViewController.swift */; };
+		36313971B85BEAA59C94094C /* GeneralConfigViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E023AD61CA5196FB055EE73 /* GeneralConfigViewController.swift */; };
 		4905A2C52A2058B000AEDA2E /* GlobalShortCutViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4905A2C42A2058B000AEDA2E /* GlobalShortCutViewController.swift */; };
 		4905A2C82A2058D400AEDA2E /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 4905A2C72A2058D400AEDA2E /* KeyboardShortcuts */; };
 		4905A2CA2A20841B00AEDA2E /* NSView+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4905A2C92A20841B00AEDA2E /* NSView+Layout.swift */; };
@@ -63,7 +67,6 @@
 		4991D2322A565E6A00978143 /* Combine+Ext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4991D2312A565E6A00978143 /* Combine+Ext.swift */; };
 		4994B5542A47C4FF00E595B9 /* NormalMenuItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4994B5532A47C4FF00E595B9 /* NormalMenuItemView.swift */; };
 		499976C821359F0400E7BF83 /* ClashWebViewContoller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499976C721359F0400E7BF83 /* ClashWebViewContoller.swift */; };
-		CF100001CFGEDITOR /* ConfigEditorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF100002CFGEDITOR /* ConfigEditorWindowController.swift */; };
 		499A485522ED707300F6C675 /* RemoteConfigViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499A485322ED707300F6C675 /* RemoteConfigViewController.swift */; };
 		499A485822ED715200F6C675 /* RemoteConfigModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499A485722ED715200F6C675 /* RemoteConfigModel.swift */; };
 		499A485A22ED781100F6C675 /* RemoteConfigAddView.xib in Resources */ = {isa = PBXBuildFile; fileRef = 499A485922ED781100F6C675 /* RemoteConfigAddView.xib */; };
@@ -103,11 +106,17 @@
 		49D767762A6195E600830333 /* StructedLogReq.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49D767752A6195E600830333 /* StructedLogReq.swift */; };
 		49D84AD32A56E9760074CCDB /* ConnectionStatusIconCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49D84AD22A56E9760074CCDB /* ConnectionStatusIconCellView.swift */; };
 		49FEC6692AD9369C00BAD9F5 /* Command.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49FEC6682AD9369C00BAD9F5 /* Command.swift */; };
+		58888FDB3CB996ACC255BE5C /* DNSConfigViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06252EC2F039BCAFB08D62E4 /* DNSConfigViewController.swift */; };
+		793F1AC39DDE4A599DBCD066 /* VisualConfigEditorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68E69AE94B211080DDE02148 /* VisualConfigEditorController.swift */; };
 		8A2BBEA727A03ACB0081EBEF /* ProxySetting.sdef in Resources */ = {isa = PBXBuildFile; fileRef = 8A2BBEA627A03ACB0081EBEF /* ProxySetting.sdef */; };
 		8ACD21BB27A04C7800BC4632 /* ProxySettingCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ACD21BA27A04C7800BC4632 /* ProxySettingCommand.swift */; };
 		8ACD21BD27A04ED500BC4632 /* ProxyModeChangeCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ACD21BC27A04ED500BC4632 /* ProxyModeChangeCommand.swift */; };
 		9E0E2F1481CB327D3753969D /* libPods-ClashFX.a in Frameworks */ = {isa = PBXBuildFile; fileRef = CAE7981A9F34B5E210C549CB /* libPods-ClashFX.a */; };
+		CF100001CFGEDITOR /* ConfigEditorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF100002CFGEDITOR /* ConfigEditorWindowController.swift */; };
+		D33F6678DDE060E0F305D755 /* YAMLSerializer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADF47A44A3A8712F44279A56 /* YAMLSerializer.swift */; };
+		D846369486CB7C0166D0E271 /* ProxyGroupsEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E8EE5432198C8579D36CC4 /* ProxyGroupsEditorViewController.swift */; };
 		E1B0C0A1290A0001005EE8C4 /* mihomo_core in Resources */ = {isa = PBXBuildFile; fileRef = E1B0C0A0290A0001005EE8C4 /* mihomo_core */; };
+		E3B391F67D55991577380774 /* ProxiesEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 658AD87956C634D6C5B8DC46 /* ProxiesEditorViewController.swift */; };
 		F910AA24240134AF00116E95 /* ProxyGroupMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F910AA23240134AF00116E95 /* ProxyGroupMenu.swift */; };
 		F915A4622366ADEF004840BE /* ClashConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F915A4612366ADEF004840BE /* ClashConnection.swift */; };
 		F9203A26236342820020D57D /* AppDelegate+..swift in Sources */ = {isa = PBXBuildFile; fileRef = F9203A25236342820020D57D /* AppDelegate+..swift */; };
@@ -167,9 +176,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		06252EC2F039BCAFB08D62E4 /* DNSConfigViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DNSConfigViewController.swift; sourceTree = "<group>"; };
 		0AD7506A2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionLeftPannelViewModel.swift; sourceTree = "<group>"; };
 		0AD7506C2A5B9B26001FFBBD /* ConnectionLeftTextCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionLeftTextCellView.swift; sourceTree = "<group>"; };
 		0AEF6EAE2A5F961B00EFEE23 /* SectionedTableView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SectionedTableView.swift; sourceTree = "<group>"; };
+		16E8EE5432198C8579D36CC4 /* ProxyGroupsEditorViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProxyGroupsEditorViewController.swift; sourceTree = "<group>"; };
 		4905A2C42A2058B000AEDA2E /* GlobalShortCutViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalShortCutViewController.swift; sourceTree = "<group>"; };
 		4905A2C92A20841B00AEDA2E /* NSView+Layout.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "NSView+Layout.swift"; sourceTree = "<group>"; };
 		4908087A29F8F3FF007A4944 /* libresolv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libresolv.tbd; path = usr/lib/libresolv.tbd; sourceTree = SDKROOT; };
@@ -212,12 +223,6 @@
 		4981C887216BAB8A008CC14A /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Main.strings"; sourceTree = "<group>"; };
 		4981C88C216BAE4A008CC14A /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		4981C88E216BAE4D008CC14A /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
-		CF000001CLASHFXJA01 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = "ja.lproj/Localizable.strings"; sourceTree = "<group>"; };
-		CF000002CLASHFXRU01 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = "ru.lproj/Localizable.strings"; sourceTree = "<group>"; };
-		CF000003CLASHFXJA02 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = "ja.lproj/Main.strings"; sourceTree = "<group>"; };
-		CF000004CLASHFXRU02 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = "ru.lproj/Main.strings"; sourceTree = "<group>"; };
-		CF000005CLASHFXJA03 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = "ja.lproj/ConnectionDetailInfoGeneralView.strings"; sourceTree = "<group>"; };
-		CF000006CLASHFXRU03 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = "ru.lproj/ConnectionDetailInfoGeneralView.strings"; sourceTree = "<group>"; };
 		4982F51E2344A216008804B0 /* Cgo+Convert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Cgo+Convert.swift"; sourceTree = "<group>"; };
 		49862F9F218418C600A1D5EC /* ClashRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashRule.swift; sourceTree = "<group>"; };
 		49870ADA2AA75DC7002B106B /* TerminalCleanUpAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCleanUpAction.swift; sourceTree = "<group>"; };
@@ -236,7 +241,6 @@
 		4991D2312A565E6A00978143 /* Combine+Ext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Combine+Ext.swift"; sourceTree = "<group>"; };
 		4994B5532A47C4FF00E595B9 /* NormalMenuItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NormalMenuItemView.swift; sourceTree = "<group>"; };
 		499976C721359F0400E7BF83 /* ClashWebViewContoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashWebViewContoller.swift; sourceTree = "<group>"; };
-		CF100002CFGEDITOR /* ConfigEditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigEditorWindowController.swift; sourceTree = "<group>"; };
 		499A485322ED707300F6C675 /* RemoteConfigViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConfigViewController.swift; sourceTree = "<group>"; };
 		499A485722ED715200F6C675 /* RemoteConfigModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConfigModel.swift; sourceTree = "<group>"; };
 		499A485922ED781100F6C675 /* RemoteConfigAddView.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = RemoteConfigAddView.xib; sourceTree = "<group>"; };
@@ -283,12 +287,26 @@
 		49D84AD22A56E9760074CCDB /* ConnectionStatusIconCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusIconCellView.swift; sourceTree = "<group>"; };
 		49FEC6682AD9369C00BAD9F5 /* Command.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Command.swift; sourceTree = "<group>"; };
 		5217C006C5A22A1CEA24BFC1 /* Pods-ClashFX.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ClashFX.debug.xcconfig"; path = "Pods/Target Support Files/Pods-ClashFX/Pods-ClashFX.debug.xcconfig"; sourceTree = "<group>"; };
+		658AD87956C634D6C5B8DC46 /* ProxiesEditorViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProxiesEditorViewController.swift; sourceTree = "<group>"; };
+		68E69AE94B211080DDE02148 /* VisualConfigEditorController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VisualConfigEditorController.swift; sourceTree = "<group>"; };
+		84A49543FCFE83E1FFCFA3FC /* RulesEditorViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RulesEditorViewController.swift; sourceTree = "<group>"; };
 		8A2BBEA627A03ACB0081EBEF /* ProxySetting.sdef */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = ProxySetting.sdef; sourceTree = "<group>"; };
 		8ACD21BA27A04C7800BC4632 /* ProxySettingCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxySettingCommand.swift; sourceTree = "<group>"; };
 		8ACD21BC27A04ED500BC4632 /* ProxyModeChangeCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyModeChangeCommand.swift; sourceTree = "<group>"; };
+		9E023AD61CA5196FB055EE73 /* GeneralConfigViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GeneralConfigViewController.swift; sourceTree = "<group>"; };
 		A1485BCE642059532D01B8BA /* Pods-ClashFX.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ClashFX.release.xcconfig"; path = "Pods/Target Support Files/Pods-ClashFX/Pods-ClashFX.release.xcconfig"; sourceTree = "<group>"; };
+		ADF47A44A3A8712F44279A56 /* YAMLSerializer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = YAMLSerializer.swift; sourceTree = "<group>"; };
 		CAE7981A9F34B5E210C549CB /* libPods-ClashFX.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ClashFX.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CF000001CLASHFXJA01 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
+		CF000002CLASHFXRU01 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/Localizable.strings; sourceTree = "<group>"; };
+		CF000003CLASHFXJA02 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Main.strings; sourceTree = "<group>"; };
+		CF000004CLASHFXRU02 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/Main.strings; sourceTree = "<group>"; };
+		CF000005CLASHFXJA03 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/ConnectionDetailInfoGeneralView.strings; sourceTree = "<group>"; };
+		CF000006CLASHFXRU03 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/ConnectionDetailInfoGeneralView.strings; sourceTree = "<group>"; };
+		CF100002CFGEDITOR /* ConfigEditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigEditorWindowController.swift; sourceTree = "<group>"; };
+		E1541315BE9AC1A5200C8FDA /* FormHelpers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FormHelpers.swift; sourceTree = "<group>"; };
 		E1B0C0A0290A0001005EE8C4 /* mihomo_core */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = mihomo_core; path = ClashFX/goClash/mihomo_core; sourceTree = SOURCE_ROOT; };
+		E27D6472BB33EF4C3BFD3270 /* ConfigDocument.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConfigDocument.swift; sourceTree = "<group>"; };
 		F910AA23240134AF00116E95 /* ProxyGroupMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyGroupMenu.swift; sourceTree = "<group>"; };
 		F915A4612366ADEF004840BE /* ClashConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashConnection.swift; sourceTree = "<group>"; };
 		F9203A25236342820020D57D /* AppDelegate+..swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+..swift"; sourceTree = "<group>"; };
@@ -341,6 +359,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		232A151B2AB1D5455361875C /* ConfigEditor */ = {
+			isa = PBXGroup;
+			children = (
+				E1541315BE9AC1A5200C8FDA /* FormHelpers.swift */,
+				68E69AE94B211080DDE02148 /* VisualConfigEditorController.swift */,
+				9E023AD61CA5196FB055EE73 /* GeneralConfigViewController.swift */,
+				06252EC2F039BCAFB08D62E4 /* DNSConfigViewController.swift */,
+				84A49543FCFE83E1FFCFA3FC /* RulesEditorViewController.swift */,
+				16E8EE5432198C8579D36CC4 /* ProxyGroupsEditorViewController.swift */,
+				658AD87956C634D6C5B8DC46 /* ProxiesEditorViewController.swift */,
+			);
+			name = ConfigEditor;
+			path = ConfigEditor;
+			sourceTree = "<group>";
+		};
 		4913C82021157CEB00F6B87C /* Macro */ = {
 			isa = PBXGroup;
 			children = (
@@ -422,6 +455,8 @@
 				F915A4612366ADEF004840BE /* ClashConnection.swift */,
 				F92D0B23236BC12000575E15 /* SavedProxyModel.swift */,
 				F939724B23A4B33500FE5A3F /* ClashProvider.swift */,
+				E27D6472BB33EF4C3BFD3270 /* ConfigDocument.swift */,
+				ADF47A44A3A8712F44279A56 /* YAMLSerializer.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -498,6 +533,7 @@
 				CF100002CFGEDITOR /* ConfigEditorWindowController.swift */,
 				499A485322ED707300F6C675 /* RemoteConfigViewController.swift */,
 				499ADAFE2498FC6D00C488FE /* ExternalControlViewController.swift */,
+				232A151B2AB1D5455361875C /* ConfigEditor */,
 			);
 			path = ViewControllers;
 			sourceTree = "<group>";
@@ -859,13 +895,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-ClashFX/Pods-ClashFX-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-ClashFX/Pods-ClashFX-resources-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -918,13 +950,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-ClashFX/Pods-ClashFX-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-ClashFX/Pods-ClashFX-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -1040,6 +1068,15 @@
 				4929F684258CE07500A435F6 /* UserDefaultWrapper.swift in Sources */,
 				F9E8F34623A12B89002DE5E8 /* String+Encode.swift in Sources */,
 				49B445162457CDF000B27E3E /* ClashStatusTool.swift in Sources */,
+				0EECD2C27DF4C927C6BD3A6C /* ConfigDocument.swift in Sources */,
+				D33F6678DDE060E0F305D755 /* YAMLSerializer.swift in Sources */,
+				079C0498F443DE06CFD1A2E0 /* FormHelpers.swift in Sources */,
+				793F1AC39DDE4A599DBCD066 /* VisualConfigEditorController.swift in Sources */,
+				36313971B85BEAA59C94094C /* GeneralConfigViewController.swift in Sources */,
+				58888FDB3CB996ACC255BE5C /* DNSConfigViewController.swift in Sources */,
+				1296D474DA25E4B15AAD3022 /* RulesEditorViewController.swift in Sources */,
+				D846369486CB7C0166D0E271 /* ProxyGroupsEditorViewController.swift in Sources */,
+				E3B391F67D55991577380774 /* ProxiesEditorViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

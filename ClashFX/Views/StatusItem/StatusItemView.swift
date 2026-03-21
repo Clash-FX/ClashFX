@@ -44,12 +44,28 @@ class StatusItemView: NSView, StatusItemViewProtocol {
         return NSView() as! StatusItemView
     }
 
+    private lazy var separatorLine: NSView = {
+        let line = NSView()
+        line.translatesAutoresizingMaskIntoConstraints = false
+        line.wantsLayer = true
+        line.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.25).cgColor
+        return line
+    }()
+
     func setupView() {
         uploadSpeedLabel.font = StatusItemTool.font
         downloadSpeedLabel.font = StatusItemTool.font
 
         uploadSpeedLabel.textColor = NSColor.labelColor
         downloadSpeedLabel.textColor = NSColor.labelColor
+
+        addSubview(separatorLine)
+        NSLayoutConstraint.activate([
+            separatorLine.widthAnchor.constraint(equalToConstant: 1),
+            separatorLine.heightAnchor.constraint(equalToConstant: 12),
+            separatorLine.centerYAnchor.constraint(equalTo: centerYAnchor),
+            separatorLine.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 5),
+        ])
     }
 
     func updateSize(width: CGFloat) {
@@ -78,5 +94,6 @@ class StatusItemView: NSView, StatusItemViewProtocol {
 
     func showSpeedContainer(show: Bool) {
         speedContainerView.isHidden = !show
+        separatorLine.isHidden = !show
     }
 }

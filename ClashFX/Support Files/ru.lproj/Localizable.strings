@@ -1,6 +1,21 @@
 /* No comment provided by engineer. */
 "Active Connections" = "Активные соединения";
 
+/* Config Editor */
+"Config Editor" = "Редактор конфигурации";
+"Save" = "Сохранить";
+"Save & Reload" = "Сохранить и перезагрузить";
+"YAML Parse Error" = "Ошибка разбора YAML";
+"Edit Config" = "Редактировать конфигурацию";
+"Raw" = "Исходный код";
+"Visual" = "Визуальный";
+"General" = "Основные";
+"Proxies" = "Прокси";
+"Proxy Groups" = "Группы прокси";
+"Rules" = "Правила";
+"Saved" = "Сохранено";
+"Modified" = "Изменено";
+
 /* No comment provided by engineer. */
 "Add a remote config" = "Добавить удаленную конфигурацию";
 

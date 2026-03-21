@@ -66,7 +66,8 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         // space
         selectProxyLabel.leftAnchor.constraint(greaterThanOrEqualTo: groupNameLabel.rightAnchor, constant: 20).isActive = true
 
-        // max
+        // width bounds
+        effectView.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         if #available(macOS 14, *) {
             selectProxyLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
         } else {

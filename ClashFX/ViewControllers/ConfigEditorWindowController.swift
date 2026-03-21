@@ -4,12 +4,27 @@ class ConfigEditorWindowController: NSWindowController {
     private var textView: NSTextView!
     private var scrollView: NSScrollView!
     private var filePath: String = ""
-    private var toolbar: NSToolbar!
     private var statusLabel: NSTextField!
     private var filePopup: NSPopUpButton!
+    private var modeSegment: NSSegmentedControl!
+    private var visualEditorVC: VisualConfigEditorController?
+    private var visualContainer: NSView!
+    private var configDocument: ConfigDocument?
+    private var isVisualMode = false
+
+    private static var current: ConfigEditorWindowController?
 
     static func show(configPath: String? = nil) {
+        if let existing = current, existing.window?.isVisible == true {
+            if let path = configPath {
+                existing.loadFile(path: path)
+            }
+            existing.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
         let controller = ConfigEditorWindowController()
+        current = controller
         controller.showWindow(nil)
         if let path = configPath {
             controller.loadFile(path: path)
@@ -22,22 +37,27 @@ class ConfigEditorWindowController: NSWindowController {
 
     init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 650),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         window.title = "ClashFX Config Editor"
         window.center()
-        window.minSize = NSSize(width: 600, height: 400)
+        window.minSize = NSSize(width: 750, height: 450)
         super.init(window: window)
+        // Show app in Dock when editor is open so user can find it easily
+        window.delegate = self
         setupUI()
+        NSApp.setActivationPolicy(.regular)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
     }
+
+    // MARK: - UI Setup
 
     private func setupUI() {
         guard let contentView = window?.contentView else { return }
@@ -53,6 +73,20 @@ class ConfigEditorWindowController: NSWindowController {
         topBar.addSubview(filePopup)
         populateFileList()
 
+        modeSegment = NSSegmentedControl(labels: [NSLocalizedString("Raw", comment: ""), NSLocalizedString("Visual", comment: "")], trackingMode: .selectOne, target: self, action: #selector(modeChanged(_:)))
+        modeSegment.translatesAutoresizingMaskIntoConstraints = false
+        modeSegment.selectedSegment = 0
+        if #available(macOS 10.13, *) {
+            modeSegment.segmentDistribution = .fillEqually
+        }
+        topBar.addSubview(modeSegment)
+
+        statusLabel = NSTextField(labelWithString: "")
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.textColor = .secondaryLabelColor
+        topBar.addSubview(statusLabel)
+
         let saveBtn = NSButton(title: NSLocalizedString("Save", comment: ""), target: self, action: #selector(saveFile))
         saveBtn.translatesAutoresizingMaskIntoConstraints = false
         saveBtn.bezelStyle = .rounded
@@ -65,19 +99,43 @@ class ConfigEditorWindowController: NSWindowController {
         reloadBtn.bezelStyle = .rounded
         topBar.addSubview(reloadBtn)
 
-        statusLabel = NSTextField(labelWithString: "")
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.font = .systemFont(ofSize: 11)
-        statusLabel.textColor = .secondaryLabelColor
-        topBar.addSubview(statusLabel)
+        setupRawEditor(in: contentView, below: topBar)
+        setupVisualContainer(in: contentView, below: topBar)
 
+        NSLayoutConstraint.activate([
+            topBar.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            topBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            topBar.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+            topBar.heightAnchor.constraint(equalToConstant: 32),
+
+            filePopup.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
+            filePopup.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            filePopup.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
+
+            modeSegment.leadingAnchor.constraint(equalTo: filePopup.trailingAnchor, constant: 12),
+            modeSegment.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            modeSegment.widthAnchor.constraint(equalToConstant: 130),
+
+            statusLabel.leadingAnchor.constraint(equalTo: modeSegment.trailingAnchor, constant: 12),
+            statusLabel.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: saveBtn.leadingAnchor, constant: -12),
+
+            saveBtn.trailingAnchor.constraint(equalTo: reloadBtn.leadingAnchor, constant: -8),
+            saveBtn.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+
+            reloadBtn.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
+            reloadBtn.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+        ])
+    }
+
+    private func setupRawEditor(in parent: NSView, below topBar: NSView) {
         scrollView = NSScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        contentView.addSubview(scrollView)
+        parent.addSubview(scrollView)
 
         textView = NSTextView()
         textView.isEditable = true
@@ -87,7 +145,7 @@ class ConfigEditorWindowController: NSWindowController {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.isRichText = false
+        textView.isRichText = true
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
         if #available(macOS 10.15, *) {
@@ -104,6 +162,7 @@ class ConfigEditorWindowController: NSWindowController {
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.delegate = self
 
+        textView.textColor = .white
         if #available(macOS 10.14, *) {
             textView.backgroundColor = NSColor(red: 0.13, green: 0.13, blue: 0.15, alpha: 1.0)
             textView.insertionPointColor = .white
@@ -112,36 +171,107 @@ class ConfigEditorWindowController: NSWindowController {
         scrollView.documentView = textView
 
         let lineNumberView = LineNumberRulerView(textView: textView)
+        // Fix for macOS 14+: clipsToBounds defaults to NO since Sonoma,
+        // causing the ruler view to overlap and hide the text content.
+        if #available(macOS 14.0, *) {
+            lineNumberView.clipsToBounds = true
+        }
         scrollView.verticalRulerView = lineNumberView
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = true
 
+        // Re-highlight visible region on scroll for large files
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(scrollViewDidScroll(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+
         NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-            topBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-            topBar.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
-            topBar.heightAnchor.constraint(equalToConstant: 32),
-
-            filePopup.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
-            filePopup.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            filePopup.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
-
-            saveBtn.trailingAnchor.constraint(equalTo: reloadBtn.leadingAnchor, constant: -8),
-            saveBtn.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-
-            reloadBtn.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
-            reloadBtn.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-
-            statusLabel.leadingAnchor.constraint(equalTo: filePopup.trailingAnchor, constant: 12),
-            statusLabel.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: saveBtn.leadingAnchor, constant: -12),
-
             scrollView.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 8),
-            scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: parent.bottomAnchor),
         ])
     }
+
+    private func setupVisualContainer(in parent: NSView, below topBar: NSView) {
+        visualContainer = NSView()
+        visualContainer.translatesAutoresizingMaskIntoConstraints = false
+        visualContainer.isHidden = true
+        parent.addSubview(visualContainer)
+
+        NSLayoutConstraint.activate([
+            visualContainer.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 8),
+            visualContainer.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+            visualContainer.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+            visualContainer.bottomAnchor.constraint(equalTo: parent.bottomAnchor),
+        ])
+        // Visual editor is created lazily in switchToVisualMode() to avoid
+        // constraint conflicts when the container has zero size while hidden.
+    }
+
+    private func ensureVisualEditor() {
+        guard visualEditorVC == nil else { return }
+        let vc = VisualConfigEditorController()
+        visualEditorVC = vc
+        let vcView = vc.view
+        vcView.translatesAutoresizingMaskIntoConstraints = false
+        visualContainer.addSubview(vcView)
+        NSLayoutConstraint.activate([
+            vcView.topAnchor.constraint(equalTo: visualContainer.topAnchor),
+            vcView.leadingAnchor.constraint(equalTo: visualContainer.leadingAnchor),
+            vcView.trailingAnchor.constraint(equalTo: visualContainer.trailingAnchor),
+            vcView.bottomAnchor.constraint(equalTo: visualContainer.bottomAnchor),
+        ])
+    }
+
+    // MARK: - Mode Switching
+
+    @objc private func modeChanged(_ sender: NSSegmentedControl) {
+        if sender.selectedSegment == 0 {
+            switchToRawMode()
+        } else {
+            switchToVisualMode()
+        }
+    }
+
+    private func switchToVisualMode() {
+        do {
+            let doc = try ConfigDocument.loadFromYAML(textView.string)
+            configDocument = doc
+            ensureVisualEditor()
+            visualEditorVC?.loadDocument(doc)
+            scrollView.isHidden = true
+            visualContainer.isHidden = false
+            isVisualMode = true
+            statusLabel.stringValue = NSLocalizedString("Visual", comment: "")
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = NSLocalizedString("YAML Parse Error", comment: "")
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.runModal()
+            modeSegment.selectedSegment = 0
+        }
+    }
+
+    private func switchToRawMode() {
+        if isVisualMode, let doc = configDocument {
+            visualEditorVC?.applyToDocument(doc)
+            textView.string = doc.serializeToYAML()
+            highlightYAML()
+        }
+        scrollView.isHidden = false
+        visualContainer.isHidden = true
+        isVisualMode = false
+        let lineCount = textView.string.components(separatedBy: "\n").count
+        statusLabel.stringValue = "\(lineCount) lines"
+    }
+
+    // MARK: - File Operations
 
     private func populateFileList() {
         filePopup.removeAllItems()
@@ -162,11 +292,40 @@ class ConfigEditorWindowController: NSWindowController {
         filePath = path
         do {
             let content = try String(contentsOfFile: path, encoding: .utf8)
+
+            // Use the simplest possible text loading: set string, then font/color
             textView.string = content
-            highlightYAML()
+            let monoFont: NSFont
+            if #available(macOS 10.15, *) {
+                monoFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            } else {
+                monoFont = NSFont(name: "Menlo", size: 13) ?? NSFont.systemFont(ofSize: 13)
+            }
+            textView.font = monoFont
+            textView.textColor = NSColor(red: 0.85, green: 0.85, blue: 0.87, alpha: 1.0)
+
             let fileName = (path as NSString).lastPathComponent
             window?.title = "ClashFX Config Editor — \(fileName)"
-            statusLabel.stringValue = "\(content.components(separatedBy: "\n").count) lines"
+            let lineCount = content.components(separatedBy: "\n").count
+            statusLabel.stringValue = "\(lineCount) lines"
+
+            // Syntax highlight after text is rendered
+            let delay: TimeInterval = content.count > 500_000 ? 0.5 : (lineCount > 3000 ? 0.2 : 0)
+            if delay > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.highlightYAML()
+                }
+            } else {
+                highlightYAML()
+            }
+
+            if isVisualMode {
+                if let doc = try? ConfigDocument.loadFromYAML(content) {
+                    configDocument = doc
+                    ensureVisualEditor()
+                    visualEditorVC?.loadDocument(doc)
+                }
+            }
         } catch {
             textView.string = "// Error loading file: \(error.localizedDescription)"
             statusLabel.stringValue = "Error"
@@ -181,12 +340,23 @@ class ConfigEditorWindowController: NSWindowController {
 
     @objc private func saveFile() {
         guard !filePath.isEmpty else { return }
+
+        if isVisualMode, let doc = configDocument {
+            visualEditorVC?.applyToDocument(doc)
+            let yaml = doc.serializeToYAML()
+            textView.string = yaml
+        }
+
         do {
             try textView.string.write(toFile: filePath, atomically: true, encoding: .utf8)
             statusLabel.stringValue = NSLocalizedString("Saved", comment: "")
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                 guard let self = self else { return }
-                self.statusLabel.stringValue = "\(self.textView.string.components(separatedBy: "\n").count) lines"
+                if self.isVisualMode {
+                    self.statusLabel.stringValue = NSLocalizedString("Visual", comment: "")
+                } else {
+                    self.statusLabel.stringValue = "\(self.textView.string.components(separatedBy: "\n").count) lines"
+                }
             }
         } catch {
             let alert = NSAlert(error: error)
@@ -202,67 +372,83 @@ class ConfigEditorWindowController: NSWindowController {
 
     // MARK: - YAML Syntax Highlighting
 
+    private static let maxHighlightLength = 100_000 // ~3000 lines
+
     func highlightYAML() {
         let text = textView.string
-        let fullRange = NSRange(location: 0, length: (text as NSString).length)
-        let storage = textView.textStorage!
+        let nsText = text as NSString
+        let totalLength = nsText.length
+        guard totalLength > 0 else { return }
 
+        // For very large files, only highlight a window around the visible area
+        let highlightRange: NSRange
+        if totalLength > Self.maxHighlightLength {
+            let visibleRect = scrollView.documentVisibleRect
+            let layoutManager = textView.layoutManager!
+            let textContainer = textView.textContainer!
+            let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+            let charRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+
+            // Expand by 5000 chars in each direction for smooth scrolling
+            let start = max(0, charRange.location - 5000)
+            let end = min(totalLength, charRange.location + charRange.length + 5000)
+            highlightRange = NSRange(location: start, length: end - start)
+        } else {
+            highlightRange = NSRange(location: 0, length: totalLength)
+        }
+
+        let storage = textView.textStorage!
         storage.beginEditing()
 
-        storage.addAttribute(.foregroundColor, value: NSColor(red: 0.85, green: 0.85, blue: 0.87, alpha: 1.0), range: fullRange)
-        let monoFont: NSFont
-        if #available(macOS 10.15, *) {
-            monoFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        } else {
-            monoFont = NSFont(name: "Menlo", size: 13) ?? NSFont.systemFont(ofSize: 13)
-        }
-        storage.addAttribute(.font, value: monoFont, range: fullRange)
+        let baseColor = NSColor(red: 0.85, green: 0.85, blue: 0.87, alpha: 1.0)
+        storage.addAttribute(.foregroundColor, value: baseColor, range: highlightRange)
 
-        let nsText = text as NSString
+        let substring = nsText.substring(with: highlightRange)
+        let subRange = NSRange(location: 0, length: (substring as NSString).length)
 
         // swiftlint:disable force_try
-        // Comments — green
-        let commentRegex = try! NSRegularExpression(pattern: "#.*$", options: .anchorsMatchLines)
-        for match in commentRegex.matches(in: text, range: fullRange) {
-            storage.addAttribute(.foregroundColor, value: NSColor(red: 0.42, green: 0.68, blue: 0.40, alpha: 1.0), range: match.range)
-        }
+        let patterns: [(NSRegularExpression, NSColor, Int)] = [
+            (try! NSRegularExpression(pattern: "#.*$", options: .anchorsMatchLines),
+             NSColor(red: 0.42, green: 0.68, blue: 0.40, alpha: 1.0), 0),
+            (try! NSRegularExpression(pattern: "^(\\s*[\\w-]+)\\s*:", options: .anchorsMatchLines),
+             NSColor(red: 0.40, green: 0.72, blue: 0.90, alpha: 1.0), 1),
+            (try! NSRegularExpression(pattern: "([\"'])(?:(?=(\\\\?))\\2.)*?\\1", options: []),
+             NSColor(red: 0.90, green: 0.63, blue: 0.36, alpha: 1.0), 0),
+            (try! NSRegularExpression(pattern: "(?<=:\\s)\\d+\\.?\\d*(?=\\s*$)", options: .anchorsMatchLines),
+             NSColor(red: 0.71, green: 0.51, blue: 0.90, alpha: 1.0), 0),
+            (try! NSRegularExpression(pattern: "(?<=:\\s)(true|false|yes|no)(?=\\s*$)", options: [.anchorsMatchLines, .caseInsensitive]),
+             NSColor(red: 0.90, green: 0.42, blue: 0.68, alpha: 1.0), 0),
+        ]
 
-        // Keys (before colon) — cyan/blue
-        let keyRegex = try! NSRegularExpression(pattern: "^(\\s*[\\w-]+)\\s*:", options: .anchorsMatchLines)
-        for match in keyRegex.matches(in: text, range: fullRange) {
-            let keyRange = match.range(at: 1)
-            storage.addAttribute(.foregroundColor, value: NSColor(red: 0.40, green: 0.72, blue: 0.90, alpha: 1.0), range: keyRange)
-        }
-
-        // Strings — orange
-        let stringRegex = try! NSRegularExpression(pattern: "([\"'])(?:(?=(\\\\?))\\2.)*?\\1", options: [])
-        for match in stringRegex.matches(in: text, range: fullRange) {
-            storage.addAttribute(.foregroundColor, value: NSColor(red: 0.90, green: 0.63, blue: 0.36, alpha: 1.0), range: match.range)
-        }
-
-        // Numbers — purple
-        let numRegex = try! NSRegularExpression(pattern: "(?<=:\\s)\\d+\\.?\\d*(?=\\s*$)", options: .anchorsMatchLines)
-        for match in numRegex.matches(in: text, range: fullRange) {
-            storage.addAttribute(.foregroundColor, value: NSColor(red: 0.71, green: 0.51, blue: 0.90, alpha: 1.0), range: match.range)
-        }
-
-        // Booleans — magenta
-        let boolRegex = try! NSRegularExpression(pattern: "(?<=:\\s)(true|false|yes|no)(?=\\s*$)", options: [.anchorsMatchLines, .caseInsensitive])
-        for match in boolRegex.matches(in: text, range: fullRange) {
-            storage.addAttribute(.foregroundColor, value: NSColor(red: 0.90, green: 0.42, blue: 0.68, alpha: 1.0), range: match.range)
-        }
-
-        // List markers — yellow
-        let listRegex = try! NSRegularExpression(pattern: "^(\\s*)-\\s", options: .anchorsMatchLines)
-        for match in listRegex.matches(in: text, range: fullRange) {
-            let dashRange = NSRange(location: match.range.location + match.range(at: 1).length, length: 1)
-            if dashRange.location + dashRange.length <= (text as NSString).length {
-                storage.addAttribute(.foregroundColor, value: NSColor(red: 0.90, green: 0.86, blue: 0.45, alpha: 1.0), range: dashRange)
+        for (regex, color, captureGroup) in patterns {
+            for match in regex.matches(in: substring, range: subRange) {
+                let matchRange = match.range(at: captureGroup)
+                let adjustedRange = NSRange(location: highlightRange.location + matchRange.location, length: matchRange.length)
+                if adjustedRange.location + adjustedRange.length <= totalLength {
+                    storage.addAttribute(.foregroundColor, value: color, range: adjustedRange)
+                }
             }
         }
 
+        // List dash highlighting
+        let listRegex = try! NSRegularExpression(pattern: "^(\\s*)-\\s", options: .anchorsMatchLines)
+        for match in listRegex.matches(in: substring, range: subRange) {
+            let dashRange = NSRange(location: match.range.location + match.range(at: 1).length, length: 1)
+            let adjustedRange = NSRange(location: highlightRange.location + dashRange.location, length: 1)
+            if adjustedRange.location + adjustedRange.length <= totalLength {
+                storage.addAttribute(.foregroundColor, value: NSColor(red: 0.90, green: 0.86, blue: 0.45, alpha: 1.0), range: adjustedRange)
+            }
+        }
         // swiftlint:enable force_try
+
         storage.endEditing()
+    }
+
+    @objc private func scrollViewDidScroll(_ notification: Notification) {
+        let totalLength = (textView.string as NSString).length
+        guard totalLength > Self.maxHighlightLength else { return }
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(performHighlight), object: nil)
+        perform(#selector(performHighlight), with: nil, afterDelay: 0.15)
     }
 }
 
@@ -272,11 +458,29 @@ extension ConfigEditorWindowController: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(performHighlight), object: nil)
         perform(#selector(performHighlight), with: nil, afterDelay: 0.3)
-        statusLabel.stringValue = "Modified"
+        statusLabel.stringValue = NSLocalizedString("Modified", comment: "")
     }
 
     @objc private func performHighlight() {
         highlightYAML()
+    }
+}
+
+// MARK: - NSWindowDelegate
+
+extension ConfigEditorWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        ConfigEditorWindowController.current = nil
+        // Hide from Dock when no editor windows are open
+        // (check if other key windows exist first)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            let hasVisibleWindows = NSApp.windows.contains {
+                $0.isVisible && !$0.isKind(of: NSPanel.self) && $0.styleMask.contains(.titled)
+            }
+            if !hasVisibleWindows {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
     }
 }
 

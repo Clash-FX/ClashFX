@@ -1,6 +1,21 @@
 /* No comment provided by engineer. */
 "Active Connections" = "Active Connections";
 
+/* Config Editor */
+"Config Editor" = "Config Editor";
+"Save" = "Save";
+"Save & Reload" = "Save & Reload";
+"YAML Parse Error" = "YAML Parse Error";
+"Edit Config" = "Edit Config";
+"Raw" = "Raw";
+"Visual" = "Visual";
+"General" = "General";
+"Proxies" = "Proxies";
+"Proxy Groups" = "Proxy Groups";
+"Rules" = "Rules";
+"Saved" = "Saved";
+"Modified" = "Modified";
+
 /* No comment provided by engineer. */
 "Add a remote config" = "Add a remote config";
 

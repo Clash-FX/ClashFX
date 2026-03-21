@@ -100,13 +100,17 @@ class ApiRequest {
             return
         }
 
-        let data = clashGetConfigs()?.toString().data(using: .utf8) ?? Data()
-        guard let config = ClashConfig.fromData(data) else {
-            NSUserNotificationCenter.default.post(title: "Error", info: "Get clash config failed. Try Fix your config file then reload config or restart ClashX.")
-            (NSApplication.shared.delegate as? AppDelegate)?.startProxy()
-            return
+        clashRequestQueue.async {
+            let data = clashGetConfigs()?.toString().data(using: .utf8) ?? Data()
+            DispatchQueue.main.async {
+                guard let config = ClashConfig.fromData(data) else {
+                    NSUserNotificationCenter.default.post(title: "Error", info: "Get clash config failed. Try Fix your config file then reload config or restart ClashX.")
+                    (NSApplication.shared.delegate as? AppDelegate)?.startProxy()
+                    return
+                }
+                completeHandler(config)
+            }
         }
-        completeHandler(config)
     }
 
     static func requestConfigUpdate(configName: String, callback: @escaping ((ErrorString?) -> Void)) {

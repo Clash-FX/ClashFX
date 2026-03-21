@@ -32,6 +32,7 @@ target 'ClashFX' do
   pod 'Sparkle','~>2.0'
   pod "FlexibleDiff"
   pod 'GzipSwift'
+  pod 'Yams', '~> 5.0'
   pod 'SwiftLint'
   pod 'SwiftFormat/CLI', '~> 0.49'
 end

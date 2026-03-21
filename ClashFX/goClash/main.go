@@ -15,9 +15,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -38,10 +40,12 @@ import (
 )
 
 var (
-	secretOverride string = ""
-	enableIPV6     bool   = false
-	tunEnabled     bool   = false
-	tunMu          sync.Mutex
+	secretOverride  string = ""
+	enableIPV6      bool   = false
+	tunEnabled      bool   = false
+	tunMu           sync.Mutex
+	savedUIPath     string
+	callbacksPaused int32 // atomic: 0=active, 1=paused
 )
 
 func isAddrValid(addr string) bool {
@@ -82,8 +86,15 @@ func checkPortAvailable(port int) bool {
 
 //export initClashCore
 func initClashCore() {
+	// Reserve at least one CPU core for the UI thread to prevent Go goroutines
+	// from saturating all cores during heavy operations (config switch, health checks)
+	numCPU := runtime.NumCPU()
+	if numCPU > 2 {
+		runtime.GOMAXPROCS(numCPU - 1)
+	}
+
 	homeDir, _ := os.UserHomeDir()
-	clashHome := filepath.Join(homeDir, ".config", "clash")
+	clashHome := filepath.Join(homeDir, ".config", "clashfx")
 	constant.SetHomeDir(clashHome)
 	configFile := filepath.Join(constant.Path.HomeDir(), constant.Path.Config())
 	constant.SetConfig(configFile)
@@ -150,6 +161,9 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 	if secretOverride != "" {
 		rawCfg.Secret = secretOverride
 	}
+	// Don't set rawCfg.ExternalUI here — mihomo's config parser validates
+	// the path against SAFE_PATHS which rejects app bundle / DerivedData paths.
+	// Instead we set the UI path directly via route.SetUIPath() after server creation.
 	rawCfg.ExternalUI = ""
 	rawCfg.Profile.StoreSelected = true
 	enableIPV6 = ipv6
@@ -194,6 +208,12 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 	})
 
 	executor.ApplyConfig(cfg, true)
+
+	// Re-apply UI path after server recreation (ReCreateServer resets it)
+	if savedUIPath != "" {
+		route.SetUIPath(savedUIPath)
+	}
+
 	return cfg, nil
 }
 
@@ -253,6 +273,9 @@ func clashSetupLogger() {
 	sub := log.Subscribe()
 	go func() {
 		for elm := range sub {
+			if atomic.LoadInt32(&callbacksPaused) != 0 {
+				continue
+			}
 			cs := C.CString(elm.Payload)
 			cl := C.CString(elm.Type())
 			C.sendLogToUI(cs, cl)
@@ -270,11 +293,24 @@ func clashSetupTraffic() {
 		t := statistic.DefaultManager
 		buf := &bytes.Buffer{}
 		for range tick.C {
+			if atomic.LoadInt32(&callbacksPaused) != 0 {
+				continue
+			}
 			buf.Reset()
 			up, down := t.Now()
 			C.sendTrafficToUI(C.longlong(up), C.longlong(down))
 		}
 	}()
+}
+
+//export clashPauseCallbacks
+func clashPauseCallbacks() {
+	atomic.StoreInt32(&callbacksPaused, 1)
+}
+
+//export clashResumeCallbacks
+func clashResumeCallbacks() {
+	atomic.StoreInt32(&callbacksPaused, 0)
 }
 
 //export clash_checkSecret
@@ -316,7 +352,8 @@ func run(checkConfig, allowLan, ipv6 bool, portOverride uint32, externalControll
 
 //export setUIPath
 func setUIPath(path *C.char) {
-	route.SetUIPath(C.GoString(path))
+	savedUIPath = C.GoString(path)
+	route.SetUIPath(savedUIPath)
 }
 
 //export clashUpdateConfig
@@ -326,7 +363,11 @@ func clashUpdateConfig(path *C.char) *C.char {
 		return C.CString(err.Error())
 	}
 	cfg.General.IPv6 = enableIPV6
+	cfg.Controller.ExternalUI = ""
 	executor.ApplyConfig(cfg, false)
+	if savedUIPath != "" {
+		route.SetUIPath(savedUIPath)
+	}
 	return C.CString("success")
 }
 
@@ -403,9 +444,9 @@ func clashSetTunEnabled(enabled bool) *C.char {
 	if secretOverride != "" {
 		rawCfg.Secret = secretOverride
 	}
-	rawCfg.ExternalUI = ""
 	rawCfg.Profile.StoreSelected = false
 	rawCfg.IPv6 = enableIPV6
+	rawCfg.ExternalUI = ""
 
 	tunMu.Lock()
 	if tunEnabled {
@@ -542,6 +583,9 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char) *C.char {
 		rawMap["secret"] = secretOverride
 	}
 	rawMap["ipv6"] = enableIPV6
+	if savedUIPath != "" {
+		rawMap["external-ui"] = savedUIPath
+	}
 
 	profile, _ := rawMap["profile"].(map[string]interface{})
 	if profile == nil {

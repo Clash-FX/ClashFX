@@ -1,6 +1,21 @@
 /* No comment provided by engineer. */
 "Active Connections" = "活動連線";
 
+/* Config Editor */
+"Config Editor" = "配置編輯器";
+"Save" = "儲存";
+"Save & Reload" = "儲存並重載";
+"YAML Parse Error" = "YAML 解析錯誤";
+"Edit Config" = "編輯配置";
+"Raw" = "原始碼";
+"Visual" = "視覺化";
+"General" = "一般";
+"Proxies" = "代理節點";
+"Proxy Groups" = "代理群組";
+"Rules" = "規則";
+"Saved" = "已儲存";
+"Modified" = "已修改";
+
 /* No comment provided by engineer. */
 "Add a remote config" = "添加託管配置文件";
 

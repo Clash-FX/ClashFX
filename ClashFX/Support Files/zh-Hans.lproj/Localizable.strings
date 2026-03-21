@@ -1,6 +1,58 @@
 /* No comment provided by engineer. */
 "Active Connections" = "活动连接";
 
+/* Config Editor */
+"Config Editor" = "配置编辑器";
+"Save" = "保存";
+"Save & Reload" = "保存并重载";
+"YAML Parse Error" = "YAML 解析错误";
+"Edit Config" = "编辑配置";
+"Raw" = "源码";
+"Visual" = "可视化";
+"General" = "通用";
+"Proxies" = "代理节点";
+"Proxy Groups" = "代理组";
+"Rules" = "规则";
+"Saved" = "已保存";
+"Modified" = "已修改";
+
+/* Config Editor Form Labels */
+"Name:" = "名称:";
+"Type:" = "类型:";
+"Server:" = "服务器:";
+"Port:" = "端口:";
+"Password:" = "密码:";
+"UUID:" = "UUID:";
+"Cipher:" = "加密方式:";
+"Network:" = "传输协议:";
+"TLS:" = "TLS:";
+"SNI:" = "SNI:";
+"Skip Cert Verify:" = "跳过证书验证:";
+"UDP:" = "UDP:";
+"Plugin:" = "插件:";
+"Alter ID:" = "Alter ID:";
+"URL:" = "URL:";
+"Interval:" = "测速间隔:";
+"Tolerance:" = "容差:";
+"Lazy:" = "懒加载:";
+"Filter:" = "过滤:";
+"Mixed Port:" = "混合端口:";
+"SOCKS Port:" = "SOCKS 端口:";
+"Allow LAN:" = "允许局域网:";
+"Bind Address:" = "绑定地址:";
+"Mode:" = "模式:";
+"Log Level:" = "日志级别:";
+"IPv6:" = "IPv6:";
+"External Controller:" = "外部控制器:";
+"Secret:" = "密钥:";
+"Find Process Mode:" = "进程匹配模式:";
+"TCP Concurrent:" = "TCP 并发:";
+"Unified Delay:" = "统一延迟:";
+"Interface Name:" = "网卡名称:";
+"Keep Alive Interval:" = "保活间隔:";
+"Geodata Mode:" = "GeoData 模式:";
+"Client Fingerprint:" = "客户端指纹:";
+
 /* No comment provided by engineer. */
 "Add a remote config" = "添加托管配置文件";
 
