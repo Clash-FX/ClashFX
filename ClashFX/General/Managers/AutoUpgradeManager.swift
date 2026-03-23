@@ -1,5 +1,5 @@
 //
-//  AutoUpgardeManager.swift
+//  AutoUpgradeManager.swift
 //  ClashX
 //
 //  Created by yicheng on 2019/10/28.
@@ -9,12 +9,12 @@
 import Cocoa
 import Sparkle
 
-class AutoUpgardeManager: NSObject {
+class AutoUpgradeManager: NSObject {
     var checkForUpdatesMenuItem: NSMenuItem?
-    static let shared = AutoUpgardeManager()
+    static let shared = AutoUpgradeManager()
     private var controller: SPUStandardUpdaterController?
     private var current: Channel = {
-        if let value = UserDefaults.standard.object(forKey: "AutoUpgardeManager.current") as? Int,
+        if let value = UserDefaults.standard.object(forKey: "AutoUpgradeManager.current") as? Int,
            let channel = Channel(rawValue: value) { return channel }
         #if PRO_VERSION
             return .appcenter
@@ -23,7 +23,7 @@ class AutoUpgardeManager: NSObject {
         #endif
     }() {
         didSet {
-            UserDefaults.standard.set(current.rawValue, forKey: "AutoUpgardeManager.current")
+            UserDefaults.standard.set(current.rawValue, forKey: "AutoUpgradeManager.current")
         }
     }
 
@@ -59,7 +59,7 @@ class AutoUpgardeManager: NSObject {
     }
 }
 
-extension AutoUpgardeManager: SPUUpdaterDelegate {
+extension AutoUpgradeManager: SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
         guard WebPortalManager.hasWebProtal == false, allowSelectChannel else { return nil }
         return current.urlString
@@ -72,7 +72,7 @@ extension AutoUpgardeManager: SPUUpdaterDelegate {
 
 // MARK: - SPUStandardUserDriverDelegate
 
-extension AutoUpgardeManager: SPUStandardUserDriverDelegate {
+extension AutoUpgradeManager: SPUStandardUserDriverDelegate {
     var supportsGentleScheduledUpdateReminders: Bool {
         return true
     }
@@ -104,7 +104,7 @@ extension AutoUpgardeManager: SPUStandardUserDriverDelegate {
 
 // MARK: - Channel Enum
 
-extension AutoUpgardeManager {
+extension AutoUpgradeManager {
     enum Channel: Int, CaseIterable {
         #if !PRO_VERSION
             case stable
@@ -114,7 +114,7 @@ extension AutoUpgardeManager {
     }
 }
 
-extension AutoUpgardeManager.Channel {
+extension AutoUpgradeManager.Channel {
     var title: String {
         switch self {
         #if !PRO_VERSION
@@ -134,7 +134,7 @@ extension AutoUpgardeManager.Channel {
             case .stable:
                 return "https://clash-fx.github.io/ClashFX/appcast.xml"
             case .prelease:
-                return "https://clash-fx.github.io/ClashFX/appcast.xml"
+                return "https://clash-fx.github.io/ClashFX/appcast-prerelease.xml"
         #endif
         case .appcenter:
             #if PRO_VERSION

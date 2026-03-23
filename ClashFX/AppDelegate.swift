@@ -110,8 +110,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupLanguageMenu()
         setupConfigEditorMenuItem()
         // 启用自动更新检查（使用fork项目的GitHub Pages）
-        AutoUpgardeManager.shared.setup()
-        AutoUpgardeManager.shared.setupCheckForUpdatesMenuItem(checkForUpdateMenuItem)
+        AutoUpgradeManager.shared.setup()
+        AutoUpgradeManager.shared.setupCheckForUpdatesMenuItem(checkForUpdateMenuItem)
         // install proxy helper
         _ = ClashResourceManager.check()
         PrivilegedHelperManager.shared.checkInstall()

@@ -131,7 +131,7 @@
 		F939724C23A4B33500FE5A3F /* ClashProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F939724B23A4B33500FE5A3F /* ClashProvider.swift */; };
 		F939724E23A4DB0600FE5A3F /* DateFormatter+.swift in Sources */ = {isa = PBXBuildFile; fileRef = F939724D23A4DB0600FE5A3F /* DateFormatter+.swift */; };
 		F976275C23634DF8000EDEFE /* LoginServiceKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = F976275B23634DF8000EDEFE /* LoginServiceKit.swift */; };
-		F977FAAC2366790500C17F1F /* AutoUpgardeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F977FAAB2366790500C17F1F /* AutoUpgardeManager.swift */; };
+		F977FAAC2366790500C17F1F /* AutoUpgradeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F977FAAB2366790500C17F1F /* AutoUpgradeManager.swift */; };
 		F977FAAE23669D6400C17F1F /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F977FAAD23669D6400C17F1F /* ConnectionManager.swift */; };
 		F9A7C06C2306E874007163C7 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = F9A7C06B2306E874007163C7 /* main.m */; };
 		F9C180A3243C6590005EE8C4 /* goClash.a in Frameworks */ = {isa = PBXBuildFile; fileRef = F9C180A1243C6590005EE8C4 /* goClash.a */; };
@@ -325,7 +325,7 @@
 		F939724B23A4B33500FE5A3F /* ClashProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashProvider.swift; sourceTree = "<group>"; };
 		F939724D23A4DB0600FE5A3F /* DateFormatter+.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DateFormatter+.swift"; sourceTree = "<group>"; };
 		F976275B23634DF8000EDEFE /* LoginServiceKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginServiceKit.swift; sourceTree = "<group>"; };
-		F977FAAB2366790500C17F1F /* AutoUpgardeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoUpgardeManager.swift; sourceTree = "<group>"; };
+		F977FAAB2366790500C17F1F /* AutoUpgradeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoUpgradeManager.swift; sourceTree = "<group>"; };
 		F977FAAD23669D6400C17F1F /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
 		F9A7C0692306E874007163C7 /* com.clashfx.app.Helper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = com.clashfx.app.Helper; sourceTree = BUILT_PRODUCTS_DIR; };
 		F9A7C06B2306E874007163C7 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
@@ -423,7 +423,7 @@
 				495BFB8721919B9800C8779D /* RemoteConfigManager.swift */,
 				4952C3BE2115C7CA004A4FA8 /* MenuItemFactory.swift */,
 				F935B2FB23085515009E4D33 /* SystemProxyManager.swift */,
-				F977FAAB2366790500C17F1F /* AutoUpgardeManager.swift */,
+				F977FAAB2366790500C17F1F /* AutoUpgradeManager.swift */,
 				F977FAAD23669D6400C17F1F /* ConnectionManager.swift */,
 				F9E754CF239CC21F00CEE7CC /* WebPortalManager.swift */,
 				49B4575C244F4A2A00463C39 /* PrivilegedHelperManager.swift */,
@@ -1029,7 +1029,7 @@
 				4952C3BF2115C7CA004A4FA8 /* MenuItemFactory.swift in Sources */,
 				49D767742A6195C800830333 /* ConnectionsReq.swift in Sources */,
 				49C9AFF22A59366200178BB4 /* ConnectionDetailInfoGeneralView.swift in Sources */,
-				F977FAAC2366790500C17F1F /* AutoUpgardeManager.swift in Sources */,
+				F977FAAC2366790500C17F1F /* AutoUpgradeManager.swift in Sources */,
 				499A485822ED715200F6C675 /* RemoteConfigModel.swift in Sources */,
 				49C9AFF42A593B8800178BB4 /* ConnectionTopListViewModel.swift in Sources */,
 				498D87DA2A617E9900CD456F /* DashboardSubViewControllerProtocol.swift in Sources */,

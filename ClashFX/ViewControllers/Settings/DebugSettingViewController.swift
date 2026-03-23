@@ -18,7 +18,7 @@ class DebugSettingViewController: NSViewController {
         super.viewDidLoad()
         useBuiltinApiButton.state = Settings.builtInApiMode ? .on : .off
         revertProxyButton.state = Settings.disableRestoreProxy ? .off : .on
-        AutoUpgardeManager.shared.addChannelMenuItem(updateChannelPopButton)
+        AutoUpgradeManager.shared.addChannelMenuItem(updateChannelPopButton)
     }
 
     @IBAction func actionUnInstallProxyHelper(_ sender: Any) {
