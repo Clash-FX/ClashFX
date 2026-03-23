@@ -21,10 +21,13 @@ class StatusItemView: NSView, StatusItemViewProtocol {
     var up: Int = 0
     var down: Int = 0
 
+    weak var statusItem: NSStatusItem?
+
     static func create(statusItem: NSStatusItem?) -> StatusItemView {
         var topLevelObjects: NSArray?
         if Bundle.main.loadNibNamed("StatusItemView", owner: self, topLevelObjects: &topLevelObjects) {
             let view = (topLevelObjects!.first(where: { $0 is NSView }) as? StatusItemView)!
+            view.statusItem = statusItem
             view.setupView()
             view.imageView.image = StatusItemTool.menuImage
 
@@ -65,6 +68,7 @@ class StatusItemView: NSView, StatusItemViewProtocol {
             separatorLine.heightAnchor.constraint(equalToConstant: 12),
             separatorLine.centerYAnchor.constraint(equalTo: centerYAnchor),
             separatorLine.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 5),
+            speedContainerView.leadingAnchor.constraint(greaterThanOrEqualTo: separatorLine.trailingAnchor, constant: 4),
         ])
     }
 
@@ -82,18 +86,42 @@ class StatusItemView: NSView, StatusItemViewProtocol {
 
     func updateSpeedLabel(up: Int, down: Int) {
         guard !speedContainerView.isHidden else { return }
+        var needsResize = false
         if up != self.up {
             uploadSpeedLabel.stringValue = SpeedUtils.getSpeedString(for: up)
             self.up = up
+            needsResize = true
         }
         if down != self.down {
             downloadSpeedLabel.stringValue = SpeedUtils.getSpeedString(for: down)
             self.down = down
+            needsResize = true
+        }
+        if needsResize {
+            updateDynamicWidth()
         }
     }
 
     func showSpeedContainer(show: Bool) {
         speedContainerView.isHidden = !show
         separatorLine.isHidden = !show
+    }
+
+    private func updateDynamicWidth() {
+        guard !speedContainerView.isHidden else { return }
+        let font = StatusItemTool.font
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        let upWidth = (uploadSpeedLabel.stringValue as NSString).size(withAttributes: attrs).width
+        let downWidth = (downloadSpeedLabel.stringValue as NSString).size(withAttributes: attrs).width
+        let maxTextWidth = ceil(max(upWidth, downWidth))
+
+        // leading(3) + icon(18) + gap(5) + separator(1) + gap(4) + text + trailing(3)
+        let neededWidth = 34.0 + maxTextWidth
+        let width = max(statusItemLengthWithSpeed, neededWidth)
+
+        if abs(frame.width - width) > 0.5 {
+            updateSize(width: width)
+            statusItem?.length = width
+        }
     }
 }
