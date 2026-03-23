@@ -7,99 +7,136 @@
 //
 
 import Cocoa
-import Sparkle
 
 class AutoUpgradeManager: NSObject {
     var checkForUpdatesMenuItem: NSMenuItem?
     static let shared = AutoUpgradeManager()
-    private var controller: SPUStandardUpdaterController?
-    private var current: Channel = {
-        if let value = UserDefaults.standard.object(forKey: "AutoUpgradeManager.current") as? Int,
-           let channel = Channel(rawValue: value) { return channel }
-        #if PRO_VERSION
-            return .appcenter
-        #else
-            return .stable
-        #endif
-    }() {
-        didSet {
-            UserDefaults.standard.set(current.rawValue, forKey: "AutoUpgradeManager.current")
-        }
-    }
-
-    private var allowSelectChannel: Bool {
-        return Bundle.main.object(forInfoDictionaryKey: "SUDisallowSelectChannel") as? Bool != true
-    }
+    private static let feedURL = "https://clash-fx.github.io/ClashFX/appcast.xml"
+    private static let releasesURL = "https://github.com/Clash-FX/ClashFX/releases"
 
     // MARK: Public
 
-    func setup() {
-        controller = SPUStandardUpdaterController(updaterDelegate: self, userDriverDelegate: self)
-    }
+    func setup() {}
 
     func setupCheckForUpdatesMenuItem(_ item: NSMenuItem) {
         checkForUpdatesMenuItem = item
-        checkForUpdatesMenuItem?.target = controller
-        checkForUpdatesMenuItem?.action = #selector(SPUStandardUpdaterController.checkForUpdates(_:))
+        checkForUpdatesMenuItem?.target = self
+        checkForUpdatesMenuItem?.action = #selector(checkForUpdates(_:))
     }
 
-    func addChannelMenuItem(_ button: NSPopUpButton) {
-        for channel in Channel.allCases {
-            button.addItem(withTitle: channel.title)
-            button.lastItem?.tag = channel.rawValue
+    func addChannelMenuItem(_ button: NSPopUpButton) {}
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        checkForUpdatesMenuItem?.isEnabled = false
+        let url = URL(string: AutoUpgradeManager.feedURL)!
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+            DispatchQueue.main.async {
+                self?.checkForUpdatesMenuItem?.isEnabled = true
+                if let error = error {
+                    self?.showError(error.localizedDescription)
+                    return
+                }
+                guard let data = data else {
+                    self?.showError("No data received")
+                    return
+                }
+                let parser = AppcastParser()
+                if let item = parser.parse(data: data) {
+                    self?.handleUpdate(item)
+                } else {
+                    self?.showError(NSLocalizedString("Unable to check for updates", comment: ""))
+                }
+            }
+        }.resume()
+    }
+
+    // MARK: Private
+
+    private func handleUpdate(_ item: AppcastItem) {
+        let currentVersion = AppVersionUtil.currentVersion
+        if item.version.compare(currentVersion, options: .numeric) == .orderedDescending {
+            showUpdateAlert(item)
+        } else {
+            let alert = NSAlert()
+            alert.messageText = NSLocalizedString("You're up to date!", comment: "")
+            alert.informativeText = String(format: NSLocalizedString("ClashFX %@ is the latest version.", comment: ""), currentVersion)
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
+            alert.runModal()
         }
-        button.target = self
-        button.action = #selector(didselectChannel(sender:))
-        button.selectItem(withTag: current.rawValue)
     }
 
-    @objc func didselectChannel(sender: NSPopUpButton) {
-        guard let tag = sender.selectedItem?.tag, let channel = Channel(rawValue: tag) else { return }
-        current = channel
+    private func showUpdateAlert(_ item: AppcastItem) {
+        let alert = NSAlert()
+        alert.messageText = String(format: NSLocalizedString("ClashFX %@ is available", comment: ""), item.version)
+        alert.informativeText = String(format: NSLocalizedString("You are currently running %@. Download the new version from GitHub?", comment: ""), AppVersionUtil.currentVersion)
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: NSLocalizedString("Download", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Later", comment: ""))
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            let url = item.downloadURL.isEmpty
+                ? URL(string: AutoUpgradeManager.releasesURL)!
+                : URL(string: item.downloadURL)!
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func showError(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("Update Error", comment: "")
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
+        alert.runModal()
     }
 }
 
-extension AutoUpgradeManager: SPUUpdaterDelegate {
-    func feedURLString(for updater: SPUUpdater) -> String? {
-        guard WebPortalManager.hasWebProtal == false, allowSelectChannel else { return nil }
-        return current.urlString
-    }
+// MARK: - Appcast Parser
 
-    func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        SystemProxyManager.shared.disableProxy(port: 0, socksPort: 0, forceDisable: true)
-    }
+private struct AppcastItem {
+    let version: String
+    let downloadURL: String
 }
 
-// MARK: - SPUStandardUserDriverDelegate
+private class AppcastParser: NSObject, XMLParserDelegate {
+    private var items: [AppcastItem] = []
+    private var currentVersion: String?
+    private var currentURL: String?
+    private var inItem = false
 
-extension AutoUpgradeManager: SPUStandardUserDriverDelegate {
-    var supportsGentleScheduledUpdateReminders: Bool {
-        return true
+    func parse(data: Data) -> AppcastItem? {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return items.first
     }
 
-    func standardUserDriverShouldHandleShowingScheduledUpdate(
-        _ update: SUAppcastItem,
-        andInImmediateFocus immediateFocus: Bool
-    ) -> Bool {
-        return immediateFocus
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+                qualifiedName: String?, attributes: [String: String] = [:]) {
+        if elementName == "item" { inItem = true }
+        if inItem && elementName == "sparkle:version" { currentVersion = "" }
+        if inItem && elementName == "enclosure" {
+            currentURL = attributes["url"]
+        }
     }
 
-    func standardUserDriverWillHandleShowingUpdate(
-        _ handleShowingUpdate: Bool,
-        forUpdate update: SUAppcastItem,
-        state: SPUUserUpdateState
-    ) {
-        guard !handleShowingUpdate, !state.userInitiated else { return }
-
-        NSUserNotificationCenter.default
-            .post(title: NSLocalizedString("Update Available", comment: ""),
-                  info: String(format: NSLocalizedString("Version %@ is available", comment: ""),
-                               update.displayVersionString))
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if currentVersion != nil { currentVersion?.append(string) }
     }
 
-    func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {}
-
-    func standardUserDriverWillFinishUpdateSession() {}
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+                qualifiedName: String?) {
+        if elementName == "item" && inItem {
+            if let version = currentVersion?.trimmingCharacters(in: .whitespacesAndNewlines) {
+                items.append(AppcastItem(version: version, downloadURL: currentURL ?? ""))
+            }
+            currentVersion = nil
+            currentURL = nil
+            inItem = false
+        }
+        if elementName == "sparkle:version" { /* keep currentVersion for didEndElement item */ }
+    }
 }
 
 // MARK: - Channel Enum
