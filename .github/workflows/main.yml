@@ -102,6 +102,27 @@ jobs:
         rm -rf dmg_temp
         echo "DMG created: $(ls -lh ClashFX.dmg)"
 
+    - name: sign dmg with sparkle
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      run: |
+        SIGN_OUTPUT=$(echo "$SPARKLE_PRIVATE_KEY" | ./Pods/Sparkle/bin/sign_update --ed-key-file - ClashFX.dmg)
+        echo "Sparkle signature output: $SIGN_OUTPUT"
+
+        SIGNATURE=$(echo "$SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+        LENGTH=$(echo "$SIGN_OUTPUT" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
+
+        if [ -z "$SIGNATURE" ] || [ -z "$LENGTH" ]; then
+          echo "Error: Failed to parse signature or length"
+          echo "Raw output: $SIGN_OUTPUT"
+          exit 1
+        fi
+
+        echo "SPARKLE_SIGNATURE=$SIGNATURE" >> $GITHUB_ENV
+        echo "SPARKLE_LENGTH=$LENGTH" >> $GITHUB_ENV
+        echo "Signed successfully: signature=${SIGNATURE:0:20}... length=$LENGTH"
+
     - name: upload build to github
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/')
@@ -114,3 +135,55 @@ jobs:
         draft: false
         prerelease: false
         body_path: RELEASE_NOTES.md
+
+    - name: update appcast.xml
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        tag=${GITHUB_REF##*/}
+        CURRENT_DATE=$(date -u +"%a, %d %b %Y %H:%M:%S %z")
+
+        RELEASE_NOTES_HTML=$(sed -n '/^### Bug Fixes/,/^---$/p' RELEASE_NOTES.md | head -n -1 | \
+          sed 's/^### \(.*\)/<h3>\1<\/h3>/' | \
+          sed 's/^- \*\*\(.*\)\*\* — \(.*\)/<li><strong>\1<\/strong> — \2<\/li>/' | \
+          sed '1i\<h2>ClashFX v'"$tag"'<\/h2>' | \
+          grep -v '^$' | \
+          awk 'BEGIN{} /<li>/ && !ul_open {print "<ul>"; ul_open=1} {print} END{if(ul_open) print "</ul>"}')
+
+        if [ -z "$RELEASE_NOTES_HTML" ]; then
+          RELEASE_NOTES_HTML="<h2>ClashFX v${tag}</h2><p>See release notes on GitHub.</p>"
+        fi
+
+        NEW_ITEM="    <item>
+          <title>Version $tag</title>
+          <description><![CDATA[
+            $RELEASE_NOTES_HTML
+          ]]></description>
+          <pubDate>$CURRENT_DATE</pubDate>
+          <sparkle:version>$tag</sparkle:version>
+          <sparkle:shortVersionString>$tag</sparkle:shortVersionString>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+          <enclosure
+            url=\"https://github.com/Clash-FX/ClashFX/releases/download/$tag/ClashFX.dmg\"
+            sparkle:version=\"$tag\"
+            sparkle:shortVersionString=\"$tag\"
+            sparkle:edSignature=\"$SPARKLE_SIGNATURE\"
+            length=\"$SPARKLE_LENGTH\"
+            type=\"application/octet-stream\"
+          />
+        </item>"
+
+        MARKER="<language>en</language>"
+        ESCAPED_ITEM=$(echo "$NEW_ITEM" | sed 's/[&/\]/\\&/g')
+        awk -v marker="$MARKER" -v item="$NEW_ITEM" '{print} $0 ~ marker {print item}' docs/appcast.xml > docs/appcast_new.xml
+        mv docs/appcast_new.xml docs/appcast.xml
+
+        echo "Updated appcast.xml with version $tag"
+
+    - name: push appcast update
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add docs/appcast.xml
+        git commit -m "release: update appcast.xml for v${GITHUB_REF##*/} [skip ci]"
+        git push origin HEAD:main
