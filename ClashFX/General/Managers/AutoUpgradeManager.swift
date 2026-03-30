@@ -104,6 +104,7 @@ private class AppcastParser: NSObject, XMLParserDelegate {
     private var currentVersion: String?
     private var currentURL: String?
     private var inItem = false
+    private var collectingVersion = false
 
     func parse(data: Data) -> AppcastItem? {
         let parser = XMLParser(data: data)
@@ -115,27 +116,35 @@ private class AppcastParser: NSObject, XMLParserDelegate {
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
                 qualifiedName: String?, attributes: [String: String] = [:]) {
         if elementName == "item" { inItem = true }
-        if inItem && elementName == "sparkle:version" { currentVersion = "" }
+        if inItem && elementName == "sparkle:version" {
+            currentVersion = ""
+            collectingVersion = true
+        }
         if inItem && elementName == "enclosure" {
             currentURL = attributes["url"]
         }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if currentVersion != nil { currentVersion?.append(string) }
+        if collectingVersion {
+            currentVersion?.append(string)
+        }
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
                 qualifiedName: String?) {
+        if elementName == "sparkle:version" {
+            collectingVersion = false
+        }
         if elementName == "item" && inItem {
-            if let version = currentVersion?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            if let version = currentVersion?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !version.isEmpty {
                 items.append(AppcastItem(version: version, downloadURL: currentURL ?? ""))
             }
             currentVersion = nil
             currentURL = nil
             inItem = false
         }
-        if elementName == "sparkle:version" { /* keep currentVersion for didEndElement item */ }
     }
 }
 

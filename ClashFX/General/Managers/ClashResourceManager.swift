@@ -7,6 +7,7 @@ class ClashResourceManager {
     static func check() -> Bool {
         checkConfigDir()
         checkMMDB()
+        checkGeoSite()
         return true
     }
 
@@ -46,6 +47,31 @@ class ClashResourceManager {
                 } catch let err {
                     Logger.log("add mmdb fail:\(err)", level: .error)
                 }
+            }
+        }
+    }
+
+    static func checkGeoSite() {
+        let fm = FileManager.default
+        let destPath = "\(kConfigFolderPath)/geosite.dat"
+        let versionChange = AppVersionUtil.hasVersionChanged || AppVersionUtil.isFirstLaunch
+
+        if fm.fileExists(atPath: destPath) && !versionChange {
+            return
+        }
+
+        if fm.fileExists(atPath: destPath) {
+            Logger.log("removing old geosite.dat")
+            try? fm.removeItem(atPath: destPath)
+        }
+
+        Logger.log("installing bundled geosite.dat")
+        if let geositeUrl = Bundle.main.url(forResource: "geosite.dat", withExtension: "gz") {
+            do {
+                let data = try Data(contentsOf: geositeUrl).gunzipped()
+                try data.write(to: URL(fileURLWithPath: destPath))
+            } catch let err {
+                Logger.log("add geosite.dat fail:\(err)", level: .error)
             }
         }
     }

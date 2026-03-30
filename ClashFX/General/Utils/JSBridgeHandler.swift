@@ -82,6 +82,38 @@ class JsBridgeUtil {
         bridge.registerHandler("ping") { _, responseCallback in
             responseCallback("pong")
         }
+
+        bridge.registerHandler("upgrade_ui") { _, responseCallback in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let bundleDashboard = Bundle.main.resourceURL?.appendingPathComponent("dashboard"),
+                      FileManager.default.fileExists(atPath: bundleDashboard.path) else {
+                    DispatchQueue.main.async { responseCallback(false) }
+                    return
+                }
+
+                let clashHome = FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent(".config/clashfx/dashboard")
+                let fm = FileManager.default
+                try? fm.removeItem(at: clashHome)
+
+                do {
+                    try fm.copyItem(at: bundleDashboard, to: clashHome)
+                    setUIPath(clashHome.path.goStringBuffer())
+                    DispatchQueue.main.async {
+                        WKWebsiteDataStore.default().removeData(
+                            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+                            modifiedSince: Date(timeIntervalSince1970: 0)
+                        ) {}
+                        NotificationCenter.default.post(name: .reloadDashboard, object: nil)
+                        responseCallback(true)
+                    }
+                } catch {
+                    Logger.log("upgrade_ui failed: \(error)", level: .error)
+                    DispatchQueue.main.async { responseCallback(false) }
+                }
+            }
+        }
+
         return bridge
     }
 }

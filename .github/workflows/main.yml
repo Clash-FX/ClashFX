@@ -202,3 +202,40 @@ jobs:
         git add docs/appcast.xml
         git commit -m "release: update appcast.xml for v${GITHUB_REF##*/} [skip ci]"
         git push origin HEAD:main
+
+    - name: notify website repos
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        WEBSITE_PAT: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+      run: |
+        tag=${GITHUB_REF##*/}
+        DATE=$(date -u +%Y-%m-%d)
+        NOTES=$(head -50 RELEASE_NOTES.md | jq -Rs .)
+
+        PAYLOAD=$(jq -n \
+          --arg version "$tag" \
+          --arg date "$DATE" \
+          --arg product "clashfx" \
+          --argjson notes "$NOTES" \
+          '{
+            event_type: "clashfx-release",
+            client_payload: {
+              product: $product,
+              version: $version,
+              date: $date,
+              release_notes: $notes,
+              download_url: "https://github.com/Clash-FX/ClashFX/releases/download/\($version)/ClashFX.dmg"
+            }
+          }')
+
+        curl -sf -X POST \
+          -H "Authorization: token $WEBSITE_PAT" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/repos/mixc6763-prog/ClashFX-web/dispatches \
+          -d "$PAYLOAD" && echo "Notified ClashFX-web" || echo "Failed to notify ClashFX-web"
+
+        curl -sf -X POST \
+          -H "Authorization: token $WEBSITE_PAT" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/repos/mixc6763-prog/ClashX.Web/dispatches \
+          -d "$PAYLOAD" && echo "Notified ClashX.Web" || echo "Failed to notify ClashX.Web"
