@@ -113,10 +113,20 @@ class ClashWebViewContoller: NSViewController {
         }
         webview.setValue(false, forKey: "drawsBackground")
 
+        let sidebarPadCSS = """
+        (function() {
+          var s = document.createElement('style');
+          s.textContent = 'aside, [class*="aside"], [class*="sidebar"], [class*="Sidebar"] { padding-top: 28px !important; }';
+          if (document.head) document.head.appendChild(s);
+          else document.addEventListener('DOMContentLoaded', function() { document.head.appendChild(s); });
+        })();
+        """
         let guardScript = WKUserScript(source: Self.apiGuardJS, injectionTime: .atDocumentStart, forMainFrameOnly: true)
         let hideScript = WKUserScript(source: Self.hideUpgradeJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        let padScript = WKUserScript(source: sidebarPadCSS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         webview.configuration.userContentController.addUserScript(guardScript)
         webview.configuration.userContentController.addUserScript(hideScript)
+        webview.configuration.userContentController.addUserScript(padScript)
 
         bridge = JsBridgeUtil.initJSbridge(webview: webview, delegate: self)
 
