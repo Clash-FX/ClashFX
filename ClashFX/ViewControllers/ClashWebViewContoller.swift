@@ -113,17 +113,36 @@ class ClashWebViewContoller: NSViewController {
         }
         webview.setValue(false, forKey: "drawsBackground")
 
-        let sidebarPadCSS = """
+        let layoutPatchJS = """
         (function() {
           var s = document.createElement('style');
           s.textContent = 'aside, [class*="aside"], [class*="sidebar"], [class*="Sidebar"] { padding-top: 28px !important; }';
           if (document.head) document.head.appendChild(s);
           else document.addEventListener('DOMContentLoaded', function() { document.head.appendChild(s); });
+
+          function patchContentHeader() {
+            var aside = document.querySelector('aside, [class*="sidebar"], [class*="Sidebar"]');
+            if (!aside) return;
+            var content = aside.nextElementSibling;
+            if (!content) return;
+            var pages = content.children;
+            for (var i = 0; i < pages.length; i++) {
+              var fc = pages[i].firstElementChild;
+              if (fc && fc.offsetHeight >= 48 && fc.querySelector('h1, h2, h3')) {
+                fc.style.height = '28px';
+                fc.style.minHeight = '0';
+                fc.style.overflow = 'hidden';
+              }
+            }
+          }
+          var mo = new MutationObserver(patchContentHeader);
+          mo.observe(document.documentElement, {childList: true, subtree: true});
+          document.addEventListener('DOMContentLoaded', patchContentHeader);
         })();
         """
         let guardScript = WKUserScript(source: Self.apiGuardJS, injectionTime: .atDocumentStart, forMainFrameOnly: true)
         let hideScript = WKUserScript(source: Self.hideUpgradeJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
-        let padScript = WKUserScript(source: sidebarPadCSS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        let padScript = WKUserScript(source: layoutPatchJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         webview.configuration.userContentController.addUserScript(guardScript)
         webview.configuration.userContentController.addUserScript(hideScript)
         webview.configuration.userContentController.addUserScript(padScript)
