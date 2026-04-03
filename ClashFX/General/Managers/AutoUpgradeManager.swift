@@ -25,8 +25,15 @@ class AutoUpgradeManager: NSObject {
     func setup() {}
 
     func setupCheckForUpdatesMenuItem(_ item: NSMenuItem) {
-        item.target = updaterController
-        item.action = #selector(SPUStandardUpdaterController.checkForUpdates(_:))
+        item.target = self
+        item.action = #selector(checkForUpdates(_:))
+    }
+
+    @objc func checkForUpdates(_ sender: Any) {
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.updaterController.checkForUpdates(sender)
+        }
     }
 
     func addChannelMenuItem(_ button: NSPopUpButton) {}
