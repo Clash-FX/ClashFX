@@ -687,8 +687,9 @@ func clashResumeCore() *C.char {
 
 //export clashWriteEnhancedConfig
 func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteExcludeList *C.char) *C.char {
+	excludeRaw := C.GoString(tunRouteExcludeList)
 	tunMu.Lock()
-	tunRouteExcludeRaw = C.GoString(tunRouteExcludeList)
+	tunRouteExcludeRaw = excludeRaw
 	tunMu.Unlock()
 	srcPath := C.GoString(configPath)
 	if srcPath == "" {
@@ -714,7 +715,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 		"mtu":                   9000,
 	}
 
-	prefixes, domains, invalid := splitTunRouteExcludeEntries(tunRouteExcludeRaw)
+	prefixes, domains, invalid := splitTunRouteExcludeEntries(excludeRaw)
 	if len(invalid) > 0 {
 		return C.CString("error:invalid TUN route exclude entries: " + strings.Join(invalid, ", "))
 	}
