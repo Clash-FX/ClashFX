@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.7</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.7</h2><ul><li><strong>TUN route exclusion settings</strong> — Exclude specific IPs, CIDRs, and domains from TUN routing. by @YangYongAn</li><li><strong>Remove menu bar separator</strong> — Remove the 1px divider between the tray icon and speed numbers for a cleaner look. by @ayangweb</li></ul>
+  ]]></description>
+  <pubDate>Sun, 06 Apr 2026 08:54:00 +0000</pubDate>
+  <sparkle:version>1.0.7</sparkle:version>
+  <sparkle:shortVersionString>1.0.7</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.7/ClashFX.dmg"
+    sparkle:version="1.0.7"
+    sparkle:shortVersionString="1.0.7"
+    sparkle:edSignature="QLkTxN+zH/cs8Wv5iwLQUO7KcWJ6dv3NmO2On2ol8o56AQcBTB/3c5n3QJrwHpOfupG/5ydod64ClrP9epqfBQ=="
+    length="96150783"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.6</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.6</h2><ul><li><strong>Fix dashboard top spacing</strong> — Reduce excess blank space at the top of the content area caused by the previous traffic-light overlap fix. Overview cards now render flush below the title bar without scrolling</li><li><strong>Fix traffic light button overlap</strong> — Prevent the dashboard sidebar from covering macOS window control buttons</li></ul>
