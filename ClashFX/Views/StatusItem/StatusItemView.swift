@@ -47,14 +47,6 @@ class StatusItemView: NSView, StatusItemViewProtocol {
         return NSView() as! StatusItemView
     }
 
-    private lazy var separatorLine: NSView = {
-        let line = NSView()
-        line.translatesAutoresizingMaskIntoConstraints = false
-        line.wantsLayer = true
-        line.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.25).cgColor
-        return line
-    }()
-
     func setupView() {
         uploadSpeedLabel.font = StatusItemTool.font
         downloadSpeedLabel.font = StatusItemTool.font
@@ -62,13 +54,8 @@ class StatusItemView: NSView, StatusItemViewProtocol {
         uploadSpeedLabel.textColor = NSColor.labelColor
         downloadSpeedLabel.textColor = NSColor.labelColor
 
-        addSubview(separatorLine)
         NSLayoutConstraint.activate([
-            separatorLine.widthAnchor.constraint(equalToConstant: 1),
-            separatorLine.heightAnchor.constraint(equalToConstant: 12),
-            separatorLine.centerYAnchor.constraint(equalTo: centerYAnchor),
-            separatorLine.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 5),
-            speedContainerView.leadingAnchor.constraint(greaterThanOrEqualTo: separatorLine.trailingAnchor, constant: 4),
+            speedContainerView.leadingAnchor.constraint(greaterThanOrEqualTo: imageView.trailingAnchor, constant: 8),
         ])
     }
 
@@ -104,7 +91,6 @@ class StatusItemView: NSView, StatusItemViewProtocol {
 
     func showSpeedContainer(show: Bool) {
         speedContainerView.isHidden = !show
-        separatorLine.isHidden = !show
     }
 
     private func updateDynamicWidth() {
@@ -115,8 +101,8 @@ class StatusItemView: NSView, StatusItemViewProtocol {
         let downWidth = (downloadSpeedLabel.stringValue as NSString).size(withAttributes: attrs).width
         let maxTextWidth = ceil(max(upWidth, downWidth))
 
-        // leading(3) + icon(18) + gap(5) + separator(1) + gap(4) + text + trailing(3)
-        let neededWidth = 34.0 + maxTextWidth
+        // leading(3) + icon(18) + gap(8) + text + trailing(3)
+        let neededWidth = 32.0 + maxTextWidth
         let width = max(statusItemLengthWithSpeed, neededWidth)
 
         if abs(frame.width - width) > 0.5 {
