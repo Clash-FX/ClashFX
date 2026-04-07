@@ -22,6 +22,7 @@ class StatusItemView: NSView, StatusItemViewProtocol {
     var down: Int = 0
 
     weak var statusItem: NSStatusItem?
+    private var speedLeadingConstraint: NSLayoutConstraint?
 
     static func create(statusItem: NSStatusItem?) -> StatusItemView {
         var topLevelObjects: NSArray?
@@ -54,9 +55,8 @@ class StatusItemView: NSView, StatusItemViewProtocol {
         uploadSpeedLabel.textColor = NSColor.labelColor
         downloadSpeedLabel.textColor = NSColor.labelColor
 
-        NSLayoutConstraint.activate([
-            speedContainerView.leadingAnchor.constraint(greaterThanOrEqualTo: imageView.trailingAnchor, constant: 8),
-        ])
+        speedLeadingConstraint = speedContainerView.leadingAnchor.constraint(greaterThanOrEqualTo: imageView.trailingAnchor, constant: 8)
+        speedLeadingConstraint?.isActive = true
     }
 
     func updateSize(width: CGFloat) {
@@ -91,6 +91,7 @@ class StatusItemView: NSView, StatusItemViewProtocol {
 
     func showSpeedContainer(show: Bool) {
         speedContainerView.isHidden = !show
+        speedLeadingConstraint?.isActive = show
     }
 
     private func updateDynamicWidth() {
