@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.9</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.9</h2><ul><li><strong>Fix remote config validation rejecting configs that use proxy-providers</strong> — Configs referencing proxy-groups supplied by `proxy-providers` were rejected during import with errors like "proxy group: '…' not found", because the pre-validation performed full semantic checks before providers were fetched. Switched remote config verification to lightweight YAML-only validation; full validation still occurs when the config is loaded by the core. Fixes #12</li></ul>
+  ]]></description>
+  <pubDate>Thu, 09 Apr 2026 15:58:48 +0000</pubDate>
+  <sparkle:version>1.0.9</sparkle:version>
+  <sparkle:shortVersionString>1.0.9</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.9/ClashFX.dmg"
+    sparkle:version="1.0.9"
+    sparkle:shortVersionString="1.0.9"
+    sparkle:edSignature="dfiyInNYAdqXx87lqFjhrB7I9BXdDBpVQllBQzVwktRPZApRLhDj0CIJKplrrtj2BhVpvsSsWHGEkJIVzOHlCw=="
+    length="96100815"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.8</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.8</h2><ul><li><strong>Fix remote config import rejecting proxy-provider-only configs</strong> — Configs using only proxy-providers (without inline proxies) were incorrectly rejected with format error. Fixes #12</li><li><strong>Fix menu bar icon shrinking when speed display is disabled</strong> — The tray icon was rendered too small when real-time speed display was turned off. by @YangYongAn</li></ul>
