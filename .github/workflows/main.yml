@@ -202,11 +202,11 @@ jobs:
     - name: push appcast update
       if: startsWith(github.ref, 'refs/tags/')
       env:
-        WEBSITE_PAT: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git remote set-url origin "https://x-access-token:${WEBSITE_PAT}@github.com/Clash-FX/ClashFX.git"
+        git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/Clash-FX/ClashFX.git"
         git add docs/appcast.xml
         git commit -m "release: update appcast.xml for v${GITHUB_REF##*/} [skip ci]"
         git push origin HEAD:main
