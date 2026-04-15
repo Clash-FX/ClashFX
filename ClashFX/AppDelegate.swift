@@ -1128,14 +1128,6 @@ extension AppDelegate {
         guard let code = sender.representedObject as? String,
               code != Settings.appLanguage else { return }
 
-        Settings.appLanguage = code
-        if code.isEmpty {
-            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
-        } else {
-            UserDefaults.standard.set([code], forKey: "AppleLanguages")
-        }
-        UserDefaults.standard.synchronize()
-
         let alert = NSAlert()
         alert.messageText = NSLocalizedString("Language", comment: "")
         alert.informativeText = NSLocalizedString("Language change requires restart", comment: "")
@@ -1143,6 +1135,13 @@ extension AppDelegate {
         alert.addButton(withTitle: NSLocalizedString("Later", comment: ""))
 
         if alert.runModal() == .alertFirstButtonReturn {
+            Settings.appLanguage = code
+            if code.isEmpty {
+                UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+            } else {
+                UserDefaults.standard.set([code], forKey: "AppleLanguages")
+            }
+            UserDefaults.standard.synchronize()
             restartApp()
         }
     }
