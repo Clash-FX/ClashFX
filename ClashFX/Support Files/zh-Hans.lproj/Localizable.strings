@@ -424,3 +424,21 @@
 
 /* No comment provided by engineer. */
 "Image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 36×36 pixels (72×72 for Retina @2x)." = "图片尺寸过大（%d×%d）。最大允许尺寸为 %d×%d 像素。推荐尺寸为 36×36 像素（Retina @2x 为 72×72）。";
+
+/* No comment provided by engineer. */
+"App Logo" = "应用图标";
+
+/* No comment provided by engineer. */
+"Select App Logo Image" = "选择应用图标图片";
+
+/* No comment provided by engineer. */
+"Failed to change app logo" = "更换应用图标失败";
+
+/* No comment provided by engineer. */
+"Failed to reset app logo" = "重置应用图标失败";
+
+/* No comment provided by engineer. */
+"Drop image here" = "拖入图片";
+
+/* No comment provided by engineer. */
+"Logo image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 512×512 pixels (1024×1024 for Retina @2x)." = "图标尺寸过大（%d×%d）。最大允许尺寸为 %d×%d 像素。推荐尺寸为 512×512 像素（Retina @2x 为 1024×1024）。";

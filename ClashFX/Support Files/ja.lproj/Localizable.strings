@@ -387,3 +387,21 @@
 
 /* No comment provided by engineer. */
 "Image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 36×36 pixels (72×72 for Retina @2x)." = "画像が大きすぎます（%d×%d）。最大許容サイズは %d×%d ピクセルです。推奨サイズは 36×36 ピクセル（Retina @2x の場合は 72×72）です。";
+
+/* No comment provided by engineer. */
+"App Logo" = "アプリアイコン";
+
+/* No comment provided by engineer. */
+"Select App Logo Image" = "アプリアイコン画像を選択";
+
+/* No comment provided by engineer. */
+"Failed to change app logo" = "アプリアイコンの変更に失敗しました";
+
+/* No comment provided by engineer. */
+"Failed to reset app logo" = "アプリアイコンのリセットに失敗しました";
+
+/* No comment provided by engineer. */
+"Drop image here" = "画像をドロップ";
+
+/* No comment provided by engineer. */
+"Logo image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 512×512 pixels (1024×1024 for Retina @2x)." = "アイコン画像が大きすぎます（%d×%d）。最大許容サイズは %d×%d ピクセルです。推奨サイズは 512×512 ピクセル（Retina @2x の場合は 1024×1024）です。";

@@ -387,3 +387,21 @@
 
 /* No comment provided by engineer. */
 "Image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 36×36 pixels (72×72 for Retina @2x)." = "Изображение слишком большое (%d×%d). Максимально допустимый размер — %d×%d пикселей. Рекомендуемый размер — 36×36 пикселей (72×72 для Retina @2x).";
+
+/* No comment provided by engineer. */
+"App Logo" = "Иконка приложения";
+
+/* No comment provided by engineer. */
+"Select App Logo Image" = "Выбрать изображение иконки приложения";
+
+/* No comment provided by engineer. */
+"Failed to change app logo" = "Не удалось изменить иконку приложения";
+
+/* No comment provided by engineer. */
+"Failed to reset app logo" = "Не удалось сбросить иконку приложения";
+
+/* No comment provided by engineer. */
+"Drop image here" = "Перетащите изображение сюда";
+
+/* No comment provided by engineer. */
+"Logo image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 512×512 pixels (1024×1024 for Retina @2x)." = "Изображение иконки слишком большое (%d×%d). Максимально допустимый размер — %d×%d пикселей. Рекомендуемый размер — 512×512 пикселей (1024×1024 для Retina @2x).";

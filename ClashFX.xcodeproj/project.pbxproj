@@ -69,6 +69,9 @@
 		4991D2322A565E6A00978143 /* Combine+Ext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4991D2312A565E6A00978143 /* Combine+Ext.swift */; };
 		4994B5542A47C4FF00E595B9 /* NormalMenuItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4994B5532A47C4FF00E595B9 /* NormalMenuItemView.swift */; };
 		78E0F1560AFD95A584F979B9 /* TrayIconPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DFBA643EF41EB65C39E5574 /* TrayIconPickerView.swift */; };
+		A1B2C3D4E5F60001AA000001 /* LogoPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60002AA000001 /* LogoPickerView.swift */; };
+		A1B2C3D4E5F60003AA000001 /* AppLogoTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60004AA000001 /* AppLogoTool.swift */; };
+		A1B2C3D4E5F60005AA000001 /* ImagePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60006AA000001 /* ImagePickerView.swift */; };
 		499976C821359F0400E7BF83 /* ClashWebViewContoller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499976C721359F0400E7BF83 /* ClashWebViewContoller.swift */; };
 		499A485522ED707300F6C675 /* RemoteConfigViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499A485322ED707300F6C675 /* RemoteConfigViewController.swift */; };
 		499A485822ED715200F6C675 /* RemoteConfigModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499A485722ED715200F6C675 /* RemoteConfigModel.swift */; };
@@ -247,6 +250,8 @@
 		4991D2312A565E6A00978143 /* Combine+Ext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Combine+Ext.swift"; sourceTree = "<group>"; };
 		4994B5532A47C4FF00E595B9 /* NormalMenuItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NormalMenuItemView.swift; sourceTree = "<group>"; };
 		6DFBA643EF41EB65C39E5574 /* TrayIconPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrayIconPickerView.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60002AA000001 /* LogoPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogoPickerView.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60006AA000001 /* ImagePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePickerView.swift; sourceTree = "<group>"; };
 		499976C721359F0400E7BF83 /* ClashWebViewContoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashWebViewContoller.swift; sourceTree = "<group>"; };
 		499A485322ED707300F6C675 /* RemoteConfigViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConfigViewController.swift; sourceTree = "<group>"; };
 		499A485722ED715200F6C675 /* RemoteConfigModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConfigModel.swift; sourceTree = "<group>"; };
@@ -285,6 +290,7 @@
 		49D176A8235614340093DD7B /* ProxyGroupSpeedTestMenuItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyGroupSpeedTestMenuItem.swift; sourceTree = "<group>"; };
 		49D176AA23575BB20093DD7B /* ProxyGroupMenuItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyGroupMenuItemView.swift; sourceTree = "<group>"; };
 		49D223382A1DA5F10002FFCB /* SSIDSuspendTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSIDSuspendTool.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60004AA000001 /* AppLogoTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogoTool.swift; sourceTree = "<group>"; };
 		49D6A45129AEEC15006487EF /* StatusItemTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemTool.swift; sourceTree = "<group>"; };
 		49D6A45529AEEC55006487EF /* StatusItemViewProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemViewProtocol.swift; sourceTree = "<group>"; };
 		49D767732A6195C800830333 /* ConnectionsReq.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsReq.swift; sourceTree = "<group>"; };
@@ -416,6 +422,7 @@
 				49D176A62355FE680093DD7B /* NetworkChangeNotifier.swift */,
 				49B445152457CDF000B27E3E /* ClashStatusTool.swift */,
 				49D223382A1DA5F10002FFCB /* SSIDSuspendTool.swift */,
+				A1B2C3D4E5F60004AA000001 /* AppLogoTool.swift */,
 				49FEC6682AD9369C00BAD9F5 /* Command.swift */,
 			);
 			path = Utils;
@@ -483,6 +490,8 @@
 				49228456270AADE20027A4B6 /* RemoteConfigUpdateIntervalSettingView.swift */,
 				4994B5532A47C4FF00E595B9 /* NormalMenuItemView.swift */,
 				6DFBA643EF41EB65C39E5574 /* TrayIconPickerView.swift */,
+				A1B2C3D4E5F60002AA000001 /* LogoPickerView.swift */,
+				A1B2C3D4E5F60006AA000001 /* ImagePickerView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1070,6 +1079,9 @@
 				F976275C23634DF8000EDEFE /* LoginServiceKit.swift in Sources */,
 				4994B5542A47C4FF00E595B9 /* NormalMenuItemView.swift in Sources */,
 				78E0F1560AFD95A584F979B9 /* TrayIconPickerView.swift in Sources */,
+				A1B2C3D4E5F60001AA000001 /* LogoPickerView.swift in Sources */,
+				A1B2C3D4E5F60003AA000001 /* AppLogoTool.swift in Sources */,
+				A1B2C3D4E5F60005AA000001 /* ImagePickerView.swift in Sources */,
 				0AD7506B2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift in Sources */,
 				F92D0B2E236D35C000575E15 /* ProxyItemView.swift in Sources */,
 				49BB31E7246853EA008A4CB0 /* ICloudManager.swift in Sources */,

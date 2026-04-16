@@ -10,31 +10,57 @@ import Cocoa
 class AppearanceSettingViewController: NSViewController {
     override func loadView() {
         let width: CGFloat = 400
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 120))
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 240))
         contentView.translatesAutoresizingMaskIntoConstraints = false
 
-        let box = NSBox()
-        box.translatesAutoresizingMaskIntoConstraints = false
-        box.title = NSLocalizedString("Tray Icon", comment: "")
+        // Tray Icon section
+        let trayBox = NSBox()
+        trayBox.translatesAutoresizingMaskIntoConstraints = false
+        trayBox.title = NSLocalizedString("Tray Icon", comment: "")
 
-        let picker = TrayIconPickerView()
-        box.contentView?.addSubview(picker)
+        let trayPicker = TrayIconPickerView()
+        trayBox.contentView?.addSubview(trayPicker)
 
-        if let cv = box.contentView {
+        if let cv = trayBox.contentView {
             NSLayoutConstraint.activate([
-                picker.topAnchor.constraint(equalTo: cv.topAnchor, constant: 10),
-                picker.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
-                picker.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -20),
-                cv.bottomAnchor.constraint(equalTo: picker.bottomAnchor, constant: 10),
+                trayPicker.topAnchor.constraint(equalTo: cv.topAnchor, constant: 10),
+                trayPicker.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
+                trayPicker.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -20),
+                cv.bottomAnchor.constraint(equalTo: trayPicker.bottomAnchor, constant: 10),
             ])
         }
 
-        contentView.addSubview(box)
+        contentView.addSubview(trayBox)
+
+        // App Logo section
+        let logoBox = NSBox()
+        logoBox.translatesAutoresizingMaskIntoConstraints = false
+        logoBox.title = NSLocalizedString("App Logo", comment: "")
+
+        let logoPicker = LogoPickerView()
+        logoBox.contentView?.addSubview(logoPicker)
+
+        if let cv = logoBox.contentView {
+            NSLayoutConstraint.activate([
+                logoPicker.topAnchor.constraint(equalTo: cv.topAnchor, constant: 10),
+                logoPicker.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
+                logoPicker.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -20),
+                cv.bottomAnchor.constraint(equalTo: logoPicker.bottomAnchor, constant: 10),
+            ])
+        }
+
+        contentView.addSubview(logoBox)
+
         NSLayoutConstraint.activate([
-            box.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
-            box.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            box.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
-            contentView.bottomAnchor.constraint(greaterThanOrEqualTo: box.bottomAnchor, constant: 20),
+            trayBox.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
+            trayBox.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            trayBox.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+
+            logoBox.topAnchor.constraint(equalTo: trayBox.bottomAnchor, constant: 12),
+            logoBox.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            logoBox.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+
+            contentView.bottomAnchor.constraint(greaterThanOrEqualTo: logoBox.bottomAnchor, constant: 20),
         ])
 
         view = contentView
@@ -43,6 +69,6 @@ class AppearanceSettingViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = NSLocalizedString("Appearance", comment: "")
-        preferredContentSize = NSSize(width: 400, height: 160)
+        preferredContentSize = NSSize(width: 400, height: 280)
     }
 }

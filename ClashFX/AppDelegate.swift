@@ -82,6 +82,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemView = StatusItemView.create(statusItem: statusItem)
         statusItemView.updateSize(width: statusItemLengthWithSpeed)
         statusMenu.delegate = self
+        AppLogoTool.applyLogo()
         setupStatusMenuItemData()
         DispatchQueue.main.async {
             self.postFinishLaunching()
