@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.11</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.11</h2><ul><li><strong>App logo customization</strong> — Added a new **App Logo** section in Appearance settings. Users can replace the Dock icon with any custom PNG, JPEG, or ICNS image via drag-and-drop or file picker. Saved to `~/.config/clashfx/appLogo.png`.</li><li><strong>Redesigned image picker UI</strong> — Clean horizontal layout with icon preview well, description text with recommended image size, and always-visible "Reset to Default" button (greyed out when no custom icon is set). Shared base class for both Menu Bar Icon and App Logo pickers.</li><li><strong>Fixed "Tray Icon" terminology</strong> — Changed to "Menu Bar Icon" in Simplified Chinese to match macOS conventions.</li><li><strong>Added image size guidance</strong> — Both pickers now show recommended dimensions and supported formats.</li></ul>
+  ]]></description>
+  <pubDate>Thu, 16 Apr 2026 07:55:59 +0000</pubDate>
+  <sparkle:version>1.0.11</sparkle:version>
+  <sparkle:shortVersionString>1.0.11</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.11/ClashFX.dmg"
+    sparkle:version="1.0.11"
+    sparkle:shortVersionString="1.0.11"
+    sparkle:edSignature="YvvTzmjru8N5fw1ymv/qFegyCWnO3J3iwp/k7dlW0maP0dxjc2VoDhAF9IM0noB+bb1nS24K+mucyfvS/y27AA=="
+    length="88007626"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.10</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.10</h2><ul><li><strong>Tray icon customization</strong> — Added a new **Appearance** tab in Preferences with a tray icon picker. Users can now replace the macOS menu bar icon with any custom PNG image via drag-and-drop or file picker, with a Reset button to restore the default. Image is saved to `~/.config/clashfx/menuImage.png`. Resolves #5</li><li><strong>Updated menu bar icon</strong> — Replaced the status bar icon with a new cat side-profile silhouette design.</li><li><strong>Fix language switch dialog not reappearing after clicking "Later"</strong> — When switching language and dismissing the restart prompt with "Later", clicking the same language again would no longer show the dialog. Language settings are now only persisted when the user confirms the restart. Fixes #15</li><li><strong>Fix proxy selections lost after app restart</strong> — Saved proxy group selections (e.g. which node was chosen for each proxy group) could be permanently deleted if the API call failed during startup (e.g. core not ready yet). The records are now preserved for retry on next reload.</li></ul>
