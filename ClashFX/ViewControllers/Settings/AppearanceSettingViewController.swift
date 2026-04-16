@@ -8,6 +8,8 @@
 import Cocoa
 
 class AppearanceSettingViewController: NSViewController {
+    private var didComputePreferredSize = false
+
     override func loadView() {
         let width: CGFloat = 400
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 240))
@@ -61,11 +63,17 @@ class AppearanceSettingViewController: NSViewController {
         ])
 
         view = contentView
+        title = NSLocalizedString("Appearance", comment: "")
+        preferredContentSize = NSSize(width: 420, height: 340)
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        title = NSLocalizedString("Appearance", comment: "")
-        preferredContentSize = NSSize(width: 420, height: 260)
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        guard !didComputePreferredSize else { return }
+        let fittingHeight = view.fittingSize.height
+        if fittingHeight > 0 {
+            didComputePreferredSize = true
+            preferredContentSize = NSSize(width: preferredContentSize.width, height: fittingHeight)
+        }
     }
 }

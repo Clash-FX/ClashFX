@@ -22,6 +22,21 @@ class SettingTabViewController: NSTabViewController, NibLoadable {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: tabViewItem)
+        guard let window = view.window,
+              let vc = tabViewItem?.viewController else { return }
+        let contentSize = vc.preferredContentSize.height > 0
+            ? vc.preferredContentSize
+            : vc.view.frame.size
+        guard contentSize.height > 0 else { return }
+        let newFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
+        var frame = window.frame
+        frame.origin.y += frame.height - newFrame.height
+        frame.size.height = newFrame.height
+        window.setFrame(frame, display: true, animate: true)
+    }
+
     private func insertAppearanceTab() {
         let vc = AppearanceSettingViewController()
         let item = NSTabViewItem(viewController: vc)
