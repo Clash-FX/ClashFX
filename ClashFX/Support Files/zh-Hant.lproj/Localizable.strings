@@ -387,3 +387,9 @@
 
 /* No comment provided by engineer. */
 "Image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 36×36 pixels (72×72 for Retina @2x)." = "圖片尺寸過大（%d×%d）。最大允許尺寸為 %d×%d 像素。推薦尺寸為 36×36 像素（Retina @2x 為 72×72）。";
+
+/* No comment provided by engineer. */
+"Drag and drop a PNG image, or click to select.\nRecommended: 36x36 px (72x72 for Retina @2x), PNG format." = "拖曳 PNG 圖片到此處，或點擊選擇。\n建議尺寸：36×36 像素（Retina @2x 為 72×72），PNG 格式。";
+
+/* No comment provided by engineer. */
+"Reset to Default" = "恢復預設";

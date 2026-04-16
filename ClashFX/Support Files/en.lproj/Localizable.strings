@@ -387,3 +387,9 @@
 
 /* No comment provided by engineer. */
 "Image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 36×36 pixels (72×72 for Retina @2x)." = "Image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 36×36 pixels (72×72 for Retina @2x).";
+
+/* No comment provided by engineer. */
+"Drag and drop a PNG image, or click to select.\nRecommended: 36x36 px (72x72 for Retina @2x), PNG format." = "Drag and drop a PNG image, or click to select.\nRecommended: 36x36 px (72x72 for Retina @2x), PNG format.";
+
+/* No comment provided by engineer. */
+"Reset to Default" = "Reset to Default";

@@ -9,9 +9,9 @@ import Cocoa
 import UniformTypeIdentifiers
 
 class TrayIconPickerView: NSView {
-    private let dropZone = NSView()
+    private let previewWell = NSView()
     private let imageView = NSImageView()
-    private let placeholderLabel = NSTextField(labelWithString: "")
+    private let descriptionLabel = NSTextField(labelWithString: "")
     private let selectButton = NSButton()
     private let resetButton = NSButton()
 
@@ -29,65 +29,73 @@ class TrayIconPickerView: NSView {
     private func setupViews() {
         translatesAutoresizingMaskIntoConstraints = false
 
-        // Image preview area (acts as drop zone)
-        dropZone.translatesAutoresizingMaskIntoConstraints = false
-        dropZone.wantsLayer = true
-        dropZone.layer?.borderWidth = 1.5
-        dropZone.layer?.borderColor = NSColor.separatorColor.cgColor
-        dropZone.layer?.cornerRadius = 8
+        // Icon preview well
+        previewWell.translatesAutoresizingMaskIntoConstraints = false
+        previewWell.wantsLayer = true
+        previewWell.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        previewWell.layer?.borderWidth = 1.0
+        previewWell.layer?.borderColor = NSColor.separatorColor.cgColor
+        previewWell.layer?.cornerRadius = 6
+        addSubview(previewWell)
 
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.image = StatusItemTool.menuImage
-        dropZone.addSubview(imageView)
+        previewWell.addSubview(imageView)
 
-        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
-        placeholderLabel.stringValue = NSLocalizedString("Drop PNG here", comment: "")
-        placeholderLabel.textColor = .secondaryLabelColor
-        placeholderLabel.font = NSFont.systemFont(ofSize: 11)
-        placeholderLabel.alignment = .center
-        dropZone.addSubview(placeholderLabel)
+        // Right side content
+        let rightStack = NSStackView()
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        rightStack.orientation = .vertical
+        rightStack.alignment = .leading
+        rightStack.spacing = 8
+        addSubview(rightStack)
 
-        addSubview(dropZone)
+        descriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+        descriptionLabel.stringValue = NSLocalizedString("Drag and drop a PNG image, or click to select.\nRecommended: 36x36 px (72x72 for Retina @2x), PNG format.", comment: "")
+        descriptionLabel.textColor = .secondaryLabelColor
+        descriptionLabel.font = NSFont.systemFont(ofSize: 11)
+        descriptionLabel.lineBreakMode = .byWordWrapping
+        descriptionLabel.maximumNumberOfLines = 0
+        rightStack.addArrangedSubview(descriptionLabel)
 
-        // Buttons stack
+        // Buttons
         selectButton.translatesAutoresizingMaskIntoConstraints = false
-        selectButton.title = NSLocalizedString("Select Image", comment: "")
+        selectButton.title = NSLocalizedString("Select Image", comment: "") + "..."
         selectButton.bezelStyle = .rounded
         selectButton.target = self
         selectButton.action = #selector(selectImage)
 
         resetButton.translatesAutoresizingMaskIntoConstraints = false
-        resetButton.title = NSLocalizedString("Reset", comment: "")
+        resetButton.title = NSLocalizedString("Reset to Default", comment: "")
         resetButton.bezelStyle = .rounded
         resetButton.target = self
         resetButton.action = #selector(resetImage)
 
         let buttonStack = NSStackView(views: [selectButton, resetButton])
-        buttonStack.translatesAutoresizingMaskIntoConstraints = false
         buttonStack.orientation = .horizontal
-        buttonStack.spacing = 8
-        addSubview(buttonStack)
+        buttonStack.spacing = 6
+        rightStack.addArrangedSubview(buttonStack)
 
         NSLayoutConstraint.activate([
-            dropZone.topAnchor.constraint(equalTo: topAnchor),
-            dropZone.leadingAnchor.constraint(equalTo: leadingAnchor),
-            dropZone.widthAnchor.constraint(equalToConstant: 64),
-            dropZone.heightAnchor.constraint(equalToConstant: 64),
+            previewWell.topAnchor.constraint(equalTo: topAnchor),
+            previewWell.leadingAnchor.constraint(equalTo: leadingAnchor),
+            previewWell.widthAnchor.constraint(equalToConstant: 48),
+            previewWell.heightAnchor.constraint(equalToConstant: 48),
 
-            imageView.centerXAnchor.constraint(equalTo: dropZone.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: dropZone.centerYAnchor, constant: -8),
+            imageView.centerXAnchor.constraint(equalTo: previewWell.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: previewWell.centerYAnchor),
             imageView.widthAnchor.constraint(equalToConstant: 32),
             imageView.heightAnchor.constraint(equalToConstant: 32),
 
-            placeholderLabel.centerXAnchor.constraint(equalTo: dropZone.centerXAnchor),
-            placeholderLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 2),
-            placeholderLabel.widthAnchor.constraint(equalTo: dropZone.widthAnchor, constant: -4),
+            rightStack.leadingAnchor.constraint(equalTo: previewWell.trailingAnchor, constant: 12),
+            rightStack.topAnchor.constraint(equalTo: topAnchor),
+            rightStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rightStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
 
-            buttonStack.leadingAnchor.constraint(equalTo: dropZone.trailingAnchor, constant: 12),
-            buttonStack.centerYAnchor.constraint(equalTo: dropZone.centerYAnchor),
+            descriptionLabel.widthAnchor.constraint(equalTo: rightStack.widthAnchor),
 
-            bottomAnchor.constraint(equalTo: dropZone.bottomAnchor),
+            bottomAnchor.constraint(equalTo: rightStack.bottomAnchor),
         ])
 
         updateIconPreview()
@@ -95,8 +103,8 @@ class TrayIconPickerView: NSView {
 
     private func updateIconPreview() {
         let hasCustom = FileManager.default.fileExists(atPath: StatusItemTool.customImagePath)
-        placeholderLabel.isHidden = hasCustom
-        resetButton.isHidden = !hasCustom
+        resetButton.isEnabled = hasCustom
+        imageView.image = StatusItemTool.menuImage
     }
 
     // MARK: - Drag and Drop
@@ -108,16 +116,19 @@ class TrayIconPickerView: NSView {
         ]) as? [URL], !urls.isEmpty else {
             return []
         }
-        dropZone.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        previewWell.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        previewWell.layer?.borderWidth = 2.0
         return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        dropZone.layer?.borderColor = NSColor.separatorColor.cgColor
+        previewWell.layer?.borderColor = NSColor.separatorColor.cgColor
+        previewWell.layer?.borderWidth = 1.0
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropZone.layer?.borderColor = NSColor.separatorColor.cgColor
+        previewWell.layer?.borderColor = NSColor.separatorColor.cgColor
+        previewWell.layer?.borderWidth = 1.0
         guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [
             .urlReadingFileURLsOnly: true,
             .urlReadingContentsConformToTypes: ["public.png"],

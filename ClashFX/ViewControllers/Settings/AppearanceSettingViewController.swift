@@ -22,16 +22,16 @@ class AppearanceSettingViewController: NSViewController {
 
         if let cv = box.contentView {
             NSLayoutConstraint.activate([
-                picker.topAnchor.constraint(equalTo: cv.topAnchor, constant: 10),
-                picker.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
-                picker.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -20),
-                cv.bottomAnchor.constraint(equalTo: picker.bottomAnchor, constant: 10),
+                picker.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12),
+                picker.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 16),
+                picker.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -16),
+                cv.bottomAnchor.constraint(equalTo: picker.bottomAnchor, constant: 12),
             ])
         }
 
         contentView.addSubview(box)
         NSLayoutConstraint.activate([
-            box.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
+            box.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 30),
             box.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
             box.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
             contentView.bottomAnchor.constraint(greaterThanOrEqualTo: box.bottomAnchor, constant: 20),
@@ -43,6 +43,6 @@ class AppearanceSettingViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = NSLocalizedString("Appearance", comment: "")
-        preferredContentSize = NSSize(width: 400, height: 160)
+        preferredContentSize = NSSize(width: 420, height: 160)
     }
 }

@@ -387,3 +387,9 @@
 
 /* No comment provided by engineer. */
 "Image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 36×36 pixels (72×72 for Retina @2x)." = "Изображение слишком большое (%d×%d). Максимально допустимый размер — %d×%d пикселей. Рекомендуемый размер — 36×36 пикселей (72×72 для Retina @2x).";
+
+/* No comment provided by engineer. */
+"Drag and drop a PNG image, or click to select.\nRecommended: 36x36 px (72x72 for Retina @2x), PNG format." = "Перетащите PNG-изображение или нажмите, чтобы выбрать.\nРекомендуется: 36×36 пикс. (72×72 для Retina @2x), формат PNG.";
+
+/* No comment provided by engineer. */
+"Reset to Default" = "Сбросить по умолчанию";

@@ -1163,7 +1163,6 @@ extension AppDelegate {
             NSApp.terminate(nil)
         }
     }
-
 }
 
 // MARK: Streaming Info

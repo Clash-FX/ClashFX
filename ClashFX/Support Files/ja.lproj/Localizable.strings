@@ -387,3 +387,9 @@
 
 /* No comment provided by engineer. */
 "Image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 36×36 pixels (72×72 for Retina @2x)." = "画像が大きすぎます（%d×%d）。最大許容サイズは %d×%d ピクセルです。推奨サイズは 36×36 ピクセル（Retina @2x の場合は 72×72）です。";
+
+/* No comment provided by engineer. */
+"Drag and drop a PNG image, or click to select.\nRecommended: 36x36 px (72x72 for Retina @2x), PNG format." = "PNG 画像をドラッグ＆ドロップ、またはクリックして選択。\n推奨：36×36 px（Retina @2x は 72×72）、PNG 形式。";
+
+/* No comment provided by engineer. */
+"Reset to Default" = "デフォルトに戻す";

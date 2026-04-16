@@ -398,11 +398,11 @@
 /* No comment provided by engineer. */
 "Later" = "稍后";
 /* No comment provided by engineer. */
-"Select Tray Icon Image" = "选择托盘图标图片";
+"Select Tray Icon Image" = "选择菜单栏图标图片";
 
 /* No comment provided by engineer. */
-"Failed to change tray icon" = "更换托盘图标失败";
-"Failed to reset tray icon" = "重置托盘图标失败";
+"Failed to change tray icon" = "更换菜单栏图标失败";
+"Failed to reset tray icon" = "重置菜单栏图标失败";
 
 /* No comment provided by engineer. */
 "Drop PNG here" = "拖入 PNG 图片";
@@ -417,10 +417,16 @@
 "Appearance" = "外观";
 
 /* No comment provided by engineer. */
-"Tray Icon" = "托盘图标";
+"Tray Icon" = "菜单栏图标";
 
 /* No comment provided by engineer. */
 "The file could not be loaded as an image." = "无法将该文件加载为图片。";
 
 /* No comment provided by engineer. */
 "Image is too large (%d×%d). Maximum allowed size is %d×%d pixels. Recommended size is 36×36 pixels (72×72 for Retina @2x)." = "图片尺寸过大（%d×%d）。最大允许尺寸为 %d×%d 像素。推荐尺寸为 36×36 像素（Retina @2x 为 72×72）。";
+
+/* No comment provided by engineer. */
+"Drag and drop a PNG image, or click to select.\nRecommended: 36x36 px (72x72 for Retina @2x), PNG format." = "拖拽 PNG 图片到此处，或点击选择。\n建议尺寸：36×36 像素（Retina @2x 为 72×72），PNG 格式。";
+
+/* No comment provided by engineer. */
+"Reset to Default" = "恢复默认";
