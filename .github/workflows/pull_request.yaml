@@ -30,6 +30,32 @@ jobs:
       run: |
         bash install_dependency.sh
 
-    - name: check
+    - name: free disk space before build
       run: |
-        bundle exec fastlane check
+        echo "Before cleanup: $(df -h / | tail -1 | awk '{print $4}') available"
+        sudo rm -rf /Users/runner/Library/Android 2>/dev/null || true
+        sudo rm -rf /Library/Frameworks/Mono.framework 2>/dev/null || true
+        sudo rm -rf /usr/local/share/dotnet 2>/dev/null || true
+        rm -rf ~/Library/Caches/CocoaPods 2>/dev/null || true
+        echo "After cleanup: $(df -h / | tail -1 | awk '{print $4}') available"
+
+    - name: build
+      run: |
+        echo "Building ClashFX (PR check, no signing)..."
+        xcodebuild clean build \
+          -workspace ClashFX.xcworkspace \
+          -scheme ClashFX \
+          -configuration Release \
+          -derivedDataPath ./build_derived_data \
+          CODE_SIGN_IDENTITY="-" \
+          ENABLE_HARDENED_RUNTIME=NO
+
+        APP_PATH=$(find ./build_derived_data/Build/Products/Release -name "ClashFX.app" -type d | head -n 1)
+
+        if [ -z "$APP_PATH" ]; then
+          echo "Error: ClashFX.app not found!"
+          find ./build_derived_data -name "ClashFX.app" -type d
+          exit 1
+        fi
+
+        echo "Build complete! App at: $APP_PATH"
