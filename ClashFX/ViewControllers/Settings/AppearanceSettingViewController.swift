@@ -64,7 +64,7 @@ class AppearanceSettingViewController: NSViewController {
 
         view = contentView
         title = NSLocalizedString("Appearance", comment: "")
-        preferredContentSize = NSSize(width: 420, height: 340)
+        preferredContentSize = NSSize(width: 420, height: 280)
     }
 
     override func viewDidLayout() {
@@ -74,6 +74,14 @@ class AppearanceSettingViewController: NSViewController {
         if fittingHeight > 0 {
             didComputePreferredSize = true
             preferredContentSize = NSSize(width: preferredContentSize.width, height: fittingHeight)
+            // If currently displayed, resize window immediately
+            if let window = view.window, view.superview != nil {
+                let newFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: preferredContentSize))
+                var frame = window.frame
+                frame.origin.y += frame.height - newFrame.height
+                frame.size.height = newFrame.height
+                window.setFrame(frame, display: true, animate: true)
+            }
         }
     }
 }
