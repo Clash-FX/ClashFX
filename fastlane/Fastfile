@@ -3,8 +3,8 @@ lane :build do
 addKeyChain
 
 build_app(
-  workspace: "ClashX.xcworkspace",
-  scheme: "ClashX",
+  workspace: "ClashFX.xcworkspace",
+  scheme: "ClashFX",
   export_method: "developer-id",
   skip_package_pkg: "false",
   clean: "true",
@@ -14,8 +14,8 @@ end
 
 lane :check do
   build_app(
-    workspace: "ClashX.xcworkspace",
-    scheme: "ClashX",
+    workspace: "ClashFX.xcworkspace",
+    scheme: "ClashFX",
     codesigning_identity: "-",
     export_method: "developer-id",
     skip_package_pkg: "true",
