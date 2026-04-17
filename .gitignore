@@ -29,6 +29,9 @@ gitupdate.bat
 # Backup files
 *.bak
 
+# Ensure Gemfile.lock is tracked (overrides any global *.lock ignore)
+!Gemfile.lock
+
 # Swift Package Manager
 ClashFX.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 build_output/
