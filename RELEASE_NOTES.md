@@ -1,26 +1,16 @@
-## ClashFX 1.0.11
-
-### New Features
-
-- **App logo customization** — Added a new **App Logo** section in Appearance settings. Users can replace the Dock icon with any custom PNG, JPEG, or ICNS image via drag-and-drop or file picker. Saved to `~/.config/clashfx/appLogo.png`.
+## ClashFX 1.0.12
 
 ### Improvements
 
-- **Redesigned image picker UI** — Clean horizontal layout with icon preview well, description text with recommended image size, and always-visible "Reset to Default" button (greyed out when no custom icon is set). Shared base class for both Menu Bar Icon and App Logo pickers.
-- **Fixed "Tray Icon" terminology** — Changed to "Menu Bar Icon" in Simplified Chinese to match macOS conventions.
-- **Added image size guidance** — Both pickers now show recommended dimensions and supported formats.
+- **Fixed subscription downloads from mihomo/SS-2022 providers** — Remote subscription requests now send a `mihomo` User-Agent instead of the default Alamofire client identity. This avoids certain providers misclassifying ClashFX as a legacy Dreamacro/clash client and returning empty or dummy configs instead of real nodes.
+- **Fixed Appearance tab height not adapting to content** — The Appearance settings window now resizes correctly when switching tabs, eliminating clipped or awkward spacing in the UI.
 
 ---
 
-### 新功能
-
-- **应用图标自定义** — 外观设置中新增 **应用图标** 区域，支持拖拽或选择 PNG、JPEG、ICNS 图片替换 Dock 图标。图片保存至 `~/.config/clashfx/appLogo.png`。
-
 ### 改进
 
-- **重新设计图片选择器 UI** — 采用水平布局，包含图标预览、带建议尺寸的说明文字，以及始终可见的「恢复默认」按钮（无自定义图标时置灰）。菜单栏图标和应用图标共用统一基类。
-- **修正术语** — 简体中文「托盘图标」改为更符合 macOS 习惯的「菜单栏图标」。
-- **新增图片规格提示** — 两个选择器均显示建议尺寸和支持格式。
+- **修复 mihomo / SS-2022 订阅兼容性** — 托管订阅请求现在会以 `mihomo` 的 User-Agent 拉取配置，避免部分机场把 ClashFX 误判成旧版 Dreamacro/clash 客户端，从而返回空配置或占位节点，而不是真实节点列表。
+- **修复外观标签页高度不随内容变化** — 外观设置窗口在切换标签页时现在会正确自适应高度，避免内容被裁切或留白不自然。
 
 ---
 
@@ -28,6 +18,6 @@
 
 Thanks to everyone who contributed to this release:
 
-- @ayangweb — App logo customization (#21)
+- @ayangweb — Appearance tab adaptive height fix (#25)
 
-[![Download ClashFX](https://a.fsdn.com/con/app/sf-download-button)](https://sourceforge.net/projects/clashfx/files/1.0.11/)
+[![Download ClashFX](https://a.fsdn.com/con/app/sf-download-button)](https://sourceforge.net/projects/clashfx/files/1.0.12/)
