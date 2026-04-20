@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.12</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.12</h2><ul><li><strong>Fixed subscription downloads from mihomo/SS-2022 providers</strong> — Remote subscription requests now send a `mihomo` User-Agent instead of the default Alamofire client identity. This avoids certain providers misclassifying ClashFX as a legacy Dreamacro/clash client and returning empty or dummy configs instead of real nodes.</li><li><strong>Fixed Appearance tab height not adapting to content</strong> — The Appearance settings window now resizes correctly when switching tabs, eliminating clipped or awkward spacing in the UI.</li></ul>
+  ]]></description>
+  <pubDate>Mon, 20 Apr 2026 14:04:33 +0000</pubDate>
+  <sparkle:version>1.0.12</sparkle:version>
+  <sparkle:shortVersionString>1.0.12</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.12/ClashFX.dmg"
+    sparkle:version="1.0.12"
+    sparkle:shortVersionString="1.0.12"
+    sparkle:edSignature="qIUUnLL5K7HTm3BHzA4dumw2jD7KTTwpkpdLt5dTCXaR+XRV+jmApkxl3JhgbwstM9W37N8WI9OZozzvCZOCAw=="
+    length="87980662"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.11</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.11</h2><ul><li><strong>App logo customization</strong> — Added a new **App Logo** section in Appearance settings. Users can replace the Dock icon with any custom PNG, JPEG, or ICNS image via drag-and-drop or file picker. Saved to `~/.config/clashfx/appLogo.png`.</li><li><strong>Redesigned image picker UI</strong> — Clean horizontal layout with icon preview well, description text with recommended image size, and always-visible "Reset to Default" button (greyed out when no custom icon is set). Shared base class for both Menu Bar Icon and App Logo pickers.</li><li><strong>Fixed "Tray Icon" terminology</strong> — Changed to "Menu Bar Icon" in Simplified Chinese to match macOS conventions.</li><li><strong>Added image size guidance</strong> — Both pickers now show recommended dimensions and supported formats.</li></ul>
