@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.13</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.13</h2><ul><li><strong>Fixed double-encoded share-link subscriptions</strong> — Some providers (e.g. sub.cucloud.top) return a base64 payload where each individual proxy URI is itself base64-encoded a second time, so lines look like `c3M6Ly9...` instead of `ss://...`. ClashFX now detects and decodes these correctly, generates a valid Clash config with `Auto` (url-test) and `Proxy` (select) groups, and no longer shows "cannot unmarshal !!str" errors.</li><li><strong>Fixed domestic site access in Rules mode</strong> — When generating a config from share-link subscriptions, the rules section previously only contained `MATCH,Proxy`, routing all traffic through the proxy including Chinese domestic sites (Baidu, etc.). `GEOIP,private,DIRECT` and `GEOIP,CN,DIRECT` rules are now added before `MATCH,Proxy` so local and domestic traffic bypasses the proxy.</li><li><strong>Fixed blank speed display in menu bar</strong> — The upload/download speed text in the status bar was invisible on first launch. The initial draw call occurred before Auto Layout resolved the view bounds (height = 0), and subsequent updates were silently dropped if the speed values hadn't changed. Fixed by overriding `layout()` to re-trigger `needsDisplay` once bounds are non-zero.</li><li><strong>Fixed settings tab gray block on macOS 15 Sequoia</strong> — `NSTabViewController` with `.toolbar` style renders as a large gray block on macOS 15 due to toolbar layout changes. The settings window now uses `.segmentedControlOnTop` style on macOS 15+ for a clean appearance, while retaining `.toolbar` with proper SF Symbol icons on macOS 11–14.</li></ul>
+  ]]></description>
+  <pubDate>Tue, 21 Apr 2026 08:42:00 +0000</pubDate>
+  <sparkle:version>1.0.13</sparkle:version>
+  <sparkle:shortVersionString>1.0.13</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.13/ClashFX.dmg"
+    sparkle:version="1.0.13"
+    sparkle:shortVersionString="1.0.13"
+    sparkle:edSignature="1b85C/tswnpIrZnnH6DdhhBIVAzK+J4CdTpo7nEcElpNIyDvQBQVW9ReyRLnrreKiXHAR1ggQpThN4YYPl4UBQ=="
+    length="88032850"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.12</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.12</h2><ul><li><strong>Fixed subscription downloads from mihomo/SS-2022 providers</strong> — Remote subscription requests now send a `mihomo` User-Agent instead of the default Alamofire client identity. This avoids certain providers misclassifying ClashFX as a legacy Dreamacro/clash client and returning empty or dummy configs instead of real nodes.</li><li><strong>Fixed Appearance tab height not adapting to content</strong> — The Appearance settings window now resizes correctly when switching tabs, eliminating clipped or awkward spacing in the UI.</li></ul>
