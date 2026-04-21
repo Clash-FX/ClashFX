@@ -15,8 +15,9 @@ class StatusItemView: NSView, StatusItemViewProtocol {
 
     private var speedTextView: SpeedTextView!
 
-    var up: Int = 0
-    var down: Int = 0
+    // Use -1 so the first updateSpeedLabel(0, 0) call always triggers a redraw.
+    var up: Int = -1
+    var down: Int = -1
 
     weak var statusItem: NSStatusItem?
     private var speedLeadingConstraint: NSLayoutConstraint?

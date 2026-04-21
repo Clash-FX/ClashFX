@@ -12,10 +12,12 @@ class SettingTabViewController: NSTabViewController, NibLoadable {
     override func viewDidLoad() {
         super.viewDidLoad()
         tabStyle = .toolbar
-        if #unavailable(macOS 10.11) {
-            tabStyle = .segmentedControlOnTop
-            for item in tabViewItems {
-                item.image = nil
+        // Set SF Symbol images in code — storyboard catalog images render as
+        // black squares in NSTabViewController toolbar style on macOS 15+.
+        if #available(macOS 11, *) {
+            let storyboardSymbols = ["gearshape", "keyboard", "hammer"]
+            for (idx, item) in tabViewItems.enumerated() where idx < storyboardSymbols.count {
+                item.image = NSImage(systemSymbolName: storyboardSymbols[idx], accessibilityDescription: nil)
             }
         }
         insertAppearanceTab()
