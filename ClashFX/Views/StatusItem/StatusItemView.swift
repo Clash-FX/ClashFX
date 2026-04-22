@@ -21,6 +21,7 @@ class StatusItemView: NSView, StatusItemViewProtocol {
 
     weak var statusItem: NSStatusItem?
     private var speedLeadingConstraint: NSLayoutConstraint?
+    private var collapsedSpeedWidthConstraint: NSLayoutConstraint?
 
     static func create(statusItem: NSStatusItem?) -> StatusItemView {
         var topLevelObjects: NSArray?
@@ -62,6 +63,10 @@ class StatusItemView: NSView, StatusItemViewProtocol {
 
         speedLeadingConstraint = speedContainerView.leadingAnchor.constraint(greaterThanOrEqualTo: imageView.trailingAnchor, constant: 8)
         speedLeadingConstraint?.isActive = true
+        collapsedSpeedWidthConstraint = speedContainerView.widthAnchor.constraint(equalToConstant: 0)
+
+        imageView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        imageView.setContentHuggingPriority(.required, for: .horizontal)
     }
 
     func updateSize(width: CGFloat) {
@@ -99,6 +104,7 @@ class StatusItemView: NSView, StatusItemViewProtocol {
     func showSpeedContainer(show: Bool) {
         speedContainerView.isHidden = !show
         speedLeadingConstraint?.isActive = show
+        collapsedSpeedWidthConstraint?.isActive = !show
     }
 
     private func updateDynamicWidth() {

@@ -12,6 +12,13 @@ class VisualConfigEditorController: NSViewController, NSTableViewDataSource, NST
     private lazy var proxyGroupsVC = ProxyGroupsEditorViewController()
     private lazy var rulesVC = RulesEditorViewController()
 
+    private var sidebarBackgroundColor: NSColor {
+        if #available(macOS 10.14, *) {
+            return .underPageBackgroundColor
+        }
+        return .controlBackgroundColor
+    }
+
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 960, height: 600))
     }
@@ -49,9 +56,7 @@ class VisualConfigEditorController: NSViewController, NSTableViewDataSource, NST
         sidebarScroll.autohidesScrollers = true
         sidebarScroll.borderType = .noBorder
         sidebarScroll.drawsBackground = true
-        if #available(macOS 10.14, *) {
-            sidebarScroll.backgroundColor = NSColor(red: 0.11, green: 0.11, blue: 0.13, alpha: 1.0)
-        }
+        sidebarScroll.backgroundColor = sidebarBackgroundColor
         view.addSubview(sidebarScroll)
 
         // Divider line
@@ -75,9 +80,7 @@ class VisualConfigEditorController: NSViewController, NSTableViewDataSource, NST
         sidebarTable.selectionHighlightStyle = .sourceList
         sidebarTable.target = self
         sidebarTable.action = #selector(sidebarClicked)
-        if #available(macOS 10.14, *) {
-            sidebarTable.backgroundColor = NSColor(red: 0.11, green: 0.11, blue: 0.13, alpha: 1.0)
-        }
+        sidebarTable.backgroundColor = sidebarBackgroundColor
         sidebarScroll.documentView = sidebarTable
 
         NSLayoutConstraint.activate([
@@ -151,6 +154,7 @@ class VisualConfigEditorController: NSViewController, NSTableViewDataSource, NST
             let label = NSTextField(labelWithString: "")
             label.translatesAutoresizingMaskIntoConstraints = false
             label.font = .systemFont(ofSize: 13)
+            label.textColor = .labelColor
             wrapper.addSubview(label)
             wrapper.textField = label
             NSLayoutConstraint.activate([

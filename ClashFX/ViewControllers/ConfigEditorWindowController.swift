@@ -162,11 +162,7 @@ class ConfigEditorWindowController: NSWindowController {
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.delegate = self
 
-        textView.textColor = .white
-        if #available(macOS 10.14, *) {
-            textView.backgroundColor = NSColor(red: 0.13, green: 0.13, blue: 0.15, alpha: 1.0)
-            textView.insertionPointColor = .white
-        }
+        applyEditorColors()
 
         scrollView.documentView = textView
 
@@ -302,7 +298,7 @@ class ConfigEditorWindowController: NSWindowController {
                 monoFont = NSFont(name: "Menlo", size: 13) ?? NSFont.systemFont(ofSize: 13)
             }
             textView.font = monoFont
-            textView.textColor = NSColor(red: 0.85, green: 0.85, blue: 0.87, alpha: 1.0)
+            applyEditorColors()
 
             let fileName = (path as NSString).lastPathComponent
             window?.title = "ClashFX Config Editor — \(fileName)"
@@ -374,6 +370,41 @@ class ConfigEditorWindowController: NSWindowController {
 
     private static let maxHighlightLength = 100_000 // ~3000 lines
 
+    private var isDarkMode: Bool {
+        if #available(macOS 10.14, *) {
+            let appearance = textView.effectiveAppearance
+            return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        }
+        return false
+    }
+
+    private func applyEditorColors() {
+        textView.textColor = editorBaseTextColor
+        textView.backgroundColor = editorBackgroundColor
+        textView.insertionPointColor = editorInsertionPointColor
+    }
+
+    private var editorBackgroundColor: NSColor {
+        if #available(macOS 10.14, *) {
+            return .textBackgroundColor
+        }
+        return .white
+    }
+
+    private var editorBaseTextColor: NSColor {
+        if #available(macOS 10.14, *) {
+            return .textColor
+        }
+        return .textColor
+    }
+
+    private var editorInsertionPointColor: NSColor {
+        if #available(macOS 10.14, *) {
+            return .labelColor
+        }
+        return .textColor
+    }
+
     func highlightYAML() {
         let text = textView.string
         let nsText = text as NSString
@@ -400,24 +431,30 @@ class ConfigEditorWindowController: NSWindowController {
         let storage = textView.textStorage!
         storage.beginEditing()
 
-        let baseColor = NSColor(red: 0.85, green: 0.85, blue: 0.87, alpha: 1.0)
+        let baseColor = editorBaseTextColor
         storage.addAttribute(.foregroundColor, value: baseColor, range: highlightRange)
 
         let substring = nsText.substring(with: highlightRange)
         let subRange = NSRange(location: 0, length: (substring as NSString).length)
 
         // swiftlint:disable force_try
+        let commentColor: NSColor = isDarkMode ? NSColor.systemGreen : NSColor.systemGreen
+        let keyColor: NSColor = isDarkMode ? NSColor.systemBlue : NSColor.systemBlue
+        let stringColor: NSColor = isDarkMode ? NSColor.systemOrange : NSColor.systemOrange
+        let numberColor: NSColor = isDarkMode ? NSColor.systemPurple : NSColor.systemPurple
+        let booleanColor: NSColor = isDarkMode ? NSColor.systemPink : NSColor.systemPink
+        let listDashColor: NSColor = isDarkMode ? NSColor.systemYellow : NSColor.systemOrange
         let patterns: [(NSRegularExpression, NSColor, Int)] = [
             (try! NSRegularExpression(pattern: "#.*$", options: .anchorsMatchLines),
-             NSColor(red: 0.42, green: 0.68, blue: 0.40, alpha: 1.0), 0),
+             commentColor, 0),
             (try! NSRegularExpression(pattern: "^(\\s*[\\w-]+)\\s*:", options: .anchorsMatchLines),
-             NSColor(red: 0.40, green: 0.72, blue: 0.90, alpha: 1.0), 1),
+             keyColor, 1),
             (try! NSRegularExpression(pattern: "([\"'])(?:(?=(\\\\?))\\2.)*?\\1", options: []),
-             NSColor(red: 0.90, green: 0.63, blue: 0.36, alpha: 1.0), 0),
+             stringColor, 0),
             (try! NSRegularExpression(pattern: "(?<=:\\s)\\d+\\.?\\d*(?=\\s*$)", options: .anchorsMatchLines),
-             NSColor(red: 0.71, green: 0.51, blue: 0.90, alpha: 1.0), 0),
+             numberColor, 0),
             (try! NSRegularExpression(pattern: "(?<=:\\s)(true|false|yes|no)(?=\\s*$)", options: [.anchorsMatchLines, .caseInsensitive]),
-             NSColor(red: 0.90, green: 0.42, blue: 0.68, alpha: 1.0), 0),
+             booleanColor, 0),
         ]
 
         for (regex, color, captureGroup) in patterns {
@@ -436,7 +473,7 @@ class ConfigEditorWindowController: NSWindowController {
             let dashRange = NSRange(location: match.range.location + match.range(at: 1).length, length: 1)
             let adjustedRange = NSRange(location: highlightRange.location + dashRange.location, length: 1)
             if adjustedRange.location + adjustedRange.length <= totalLength {
-                storage.addAttribute(.foregroundColor, value: NSColor(red: 0.90, green: 0.86, blue: 0.45, alpha: 1.0), range: adjustedRange)
+                storage.addAttribute(.foregroundColor, value: listDashColor, range: adjustedRange)
             }
         }
         // swiftlint:enable force_try
@@ -520,12 +557,7 @@ class LineNumberRulerView: NSRulerView {
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }
 
-        let bgColor: NSColor
-        if #available(macOS 10.14, *) {
-            bgColor = NSColor(red: 0.11, green: 0.11, blue: 0.13, alpha: 1.0)
-        } else {
-            bgColor = .controlBackgroundColor
-        }
+        let bgColor: NSColor = .controlBackgroundColor
         bgColor.setFill()
         rect.fill()
 
