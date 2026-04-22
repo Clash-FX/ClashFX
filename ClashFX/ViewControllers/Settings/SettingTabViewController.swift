@@ -18,17 +18,43 @@ class SettingTabViewController: NSTabViewController, NibLoadable {
             tabStyle = .segmentedControlOnTop
         } else {
             tabStyle = .toolbar
-            // Set SF Symbol images in code — storyboard catalog images render as
-            // black squares in NSTabViewController toolbar style on macOS 11-14.
-            if #available(macOS 11, *) {
-                let storyboardSymbols = ["gearshape", "keyboard", "hammer"]
-                for (idx, item) in tabViewItems.enumerated() where idx < storyboardSymbols.count {
-                    item.image = NSImage(systemSymbolName: storyboardSymbols[idx], accessibilityDescription: nil)
-                }
-            }
         }
+        configureTabIcons()
         insertAppearanceTab()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func configureTabIcons() {
+        let symbols = ["gearshape", "keyboard", "hammer"]
+        let fallbackGlyphs = ["⚙︎", "⌨︎", "🔨"]
+
+        for (idx, item) in tabViewItems.enumerated() where idx < min(symbols.count, fallbackGlyphs.count) {
+            if #available(macOS 11, *), let image = NSImage(systemSymbolName: symbols[idx], accessibilityDescription: nil) {
+                item.image = image
+            } else {
+                item.image = makeFallbackIcon(glyph: fallbackGlyphs[idx])
+            }
+        }
+    }
+
+    private func makeFallbackIcon(glyph: String) -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ]
+
+        let rect = NSRect(x: 0, y: 1, width: size.width, height: size.height)
+        (glyph as NSString).draw(in: rect, withAttributes: attrs)
+        image.isTemplate = true
+        return image
     }
 
     override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
@@ -53,7 +79,7 @@ class SettingTabViewController: NSTabViewController, NibLoadable {
         if #available(macOS 11.0, *) {
             item.image = NSImage(systemSymbolName: "paintbrush", accessibilityDescription: nil)
         } else {
-            item.image = NSImage(named: NSImage.colorPanelName)
+            item.image = makeFallbackIcon(glyph: "🎨")
         }
         insertTabViewItem(item, at: 1)
     }
