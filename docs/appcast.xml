@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.15</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.15</h2><ul><li><strong>Added a Restart item above Quit in the tray menu</strong> — ClashFX now provides a direct Restart action in the status menu, so users can reload the app and core without manually quitting and reopening.</li><li><strong>Added tray menu item visibility controls in Appearance settings</strong> — The new Tray Menu settings let users decide which sections and items stay visible in the tray, with parent/child toggles, automatic separator cleanup, and a macOS 10.14 checkbox fallback alongside `NSSwitch` on macOS 10.15+.</li><li><strong>Added a Config Switcher toggle and completed ja/ru localizations for tray menu settings</strong> — Dynamic config switch items can now be hidden independently, and the new tray menu settings are fully localized in Japanese and Russian.</li><li><strong>Fixed CI compile regressions in the new tray menu settings UI</strong> — Alignment and control-state access issues from review follow-up changes were corrected so the release build passes cleanly again.</li></ul>
+  ]]></description>
+  <pubDate>Thu, 23 Apr 2026 13:02:02 +0000</pubDate>
+  <sparkle:version>1.0.15</sparkle:version>
+  <sparkle:shortVersionString>1.0.15</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.15/ClashFX.dmg"
+    sparkle:version="1.0.15"
+    sparkle:shortVersionString="1.0.15"
+    sparkle:edSignature="PvATInT9VjuzaxnoI/LU2qQT5ZMxhRb2KLLNLJiD815ykr2G+V4IAIcTNr2Lvs9Bi5t7XuCIVortGpfvXvSdCA=="
+    length="88086479"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.14</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.14</h2><ul><li><strong>Fixed menu bar icon shrinking when realtime speed is disabled</strong> — ClashFX had already fixed this once, but a later XIB layout change reintroduced a permanent leading constraint between the icon and hidden speed container. The status item now follows the original ClashFX fix again, so disabling realtime speed no longer compresses the tray icon.</li><li><strong>Fixed Config Editor appearance in dark and light mode</strong> — The raw editor, line number ruler, and visual editor sidebar previously used hard-coded dark colors. ClashFX now uses semantic system colors so the Config Editor follows the current macOS appearance correctly in both light and dark mode.</li><li><strong>Improved share-link generated configs for domestic sites</strong> — When ClashFX builds a minimal Clash config from `ss://` share-link subscriptions, it now enables `dns:` and adds direct rules for `baidu.com`, `bdimg.com`, and `bdstatic.com`, reducing cases where domestic domains fall through to `MATCH,Proxy`.</li><li><strong>Improved Settings tab icon compatibility on older macOS</strong> — The Settings window now falls back to generated icons on systems that do not support SF Symbols, instead of leaving missing tab icons.</li><li><strong>Improved menu bar speed text compatibility on older macOS</strong> — The status bar speed view now uses a legacy text-label fallback on older systems while keeping the custom draw path for newer macOS versions.</li></ul>
