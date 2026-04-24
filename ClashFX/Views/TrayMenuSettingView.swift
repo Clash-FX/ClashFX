@@ -229,22 +229,46 @@ class TrayMenuSettingView: NSView {
             innerStack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
         ])
 
-        let groupHeader = makeGroupHeaderRow(title: group.title)
+        let parentIsOn = group.getter()
+        let (groupHeader, parentControl, _) = makeRow(title: group.title, isOn: parentIsOn, bold: true)
         innerStack.addArrangedSubview(groupHeader)
         groupHeader.widthAnchor.constraint(equalTo: innerStack.widthAnchor).isActive = true
+
+        var childControls: [NSControl] = []
+        var childLabels: [NSTextField] = []
+        var childGetters: [() -> Bool] = []
 
         for child in group.children {
             let divider = makeInsetDivider()
             innerStack.addArrangedSubview(divider)
             divider.widthAnchor.constraint(equalTo: innerStack.widthAnchor).isActive = true
 
-            let (childRowView, childControl, _) = makeRow(title: child.title, isOn: child.getter(), indent: 12)
+            let (childRowView, childControl, childLabel) = makeRow(title: child.title, isOn: child.getter(), indent: 12, parentOn: parentIsOn)
+            childControls.append(childControl)
+            childLabels.append(childLabel)
+            childGetters.append(child.getter)
             switchHandlers[childControl] = { [child] isOn in
                 child.setter(isOn)
                 NotificationCenter.default.post(name: .trayMenuSettingsChanged, object: nil)
             }
             innerStack.addArrangedSubview(childRowView)
             childRowView.widthAnchor.constraint(equalTo: innerStack.widthAnchor).isActive = true
+        }
+
+        switchHandlers[parentControl] = { [group, childControls, childLabels, childGetters] isOn in
+            group.setter(isOn)
+            for (idx, control) in childControls.enumerated() {
+                control.isEnabled = isOn
+                childLabels[idx].textColor = isOn ? .labelColor : .tertiaryLabelColor
+                if isOn {
+                    if #available(macOS 10.15, *), let sw = control as? NSSwitch {
+                        sw.state = childGetters[idx]() ? .on : .off
+                    } else if let btn = control as? NSButton {
+                        btn.state = childGetters[idx]() ? .on : .off
+                    }
+                }
+            }
+            NotificationCenter.default.post(name: .trayMenuSettingsChanged, object: nil)
         }
 
         return card
@@ -290,26 +314,6 @@ class TrayMenuSettingView: NSView {
         ])
 
         return (container, toggle, label)
-    }
-
-    private func makeGroupHeaderRow(title: String) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        let label = NSTextField(labelWithString: title)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = NSFont.systemFont(ofSize: NSFont.systemFontSize - 1, weight: .medium)
-        label.textColor = .secondaryLabelColor
-        label.lineBreakMode = .byTruncatingTail
-        container.addSubview(label)
-
-        NSLayoutConstraint.activate([
-            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -12),
-        ])
-        return container
     }
 
     private func makeInsetDivider() -> NSView {
