@@ -167,6 +167,14 @@ class TrayMenuSettingView: NSView {
         buildRows(into: stack)
     }
 
+    private func addFullWidthSubview(_ view: NSView, to stack: NSStackView) {
+        stack.addArrangedSubview(view)
+        view.widthAnchor.constraint(
+            equalTo: stack.widthAnchor,
+            constant: -(stack.edgeInsets.left + stack.edgeInsets.right)
+        ).isActive = true
+    }
+
     private func buildRows(into stack: NSStackView) {
         let allSections = sections()
         for (idx, entry) in allSections.enumerated() {
@@ -177,13 +185,13 @@ class TrayMenuSettingView: NSView {
                     row.setter(isOn)
                     NotificationCenter.default.post(name: .trayMenuSettingsChanged, object: nil)
                 }
-                stack.addArrangedSubview(rowView)
+                addFullWidthSubview(rowView, to: stack)
 
             case .group(let group):
                 let (parentRowView, parentControl, _) = makeRow(
                     title: group.title, isOn: group.getter(), bold: true
                 )
-                stack.addArrangedSubview(parentRowView)
+                addFullWidthSubview(parentRowView, to: stack)
 
                 let parentIsOn = group.getter()
                 var childViews: [ChildView] = []
@@ -198,7 +206,7 @@ class TrayMenuSettingView: NSView {
                         NotificationCenter.default.post(name: .trayMenuSettingsChanged, object: nil)
                     }
                     childViews.append(ChildView(label: childLabel, control: childControl))
-                    stack.addArrangedSubview(childRowView)
+                    addFullWidthSubview(childRowView, to: stack)
                 }
 
                 parentControlToChildren[parentControl] = childViews
@@ -217,7 +225,7 @@ class TrayMenuSettingView: NSView {
                 let sep = NSBox()
                 sep.translatesAutoresizingMaskIntoConstraints = false
                 sep.boxType = .separator
-                stack.addArrangedSubview(sep)
+                addFullWidthSubview(sep, to: stack)
             }
         }
     }
@@ -236,7 +244,7 @@ class TrayMenuSettingView: NSView {
         container.orientation = .horizontal
         container.spacing = 8
         container.alignment = .centerY
-        container.edgeInsets = NSEdgeInsets(top: 3, left: 4 + indent, bottom: 3, right: 4)
+        container.edgeInsets = NSEdgeInsets(top: 6, left: 4 + indent, bottom: 6, right: 4)
 
         let label = NSTextField(labelWithString: title)
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -251,7 +259,12 @@ class TrayMenuSettingView: NSView {
 
         let toggle = makeToggleControl(isOn: isOn, enabled: parentOn)
 
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.fittingSizeCompression, for: .horizontal)
+
         container.addArrangedSubview(label)
+        container.addArrangedSubview(spacer)
         container.addArrangedSubview(toggle)
 
         return (container, toggle, label)
