@@ -229,22 +229,39 @@ class TrayMenuSettingView: NSView {
             innerStack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
         ])
 
-        let groupHeader = makeGroupHeaderRow(title: group.title)
+        let parentIsOn = group.getter()
+        let (groupHeader, parentControl) = makeGroupHeaderRow(title: group.title, isOn: parentIsOn)
         innerStack.addArrangedSubview(groupHeader)
         groupHeader.widthAnchor.constraint(equalTo: innerStack.widthAnchor).isActive = true
 
+        let childrenContainer = NSStackView()
+        childrenContainer.translatesAutoresizingMaskIntoConstraints = false
+        childrenContainer.orientation = .vertical
+        childrenContainer.alignment = .leading
+        childrenContainer.spacing = 0
+        childrenContainer.isHidden = !parentIsOn
+
         for child in group.children {
             let divider = makeInsetDivider()
-            innerStack.addArrangedSubview(divider)
-            divider.widthAnchor.constraint(equalTo: innerStack.widthAnchor).isActive = true
+            childrenContainer.addArrangedSubview(divider)
+            divider.widthAnchor.constraint(equalTo: childrenContainer.widthAnchor).isActive = true
 
             let (childRowView, childControl, _) = makeRow(title: child.title, isOn: child.getter(), indent: 12)
             switchHandlers[childControl] = { [child] isOn in
                 child.setter(isOn)
                 NotificationCenter.default.post(name: .trayMenuSettingsChanged, object: nil)
             }
-            innerStack.addArrangedSubview(childRowView)
-            childRowView.widthAnchor.constraint(equalTo: innerStack.widthAnchor).isActive = true
+            childrenContainer.addArrangedSubview(childRowView)
+            childRowView.widthAnchor.constraint(equalTo: childrenContainer.widthAnchor).isActive = true
+        }
+
+        innerStack.addArrangedSubview(childrenContainer)
+        childrenContainer.widthAnchor.constraint(equalTo: innerStack.widthAnchor).isActive = true
+
+        switchHandlers[parentControl] = { [group, childrenContainer] isOn in
+            group.setter(isOn)
+            childrenContainer.animator().isHidden = !isOn
+            NotificationCenter.default.post(name: .trayMenuSettingsChanged, object: nil)
         }
 
         return card
@@ -292,7 +309,7 @@ class TrayMenuSettingView: NSView {
         return (container, toggle, label)
     }
 
-    private func makeGroupHeaderRow(title: String) -> NSView {
+    private func makeGroupHeaderRow(title: String, isOn: Bool) -> (NSView, NSControl) {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
@@ -301,15 +318,22 @@ class TrayMenuSettingView: NSView {
         label.font = NSFont.systemFont(ofSize: NSFont.systemFontSize - 1, weight: .medium)
         label.textColor = .secondaryLabelColor
         label.lineBreakMode = .byTruncatingTail
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         container.addSubview(label)
+
+        let toggle = makeToggleControl(isOn: isOn, enabled: true)
+        container.addSubview(toggle)
 
         NSLayoutConstraint.activate([
             container.heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
             label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -12),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -8),
+            toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
-        return container
+        return (container, toggle)
     }
 
     private func makeInsetDivider() -> NSView {
