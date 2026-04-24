@@ -1,31 +1,31 @@
-## ClashFX 1.0.15
+## ClashFX 1.0.16
 
 ### New Features / 新功能
 
-- **Added a Restart item above Quit in the tray menu** — ClashFX now provides a direct Restart action in the status menu, so users can reload the app and core without manually quitting and reopening.
+- **Redesigned tray menu settings panel with card-based grouped layout** — The Appearance settings now display tray menu options in rounded card groups, clearly separating each section visually, with full dark mode support and proper spacing.
 
-- **Added tray menu item visibility controls in Appearance settings** — The new Tray Menu settings let users decide which sections and items stay visible in the tray, with parent/child toggles, automatic separator cleanup, and a macOS 10.14 checkbox fallback alongside `NSSwitch` on macOS 10.15+.
+- **Group section headers are now label-only** — Section titles like "Proxy Actions" and "General Settings" no longer carry a toggle switch; each child item is individually controlled, reducing visual clutter and improving clarity.
 
-- **Added a Config Switcher toggle and completed ja/ru localizations for tray menu settings** — Dynamic config switch items can now be hidden independently, and the new tray menu settings are fully localized in Japanese and Russian.
+- **Smaller toggle switches and descriptive hint text** — Switches are now `mini` sized for better visual balance, and a hint label at the top of the panel describes the show/hide purpose of the settings.
 
-- **Fixed CI compile regressions in the new tray menu settings UI** — Alignment and control-state access issues from review follow-up changes were corrected so the release build passes cleanly again.
+- **Tray menu settings hint text fully localized** — The new hint label is localized across all 5 supported languages: English, Simplified Chinese, Traditional Chinese, Japanese, and Russian.
 
 ---
 
 ### 新功能
 
-- **在托盘菜单「退出」上方新增“重启”菜单项** — 现在可以直接从状态栏菜单重启 ClashFX，无需先退出再手动重新打开应用。
+- **外观设置中的托盘菜单设置面板改为卡片式分组布局** — 托盘菜单各选项现在以圆角卡片的形式分组显示，层次更加清晰，完整支持深色模式，间距更舒适。
 
-- **在外观设置中新增托盘菜单项可见性配置** — 新增 “Tray Menu” 设置区，可按分组或单项控制托盘菜单显示；父子开关联动、分隔线会自动收起，并在 macOS 10.14 上自动退化为复选框样式，在 macOS 10.15+ 使用 `NSSwitch`。
+- **分组标题栏改为纯标签，不再含开关** — "代理控制"、"通用设置"等分组标题不再带切换开关，每个子项独立控制，减少视觉干扰，操作更直观。
 
-- **新增 Config Switcher 开关，并补齐日语 / 俄语本地化** — 现在可以单独控制动态配置切换项显示，同时补齐了新托盘菜单设置在日语和俄语下的完整文案。
+- **开关缩小为 mini 尺寸，新增说明文字** — 开关控件缩小以获得更好的视觉比例，面板顶部新增说明文字，明确告知该区域用于控制菜单项的显示与隐藏。
 
-- **修复新托盘菜单设置功能在 CI 中的编译问题** — 修正了对齐和控件状态访问等问题，确保正式发布构建流程可以稳定通过。
+- **托盘菜单设置说明文字补齐 5 语言本地化** — 新增的说明文字已在英语、简体中文、繁体中文、日语和俄语中完成本地化。
 
 ---
 
 ### Contributors / 贡献者
 
-- **@ayangweb**
+- **@ayangweb** — width-constraint fix concept in PR #39
 
-[![Download ClashFX](https://a.fsdn.com/con/app/sf-download-button)](https://sourceforge.net/projects/clashfx/files/1.0.15/)
+[![Download ClashFX](https://a.fsdn.com/con/app/sf-download-button)](https://sourceforge.net/projects/clashfx/files/1.0.16/)
