@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.16</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.16</h2><ul><li><strong>Redesigned tray menu settings panel with card-based grouped layout</strong> — The Appearance settings now display tray menu options in rounded card groups, clearly separating each section visually, with full dark mode support and proper spacing.</li><li><strong>Group section headers are now label-only</strong> — Section titles like "Proxy Actions" and "General Settings" no longer carry a toggle switch; each child item is individually controlled, reducing visual clutter and improving clarity.</li><li><strong>Smaller toggle switches and descriptive hint text</strong> — Switches are now `mini` sized for better visual balance, and a hint label at the top of the panel describes the show/hide purpose of the settings.</li><li><strong>Tray menu settings hint text fully localized</strong> — The new hint label is localized across all 5 supported languages: English, Simplified Chinese, Traditional Chinese, Japanese, and Russian.</li></ul>
+  ]]></description>
+  <pubDate>Fri, 24 Apr 2026 12:08:20 +0000</pubDate>
+  <sparkle:version>1.0.16</sparkle:version>
+  <sparkle:shortVersionString>1.0.16</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.16/ClashFX.dmg"
+    sparkle:version="1.0.16"
+    sparkle:shortVersionString="1.0.16"
+    sparkle:edSignature="9iiWXIPrkhX5ius3QJdaYmTaVW8Zzs0uWIR9sr/TNfR8HSLsNXyHV7AQFTi0L6IP48CkOmteWFupmzbmaCfRAA=="
+    length="88029738"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.15</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.15</h2><ul><li><strong>Added a Restart item above Quit in the tray menu</strong> — ClashFX now provides a direct Restart action in the status menu, so users can reload the app and core without manually quitting and reopening.</li><li><strong>Added tray menu item visibility controls in Appearance settings</strong> — The new Tray Menu settings let users decide which sections and items stay visible in the tray, with parent/child toggles, automatic separator cleanup, and a macOS 10.14 checkbox fallback alongside `NSSwitch` on macOS 10.15+.</li><li><strong>Added a Config Switcher toggle and completed ja/ru localizations for tray menu settings</strong> — Dynamic config switch items can now be hidden independently, and the new tray menu settings are fully localized in Japanese and Russian.</li><li><strong>Fixed CI compile regressions in the new tray menu settings UI</strong> — Alignment and control-state access issues from review follow-up changes were corrected so the release build passes cleanly again.</li></ul>
