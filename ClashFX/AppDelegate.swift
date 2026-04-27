@@ -192,6 +192,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // start watch config file change
         ConfigManager.watchCurrentConfigFile()
 
+        RemoteConfigManager.shared.migrateLegacyGeneratedRemoteConfigsIfNeeded()
+
         RemoteConfigManager.shared.autoUpdateCheck()
 
         setupNetworkNotifier()
@@ -1514,7 +1516,8 @@ extension AppDelegate {
 
         // Configs group
         let showConfigs = Settings.trayMenuShowConfigs
-        configsMenuItem.isHidden = !showConfigs
+        let anyConfigChild = Settings.trayMenuShowConfigSwitcher || Settings.trayMenuShowConfigEditor || Settings.trayMenuShowOpenConfigFolder || Settings.trayMenuShowReloadConfig || Settings.trayMenuShowUpdateExternal || Settings.trayMenuShowRemoteConfig || Settings.trayMenuShowRemoteController
+        configsMenuItem.isHidden = !(showConfigs && anyConfigChild)
         configEditorMenuItem?.isHidden = !(showConfigs && Settings.trayMenuShowConfigEditor)
         openConfigFolderMenuItem.isHidden = !(showConfigs && Settings.trayMenuShowOpenConfigFolder)
         reloadConfigMenuItem.isHidden = !(showConfigs && Settings.trayMenuShowReloadConfig)
@@ -1530,7 +1533,8 @@ extension AppDelegate {
 
         // Help group
         let showHelp = Settings.trayMenuShowHelp
-        helpMenuItem.isHidden = !showHelp
+        let anyHelpChild = Settings.trayMenuShowAbout || Settings.trayMenuShowCheckUpdate || Settings.trayMenuShowLogLevel || Settings.trayMenuShowShowLog || Settings.trayMenuShowPorts
+        helpMenuItem.isHidden = !(showHelp && anyHelpChild)
         aboutMenuItem.isHidden = !(showHelp && Settings.trayMenuShowAbout)
         checkForUpdateMenuItem.isHidden = !(showHelp && Settings.trayMenuShowCheckUpdate)
         logLevelMenuItem.isHidden = !(showHelp && Settings.trayMenuShowLogLevel)
