@@ -17,6 +17,11 @@ class RemoteConfigManager {
     private static let defaultGeoSiteDataURL = "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
     private static let defaultMMDBDataURL = "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"
 
+    private static let shareLinkSchemes = [
+        "ss://", "vmess://", "trojan://", "vless://",
+        "hysteria://", "hysteria2://", "hy2://",
+    ]
+
     var configs: [RemoteConfigModel] = []
     var refreshActivity: NSBackgroundActivityScheduler?
 
@@ -177,7 +182,8 @@ class RemoteConfigManager {
               !trimmed.hasPrefix("port:"),
               !trimmed.hasPrefix("mixed-port:"),
               !trimmed.contains("proxies:"),
-              !trimmed.contains("proxy-groups:") else {
+              !trimmed.contains("proxy-groups:"),
+              !shareLinkSchemes.contains(where: { trimmed.hasPrefix($0) }) else {
             return nil
         }
         let base64Cleaned = trimmed
@@ -218,18 +224,16 @@ class RemoteConfigManager {
             // Some subscriptions double-encode each URI: try base64-decoding
             // lines that don't start with a known scheme.
             let candidate: String
-            let knownSchemes = ["ss://", "vmess://", "trojan://", "vless://", "hysteria://", "hysteria2://"]
-            if knownSchemes.contains(where: { line.hasPrefix($0) }) {
+            if shareLinkSchemes.contains(where: { line.hasPrefix($0) }) {
                 candidate = line
             } else if let innerDecoded = decodeBase64ToString(line),
-                      knownSchemes.contains(where: { innerDecoded.hasPrefix($0) }) {
+                      shareLinkSchemes.contains(where: { innerDecoded.hasPrefix($0) }) {
                 candidate = innerDecoded
             } else {
                 continue
             }
 
-            guard let proxy = parseSSShareLink(candidate) else {
-                // Skip unsupported protocols (vmess, trojan, etc.) silently.
+            guard let proxy = parseShareLink(candidate) else {
                 continue
             }
             proxies.append(proxy.yaml)
@@ -517,6 +521,360 @@ class RemoteConfigManager {
             .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
+    // MARK: - Generic proxy result
+
+    private struct ParsedProxyResult {
+        let name: String
+        let yaml: String
+    }
+
+    private static func parseShareLink(_ line: String) -> ParsedProxyResult? {
+        if line.hasPrefix("ss://") {
+            guard let ss = parseSSShareLink(line) else { return nil }
+            return ParsedProxyResult(name: ss.name, yaml: ss.yaml)
+        } else if line.hasPrefix("vmess://") {
+            return parseVmessShareLink(line)
+        } else if line.hasPrefix("trojan://") {
+            return parseTrojanShareLink(line)
+        } else if line.hasPrefix("vless://") {
+            return parseVlessShareLink(line)
+        } else if line.hasPrefix("hysteria2://") || line.hasPrefix("hy2://") {
+            return parseHysteria2ShareLink(line)
+        } else if line.hasPrefix("hysteria://") {
+            return parseHysteriaShareLink(line)
+        }
+        return nil
+    }
+
+    // MARK: - VMess share link parser (V2RayN base64 JSON format)
+
+    private static func parseVmessShareLink(_ line: String) -> ParsedProxyResult? {
+        guard line.hasPrefix("vmess://") else { return nil }
+        let raw = String(line.dropFirst(8))
+        guard let decoded = decodeBase64ToString(raw),
+              let data = decoded.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        let name = (json["ps"] as? String)?.trimmingCharacters(in: .whitespaces) ?? "VMess Proxy"
+        let server = json["add"] as? String ?? ""
+        guard let port = intValue(json["port"]), !server.isEmpty else { return nil }
+        let uuid = json["id"] as? String ?? ""
+        guard !uuid.isEmpty else { return nil }
+
+        let alterId = intValue(json["aid"]) ?? 0
+        let cipher = json["scy"] as? String ?? "auto"
+        let network = json["net"] as? String ?? "tcp"
+        let headerType = json["type"] as? String ?? "none"
+        let isTLS = (json["tls"] as? String ?? "") == "tls"
+        let sni = json["sni"] as? String ?? ""
+        let host = json["host"] as? String ?? ""
+        let path = json["path"] as? String ?? ""
+        let alpn = json["alpn"] as? String ?? ""
+        let fp = json["fp"] as? String ?? ""
+
+        var lines: [String] = []
+        lines.append("  - name: \"\(escapeYAML(name))\"")
+        lines.append("    type: vmess")
+        lines.append("    server: \"\(escapeYAML(server))\"")
+        lines.append("    port: \(port)")
+        lines.append("    uuid: \"\(escapeYAML(uuid))\"")
+        lines.append("    alterId: \(alterId)")
+        lines.append("    cipher: \"\(escapeYAML(cipher))\"")
+        lines.append("    udp: true")
+
+        if isTLS {
+            lines.append("    tls: true")
+            if !sni.isEmpty { lines.append("    servername: \"\(escapeYAML(sni))\"") }
+            if !fp.isEmpty { lines.append("    client-fingerprint: \"\(escapeYAML(fp))\"") }
+            appendALPN(to: &lines, alpn: alpn)
+        }
+
+        appendTransportOpts(to: &lines, network: network, headerType: headerType,
+                            host: host, path: path, serviceName: "")
+
+        return ParsedProxyResult(name: name, yaml: lines.joined(separator: "\n"))
+    }
+
+    // MARK: - Trojan share link parser
+
+    private static func parseTrojanShareLink(_ line: String) -> ParsedProxyResult? {
+        guard line.hasPrefix("trojan://") else { return nil }
+        guard let components = URLComponents(string: line) else { return nil }
+
+        let password = components.user?.removingPercentEncoding ?? components.user ?? ""
+        let server = components.host ?? ""
+        let port = components.port ?? 443
+        let name = (components.fragment?.removingPercentEncoding ?? "Trojan Proxy")
+            .trimmingCharacters(in: .whitespaces)
+
+        guard !password.isEmpty, !server.isEmpty else { return nil }
+
+        let q = queryDict(from: components)
+        let sni = q["sni"] ?? q["peer"] ?? ""
+        let transport = q["type"] ?? "tcp"
+        let host = q["host"] ?? ""
+        let path = q["path"] ?? ""
+        let serviceName = q["serviceName"] ?? ""
+        let allowInsecure = q["allowInsecure"] == "1" || q["insecure"] == "1"
+        let alpn = q["alpn"] ?? ""
+        let fp = q["fp"] ?? ""
+
+        var lines: [String] = []
+        lines.append("  - name: \"\(escapeYAML(name))\"")
+        lines.append("    type: trojan")
+        lines.append("    server: \"\(escapeYAML(server))\"")
+        lines.append("    port: \(port)")
+        lines.append("    password: \"\(escapeYAML(password))\"")
+        lines.append("    udp: true")
+
+        if !sni.isEmpty { lines.append("    sni: \"\(escapeYAML(sni))\"") }
+        if allowInsecure { lines.append("    skip-cert-verify: true") }
+        if !fp.isEmpty { lines.append("    client-fingerprint: \"\(escapeYAML(fp))\"") }
+        appendALPN(to: &lines, alpn: alpn)
+        appendTransportOpts(to: &lines, network: transport, headerType: "none",
+                            host: host, path: path, serviceName: serviceName)
+
+        return ParsedProxyResult(name: name, yaml: lines.joined(separator: "\n"))
+    }
+
+    // MARK: - VLESS share link parser
+
+    private static func parseVlessShareLink(_ line: String) -> ParsedProxyResult? {
+        guard line.hasPrefix("vless://") else { return nil }
+        guard let components = URLComponents(string: line) else { return nil }
+
+        let uuid = components.user?.removingPercentEncoding ?? components.user ?? ""
+        let server = components.host ?? ""
+        let port = components.port ?? 443
+        let name = (components.fragment?.removingPercentEncoding ?? "VLESS Proxy")
+            .trimmingCharacters(in: .whitespaces)
+
+        guard !uuid.isEmpty, !server.isEmpty else { return nil }
+
+        let q = queryDict(from: components)
+        let security = q["security"] ?? "none"
+        let sni = q["sni"] ?? ""
+        let transport = q["type"] ?? "tcp"
+        let host = q["host"] ?? ""
+        let path = q["path"] ?? ""
+        let serviceName = q["serviceName"] ?? ""
+        let flow = q["flow"] ?? ""
+        let fp = q["fp"] ?? ""
+        let alpn = q["alpn"] ?? ""
+        let allowInsecure = q["allowInsecure"] == "1" || q["insecure"] == "1"
+
+        // Reality parameters
+        let pbk = q["pbk"] ?? ""
+        let sid = q["sid"] ?? ""
+
+        var lines: [String] = []
+        lines.append("  - name: \"\(escapeYAML(name))\"")
+        lines.append("    type: vless")
+        lines.append("    server: \"\(escapeYAML(server))\"")
+        lines.append("    port: \(port)")
+        lines.append("    uuid: \"\(escapeYAML(uuid))\"")
+        lines.append("    udp: true")
+
+        if !flow.isEmpty { lines.append("    flow: \"\(escapeYAML(flow))\"") }
+
+        if security == "tls" || security == "reality" {
+            lines.append("    tls: true")
+            if !sni.isEmpty { lines.append("    servername: \"\(escapeYAML(sni))\"") }
+            if allowInsecure { lines.append("    skip-cert-verify: true") }
+            if !fp.isEmpty { lines.append("    client-fingerprint: \"\(escapeYAML(fp))\"") }
+            appendALPN(to: &lines, alpn: alpn)
+
+            if security == "reality" {
+                lines.append("    reality-opts:")
+                lines.append("      public-key: \"\(escapeYAML(pbk))\"")
+                if !sid.isEmpty { lines.append("      short-id: \"\(escapeYAML(sid))\"") }
+            }
+        }
+
+        appendTransportOpts(to: &lines, network: transport, headerType: "none",
+                            host: host, path: path, serviceName: serviceName)
+
+        return ParsedProxyResult(name: name, yaml: lines.joined(separator: "\n"))
+    }
+
+    // MARK: - Hysteria2 share link parser
+
+    private static func parseHysteria2ShareLink(_ line: String) -> ParsedProxyResult? {
+        guard line.hasPrefix("hysteria2://") || line.hasPrefix("hy2://") else { return nil }
+        guard let components = URLComponents(string: line) else { return nil }
+
+        let password = components.user?.removingPercentEncoding ?? components.user ?? ""
+        let server = components.host ?? ""
+        let port = components.port ?? 443
+        let name = (components.fragment?.removingPercentEncoding ?? "Hysteria2 Proxy")
+            .trimmingCharacters(in: .whitespaces)
+
+        guard !server.isEmpty else { return nil }
+
+        let q = queryDict(from: components)
+        let sni = q["sni"] ?? ""
+        let allowInsecure = q["insecure"] == "1" || q["allowInsecure"] == "1"
+        let obfs = q["obfs"] ?? ""
+        let obfsPassword = q["obfs-password"] ?? ""
+
+        var lines: [String] = []
+        lines.append("  - name: \"\(escapeYAML(name))\"")
+        lines.append("    type: hysteria2")
+        lines.append("    server: \"\(escapeYAML(server))\"")
+        lines.append("    port: \(port)")
+        if !password.isEmpty { lines.append("    password: \"\(escapeYAML(password))\"") }
+        lines.append("    udp: true")
+
+        if !sni.isEmpty { lines.append("    sni: \"\(escapeYAML(sni))\"") }
+        if allowInsecure { lines.append("    skip-cert-verify: true") }
+        if !obfs.isEmpty { lines.append("    obfs: \"\(escapeYAML(obfs))\"") }
+        if !obfsPassword.isEmpty { lines.append("    obfs-password: \"\(escapeYAML(obfsPassword))\"") }
+
+        return ParsedProxyResult(name: name, yaml: lines.joined(separator: "\n"))
+    }
+
+    // MARK: - Hysteria (v1) share link parser
+
+    private static func parseHysteriaShareLink(_ line: String) -> ParsedProxyResult? {
+        guard line.hasPrefix("hysteria://") else { return nil }
+        guard let components = URLComponents(string: line) else { return nil }
+
+        let server = components.host ?? ""
+        let port = components.port ?? 443
+        let name = (components.fragment?.removingPercentEncoding ?? "Hysteria Proxy")
+            .trimmingCharacters(in: .whitespaces)
+
+        guard !server.isEmpty else { return nil }
+
+        let q = queryDict(from: components)
+        let authBase64 = q["auth"] ?? ""
+        let authStr: String
+        if !authBase64.isEmpty, let decoded = decodeBase64ToString(authBase64) {
+            authStr = decoded
+        } else {
+            authStr = authBase64
+        }
+        let sni = q["peer"] ?? q["sni"] ?? ""
+        let allowInsecure = q["insecure"] == "1"
+        let upMbps = q["upmbps"] ?? "100"
+        let downMbps = q["downmbps"] ?? "100"
+        let obfs = q["obfs"] ?? ""
+        let obfsParam = q["obfsParam"] ?? ""
+        let alpn = q["alpn"] ?? ""
+
+        var lines: [String] = []
+        lines.append("  - name: \"\(escapeYAML(name))\"")
+        lines.append("    type: hysteria")
+        lines.append("    server: \"\(escapeYAML(server))\"")
+        lines.append("    port: \(port)")
+        lines.append("    udp: true")
+
+        if !authStr.isEmpty { lines.append("    auth-str: \"\(escapeYAML(authStr))\"") }
+        lines.append("    up: \"\(escapeYAML(upMbps)) Mbps\"")
+        lines.append("    down: \"\(escapeYAML(downMbps)) Mbps\"")
+
+        if !sni.isEmpty { lines.append("    sni: \"\(escapeYAML(sni))\"") }
+        if allowInsecure { lines.append("    skip-cert-verify: true") }
+        if obfs == "xplus" && !obfsParam.isEmpty {
+            lines.append("    obfs: \"\(escapeYAML(obfsParam))\"")
+        }
+        appendALPN(to: &lines, alpn: alpn)
+
+        return ParsedProxyResult(name: name, yaml: lines.joined(separator: "\n"))
+    }
+
+    // MARK: - Share link parser helpers
+
+    private static func queryDict(from components: URLComponents) -> [String: String] {
+        var dict: [String: String] = [:]
+        for item in components.queryItems ?? [] {
+            if let value = item.value {
+                dict[item.name] = value
+            }
+        }
+        return dict
+    }
+
+    /// JSON values may arrive as Int, String, or Double depending on the provider.
+    private static func intValue(_ value: Any?) -> Int? {
+        if let i = value as? Int { return i }
+        if let s = value as? String { return Int(s) }
+        if let d = value as? Double { return Int(d) }
+        return nil
+    }
+
+    private static func appendTransportOpts(to lines: inout [String],
+                                            network: String,
+                                            headerType: String,
+                                            host: String,
+                                            path: String,
+                                            serviceName: String) {
+        switch network {
+        case "ws":
+            lines.append("    network: ws")
+            if !path.isEmpty || !host.isEmpty {
+                lines.append("    ws-opts:")
+                if !path.isEmpty { lines.append("      path: \"\(escapeYAML(path))\"") }
+                if !host.isEmpty {
+                    lines.append("      headers:")
+                    lines.append("        Host: \"\(escapeYAML(host))\"")
+                }
+            }
+        case "grpc":
+            lines.append("    network: grpc")
+            let svcName = !serviceName.isEmpty ? serviceName : path
+            if !svcName.isEmpty {
+                lines.append("    grpc-opts:")
+                lines.append("      grpc-service-name: \"\(escapeYAML(svcName))\"")
+            }
+        case "h2":
+            lines.append("    network: h2")
+            if !path.isEmpty || !host.isEmpty {
+                lines.append("    h2-opts:")
+                if !host.isEmpty {
+                    lines.append("      host:")
+                    lines.append("        - \"\(escapeYAML(host))\"")
+                }
+                if !path.isEmpty { lines.append("      path: \"\(escapeYAML(path))\"") }
+            }
+        case "tcp" where headerType == "http":
+            lines.append("    network: http")
+            if !path.isEmpty || !host.isEmpty {
+                lines.append("    http-opts:")
+                if !path.isEmpty {
+                    lines.append("      path:")
+                    lines.append("        - \"\(escapeYAML(path))\"")
+                }
+                if !host.isEmpty {
+                    lines.append("      headers:")
+                    lines.append("        Host:")
+                    lines.append("          - \"\(escapeYAML(host))\"")
+                }
+            }
+        default:
+            break // tcp with no obfuscation is the default
+        }
+    }
+
+    private static func appendALPN(to lines: inout [String], alpn: String) {
+        guard !alpn.isEmpty else { return }
+        lines.append("    alpn:")
+        for a in alpn.split(separator: ",") {
+            lines.append("      - \"\(a.trimmingCharacters(in: .whitespaces))\"")
+        }
+    }
+
+    private static func looksLikeShareLinks(_ string: String) -> Bool {
+        guard let firstLine = string
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map(String.init) else { return false }
+        return shareLinkSchemes.contains(where: { firstLine.hasPrefix($0) })
+    }
+
     static func updateConfig(config: RemoteConfigModel, complete: ((String?) -> Void)? = nil) {
         getRemoteConfigData(config: config) { configString, suggestedFilename in
             guard let rawConfig = configString else {
@@ -527,6 +885,9 @@ class RemoteConfigManager {
             let newConfig: String
             if verifyConfig(string: rawConfig) == nil {
                 newConfig = rawConfig
+            } else if looksLikeShareLinks(rawConfig), let converted = buildConfigFromShareLinks(rawConfig) {
+                Logger.log("[Remote Config] Content was raw share links, converted successfully")
+                newConfig = converted
             } else if let decoded = tryDecodeBase64(rawConfig) {
                 Logger.log("[Remote Config] Content was base64 encoded, decoded successfully")
                 newConfig = decoded

@@ -1,41 +1,29 @@
-## ClashFX 1.0.17
-
-### New Features / 新功能
-
-- **Upgraded generated compatibility configs to geosite template** — Share-link subscriptions (base64 SS/VMess) now generate configs with `geodata-mode: true`, geosite/geoip CN direct routing, DNS fallback (domestic 223.5.5.5 / foreign 1.1.1.1), and comprehensive private-network IP-CIDR rules. Existing generated configs auto-upgrade on first launch.
+## ClashFX 1.0.18
 
 ### Bug Fixes / 问题修复
 
-- **Restored parent group Switch in tray menu settings** — Parent group rows (e.g. "Proxy Actions", "General Settings") now show a Switch again. Toggling it off collapses all child items with a smooth animation; toggling it back on expands them. Fixes #41.
-- **Hide parent menu item when all children are off** — If every sub-item in a tray menu group (Configs, Help) is toggled off, the parent menu item now hides automatically instead of showing an empty shell. Fixes #44.
-- **Fixed Catalina menu bar speed rendering** — Added `wantsLayer` backing for the custom speed text view, ensuring the upload/download speed display renders correctly on macOS 10.15 Catalina.
+- **Fixed subscription links with VMess/Trojan/VLESS/Hysteria protocols** — Subscription URLs that return share-link lists (vmess://, trojan://, vless://, hysteria://, hysteria2://) are now automatically converted to Clash-compatible YAML configs. Previously only Shadowsocks (ss://) links were supported; all other protocols silently failed with a "yaml unmarshal" error. Fixes #45.
+- **Fixed raw (non-base64) share-link subscriptions** — Subscription URLs that return plain-text share links without base64 encoding are now handled correctly.
 
 ### Improvements / 改进
 
-- **Upgraded mihomo core from v1.19.21 to v1.19.24** — Three patch releases of bug fixes and protocol improvements.
-- **Updated subscription User-Agent to mihomo/1.19.24** — Matches the actual core version to avoid provider misclassification.
+- **Full transport layer support for converted share links** — Auto-generated configs from share links now support WebSocket, gRPC, HTTP/2, and HTTP obfuscation transport layers, as well as TLS, ALPN, fingerprint, and Reality options.
 
 ---
 
-### 新功能
-
-- **生成的兼容配置升级为 geosite 模板** — 分享链接订阅（base64 SS/VMess）现在生成的配置包含 `geodata-mode: true`、geosite/geoip 国内直连规则、DNS 分流回退（国内 223.5.5.5 / 国外 1.1.1.1）以及完整的私有网络 IP-CIDR 规则。已有的生成配置在首次启动时会自动升级。
-
 ### 问题修复
 
-- **恢复托盘菜单设置中父级分组的 Switch** — 父级分组行（如「代理控制」、「通用设置」）重新带有 Switch 开关。关闭时子项以动画折叠隐藏，开启时恢复展开。修复 #41。
-- **所有子项关闭时自动隐藏父级菜单项** — 如果托盘菜单中某个分组（配置管理、帮助）的所有子项都被关闭，父级菜单项也会自动隐藏，不再显示空壳。修复 #44。
-- **修复 Catalina 菜单栏速度显示渲染** — 为自定义速度文本视图添加 `wantsLayer` 支持，确保上传/下载速度在 macOS 10.15 Catalina 上正确渲染。
+- **修复 VMess/Trojan/VLESS/Hysteria 协议的订阅链接** — 返回分享链接列表（vmess://、trojan://、vless://、hysteria://、hysteria2://）的订阅 URL 现在会自动转换为 Clash 兼容的 YAML 配置。此前仅支持 Shadowsocks (ss://) 链接，其他协议会静默失败并报「yaml unmarshal」错误。修复 #45。
+- **修复未经 base64 编码的原始分享链接订阅** — 订阅 URL 直接返回明文分享链接（未经 base64 编码）的情况现在也能正确处理。
 
 ### 改进
 
-- **mihomo 内核从 v1.19.21 升级至 v1.19.24** — 包含三个补丁版本的 bug 修复和协议改进。
-- **订阅请求 User-Agent 更新为 mihomo/1.19.24** — 与实际内核版本一致，避免部分机场误判客户端类型。
+- **分享链接转换支持完整传输层** — 从分享链接自动生成的配置现在支持 WebSocket、gRPC、HTTP/2 和 HTTP 混淆传输层，以及 TLS、ALPN、指纹和 Reality 选项。
 
 ---
 
 ### Contributors / 贡献者
 
-- **@ayangweb** — reported issues #41 and #44
+- **@B_White** — reported issue #45
 
-[![Download ClashFX](https://a.fsdn.com/con/app/sf-download-button)](https://sourceforge.net/projects/clashfx/files/1.0.17/)
+[![Download ClashFX](https://a.fsdn.com/con/app/sf-download-button)](https://sourceforge.net/projects/clashfx/files/1.0.18/)
