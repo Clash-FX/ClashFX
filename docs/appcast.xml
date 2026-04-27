@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.18</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.18</h2><ul><li><strong>Fixed subscription links with VMess/Trojan/VLESS/Hysteria protocols</strong> — Subscription URLs that return share-link lists (vmess://, trojan://, vless://, hysteria://, hysteria2://) are now automatically converted to Clash-compatible YAML configs. Previously only Shadowsocks (ss://) links were supported; all other protocols silently failed with a "yaml unmarshal" error. Fixes #45.</li><li><strong>Fixed raw (non-base64) share-link subscriptions</strong> — Subscription URLs that return plain-text share links without base64 encoding are now handled correctly.</li><li><strong>Full transport layer support for converted share links</strong> — Auto-generated configs from share links now support WebSocket, gRPC, HTTP/2, and HTTP obfuscation transport layers, as well as TLS, ALPN, fingerprint, and Reality options.</li></ul>
+  ]]></description>
+  <pubDate>Mon, 27 Apr 2026 10:13:00 +0000</pubDate>
+  <sparkle:version>1.0.18</sparkle:version>
+  <sparkle:shortVersionString>1.0.18</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.18/ClashFX.dmg"
+    sparkle:version="1.0.18"
+    sparkle:shortVersionString="1.0.18"
+    sparkle:edSignature="6/BQHrNe6raKbQGAHJqBQhEbg4YUkEQeWHqt9zk5WYRuiYk7paWLqTts6HMGBFeGfG3RrC6nYAUQdm0qzPNPBA=="
+    length="88943713"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.17</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.17</h2><ul><li><strong>Upgraded generated compatibility configs to geosite template</strong> — Share-link subscriptions (base64 SS/VMess) now generate configs with `geodata-mode: true`, geosite/geoip CN direct routing, DNS fallback (domestic 223.5.5.5 / foreign 1.1.1.1), and comprehensive private-network IP-CIDR rules. Existing generated configs auto-upgrade on first launch.</li><li><strong>Restored parent group Switch in tray menu settings</strong> — Parent group rows (e.g. "Proxy Actions", "General Settings") now show a Switch again. Toggling it off collapses all child items with a smooth animation; toggling it back on expands them. Fixes #41.</li><li><strong>Hide parent menu item when all children are off</strong> — If every sub-item in a tray menu group (Configs, Help) is toggled off, the parent menu item now hides automatically instead of showing an empty shell. Fixes #44.</li><li><strong>Fixed Catalina menu bar speed rendering</strong> — Added `wantsLayer` backing for the custom speed text view, ensuring the upload/download speed display renders correctly on macOS 10.15 Catalina.</li><li><strong>Upgraded mihomo core from v1.19.21 to v1.19.24</strong> — Three patch releases of bug fixes and protocol improvements.</li><li><strong>Updated subscription User-Agent to mihomo/1.19.24</strong> — Matches the actual core version to avoid provider misclassification.</li></ul>
