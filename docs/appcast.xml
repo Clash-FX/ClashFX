@@ -8,6 +8,24 @@
     <item>
   <title>Version 1.0.17</title>
   <description><![CDATA[
+    <h2>ClashFX v1.0.17</h2><ul><li><strong>Upgraded generated compatibility configs to geosite template</strong> — Share-link subscriptions (base64 SS/VMess) now generate configs with `geodata-mode: true`, geosite/geoip CN direct routing, DNS fallback (domestic 223.5.5.5 / foreign 1.1.1.1), and comprehensive private-network IP-CIDR rules. Existing generated configs auto-upgrade on first launch.</li><li><strong>Restored parent group Switch in tray menu settings</strong> — Parent group rows (e.g. "Proxy Actions", "General Settings") now show a Switch again. Toggling it off collapses all child items with a smooth animation; toggling it back on expands them. Fixes #41.</li><li><strong>Hide parent menu item when all children are off</strong> — If every sub-item in a tray menu group (Configs, Help) is toggled off, the parent menu item now hides automatically instead of showing an empty shell. Fixes #44.</li><li><strong>Fixed Catalina menu bar speed rendering</strong> — Added `wantsLayer` backing for the custom speed text view, ensuring the upload/download speed display renders correctly on macOS 10.15 Catalina.</li><li><strong>Upgraded mihomo core from v1.19.21 to v1.19.24</strong> — Three patch releases of bug fixes and protocol improvements.</li><li><strong>Updated subscription User-Agent to mihomo/1.19.24</strong> — Matches the actual core version to avoid provider misclassification.</li></ul>
+  ]]></description>
+  <pubDate>Mon, 27 Apr 2026 07:31:47 +0000</pubDate>
+  <sparkle:version>1.0.17</sparkle:version>
+  <sparkle:shortVersionString>1.0.17</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.17/ClashFX.dmg"
+    sparkle:version="1.0.17"
+    sparkle:shortVersionString="1.0.17"
+    sparkle:edSignature="cgYA6ikmwMGAeXUGuLS0wnyrujkvYixc1DSEONeeqkWCoEZDGotw7fXlsi6HuYCd4UcelM2yORtgM4tRAFYvAg=="
+    length="88945910"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
+  <title>Version 1.0.17</title>
+  <description><![CDATA[
     <h2>ClashFX v1.0.17</h2><ul><li><strong>Restored parent group Switch in tray menu settings</strong> — Parent group rows (e.g. "Proxy Actions", "General Settings") now show a Switch again. Toggling it off collapses all child items with a smooth animation; toggling it back on expands them. Fixes #41.</li></ul>
   ]]></description>
   <pubDate>Fri, 24 Apr 2026 16:26:19 +0000</pubDate>
