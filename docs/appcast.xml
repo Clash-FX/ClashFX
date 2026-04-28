@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.19</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.19</h2><ul><li><strong>Fixed Enhanced Mode (TUN) DNS hijacking on macOS</strong> — When TUN mode was enabled, DNS queries to the local router bypassed the TUN device entirely because private network addresses (192.168.x.x) are routed directly through the LAN interface. This caused DNS pollution from the GFW, breaking connectivity to blocked sites for applications like Node.js, Discord, and other tools that don't respect macOS system proxy settings. ClashFX now automatically overrides the system DNS to `198.18.0.2` (TUN fake-ip range) when Enhanced Mode is activated, and restores the original DNS when it's disabled. DNS cache is also flushed on both transitions.</li><li><strong>Helper update required</strong> — This release includes changes to the privileged helper (version 1.0 → 1.1). On first launch after update, ClashFX will prompt for your administrator password to reinstall the helper. This is required for the DNS fix to work automatically.</li><li><strong>Automatic DNS cache flush</strong> — DNS cache is now automatically flushed when enabling or disabling Enhanced Mode, preventing stale/poisoned DNS entries from causing connection failures.</li><li><strong>DNS state cleanup on quit</strong> — If the app is quit while Enhanced Mode is active, DNS settings are automatically restored to prevent leaving the system in a broken state.</li></ul>
+  ]]></description>
+  <pubDate>Tue, 28 Apr 2026 05:19:29 +0000</pubDate>
+  <sparkle:version>1.0.19</sparkle:version>
+  <sparkle:shortVersionString>1.0.19</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.19/ClashFX.dmg"
+    sparkle:version="1.0.19"
+    sparkle:shortVersionString="1.0.19"
+    sparkle:edSignature="srhLCSp58QpciSrBliIbj8frIz35gg/8E/Uq+Ob8RekkTR+B/iK8H9knzdoWx5i94S8NUPhSztn/owL+1KwOAg=="
+    length="88946900"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.18</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.18</h2><ul><li><strong>Fixed subscription links with VMess/Trojan/VLESS/Hysteria protocols</strong> — Subscription URLs that return share-link lists (vmess://, trojan://, vless://, hysteria://, hysteria2://) are now automatically converted to Clash-compatible YAML configs. Previously only Shadowsocks (ss://) links were supported; all other protocols silently failed with a "yaml unmarshal" error. Fixes #45.</li><li><strong>Fixed raw (non-base64) share-link subscriptions</strong> — Subscription URLs that return plain-text share links without base64 encoding are now handled correctly.</li><li><strong>Full transport layer support for converted share links</strong> — Auto-generated configs from share links now support WebSocket, gRPC, HTTP/2, and HTTP obfuscation transport layers, as well as TLS, ALPN, fingerprint, and Reality options.</li></ul>
