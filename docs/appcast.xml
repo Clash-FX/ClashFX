@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.20</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.20</h2><ul><li><strong>Fixed UI freeze when toggling Enhanced Mode with many proxy groups</strong> — Toggling Enhanced Mode (TUN) on configurations with many proxy groups (30+ groups, hundreds of proxies) caused the UI to freeze for several seconds with CPU at 100%. The toggle path no longer forces a full menu rebuild on every switch — it now uses lightweight refresh when proxy topology is unchanged, and only rebuilds when group structure actually changes. Removed unnecessary 1-second delay chains.</li><li><strong>Fixed proxy list disappearing after toggling Enhanced Mode</strong> — After turning Enhanced Mode off, the proxy group list could become empty, requiring a manual config switch to restore it. The proxy data cache is now properly updated after each topology change.</li><li><strong>Fixed Main Thread Checker warning on app quit</strong> — `NSApp.reply(toApplicationShouldTerminate:)` was called from a background queue during cleanup, which could cause UI inconsistencies. All termination replies are now properly dispatched to the main thread.</li></ul>
+  ]]></description>
+  <pubDate>Tue, 28 Apr 2026 09:14:39 +0000</pubDate>
+  <sparkle:version>1.0.20</sparkle:version>
+  <sparkle:shortVersionString>1.0.20</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.20/ClashFX.dmg"
+    sparkle:version="1.0.20"
+    sparkle:shortVersionString="1.0.20"
+    sparkle:edSignature="WQgK4YheA/CZKl0mx1ET+JqthwxYBm0pYedxL4lo4MN4HdpTVzgfYq5sEZ11OY9QaPHCioBKrpXZti0aR3VCDQ=="
+    length="88988604"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.19</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.19</h2><ul><li><strong>Fixed Enhanced Mode (TUN) DNS hijacking on macOS</strong> — When TUN mode was enabled, DNS queries to the local router bypassed the TUN device entirely because private network addresses (192.168.x.x) are routed directly through the LAN interface. This caused DNS pollution from the GFW, breaking connectivity to blocked sites for applications like Node.js, Discord, and other tools that don't respect macOS system proxy settings. ClashFX now automatically overrides the system DNS to `198.18.0.2` (TUN fake-ip range) when Enhanced Mode is activated, and restores the original DNS when it's disabled. DNS cache is also flushed on both transitions.</li><li><strong>Helper update required</strong> — This release includes changes to the privileged helper (version 1.0 → 1.1). On first launch after update, ClashFX will prompt for your administrator password to reinstall the helper. This is required for the DNS fix to work automatically.</li><li><strong>Automatic DNS cache flush</strong> — DNS cache is now automatically flushed when enabling or disabling Enhanced Mode, preventing stale/poisoned DNS entries from causing connection failures.</li><li><strong>DNS state cleanup on quit</strong> — If the app is quit while Enhanced Mode is active, DNS settings are automatically restored to prevent leaving the system in a broken state.</li></ul>
