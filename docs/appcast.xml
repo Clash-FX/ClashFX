@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.23</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.23</h2><ul><li><strong>Prioritized the `Proxy` selector in generated share-link configs</strong> — Generated compatibility configs now define `Proxy` before `Auto`, migrate existing generated templates, and sort selector groups before automatic groups in the tray menu. Choosing a fixed node in `Proxy` now remains the clear primary route, while `Auto` stays visible as the automatic test group status.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 29 Apr 2026 16:34:05 +0000</pubDate>
+  <sparkle:version>1.0.23</sparkle:version>
+  <sparkle:shortVersionString>1.0.23</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.23/ClashFX.dmg"
+    sparkle:version="1.0.23"
+    sparkle:shortVersionString="1.0.23"
+    sparkle:edSignature="2YyTh3h5rqkImPuWqliNazRHTmtcIQ01HPEX7pZleysV9HD55M5rjJYGeI0ZC33kbo/SUGHXLizbeJPEsUTgDA=="
+    length="88955950"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.22</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.22</h2><ul><li><strong>Restored manual selection as the default generated fallback</strong> — Share-link compatibility configs now route unmatched traffic through the `Proxy` selector instead of directly through `Auto`, so users can keep a fixed node for IP-sensitive services while still choosing `Auto` when they want automatic fastest-node selection.</li></ul>
