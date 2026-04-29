@@ -1,15 +1,15 @@
-## ClashFX 1.0.22
+## ClashFX 1.0.23
 
 ### Bug Fixes / 问题修复
 
-- **Restored manual selection as the default generated fallback** — Share-link compatibility configs now route unmatched traffic through the `Proxy` selector instead of directly through `Auto`, so users can keep a fixed node for IP-sensitive services while still choosing `Auto` when they want automatic fastest-node selection.
+- **Prioritized the `Proxy` selector in generated share-link configs** — Generated compatibility configs now define `Proxy` before `Auto`, migrate existing generated templates, and sort selector groups before automatic groups in the tray menu. Choosing a fixed node in `Proxy` now remains the clear primary route, while `Auto` stays visible as the automatic test group status.
 
 ---
 
 ### 问题修复
 
-- **恢复生成配置默认走手动选择入口** — 分享链接兼容配置的兜底规则现在会走 `Proxy` 选择组，而不是直接走 `Auto`，用户可以为 IP 敏感服务固定节点；需要自动选择最快节点时，仍可在 `Proxy` 里选择 `Auto`。
+- **优先显示 `Proxy` 选择入口** — 生成的分享链接兼容配置现在会先定义 `Proxy`、再定义 `Auto`，并迁移已有自动生成模板；托盘菜单也会优先显示选择组，再显示自动组。用户在 `Proxy` 中选择固定节点时，路由入口更清晰；`Auto` 仍保留用于查看自动测速组当前状态。
 
 ---
 
-[![Download ClashFX](https://a.fsdn.com/con/app/sf-download-button)](https://sourceforge.net/projects/clashfx/files/1.0.22/)
+[![Download ClashFX](https://a.fsdn.com/con/app/sf-download-button)](https://sourceforge.net/projects/clashfx/files/1.0.23/)
