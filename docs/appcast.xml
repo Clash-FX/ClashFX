@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.24</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.24</h2><ul><li><strong>Subscriptions</strong> — Fixed an issue where raw base64 share-link subscriptions failed to import due to improper validation order.</li><li><strong>Config Parser</strong> — Tightened remote config verification to catch semantic formatting errors earlier.</li></ul>
+  ]]></description>
+  <pubDate>Thu, 30 Apr 2026 05:40:41 +0000</pubDate>
+  <sparkle:version>1.0.24</sparkle:version>
+  <sparkle:shortVersionString>1.0.24</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.24/ClashFX.dmg"
+    sparkle:version="1.0.24"
+    sparkle:shortVersionString="1.0.24"
+    sparkle:edSignature="YH8TZ8JFentcMJJdy3HQ6bP16KAkYoKS0JdR7CEOPH0hwXBEiawm+P2ktkMKYrM4LAIgj5n2ZktkFPeqrrHSDg=="
+    length="89001595"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.23</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.23</h2><ul><li><strong>Prioritized the `Proxy` selector in generated share-link configs</strong> — Generated compatibility configs now define `Proxy` before `Auto`, migrate existing generated templates, and sort selector groups before automatic groups in the tray menu. Choosing a fixed node in `Proxy` now remains the clear primary route, while `Auto` stays visible as the automatic test group status.</li></ul>
