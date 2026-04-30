@@ -109,6 +109,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemView = StatusItemView.create(statusItem: statusItem)
         statusItemView.updateSize(width: statusItemLengthWithSpeed)
         statusMenu.delegate = self
+        statusItem.menu = statusMenu
         AppLogoTool.applyLogo()
         setupStatusMenuItemData()
         DispatchQueue.main.async {
@@ -119,7 +120,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func postFinishLaunching() {
         Logger.log("postFinishLaunching")
         defer {
-            statusItem.menu = statusMenu
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 self.checkMenuIconVisable()
             }

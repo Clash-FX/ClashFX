@@ -593,11 +593,11 @@
                 <application id="hnw-xV-0zn" sceneMemberID="viewController">
                     <menu key="mainMenu" title="Main Menu" systemMenu="main" id="AYu-sK-qS6">
                         <items>
-                            <menuItem title="ClashX" id="1Xt-HY-uBw" userLabel="ClashX">
+                            <menuItem title="ClashFX" id="1Xt-HY-uBw" userLabel="ClashFX">
                                 <modifierMask key="keyEquivalentModifierMask"/>
-                                <menu key="submenu" title="ClashX" systemMenu="apple" id="uQy-DD-JDr">
+                                <menu key="submenu" title="ClashFX" systemMenu="apple" id="uQy-DD-JDr">
                                     <items>
-                                        <menuItem title="Quit ClashX" keyEquivalent="q" id="TsN-g8-OjG">
+                                        <menuItem title="Quit ClashFX" keyEquivalent="q" id="TsN-g8-OjG">
                                             <connections>
                                                 <action selector="terminate:" target="Ady-hI-5gd" id="u3Z-Ml-nGa"/>
                                             </connections>

@@ -425,6 +425,41 @@ func verifyClashConfig(content *C.char) *C.char {
 	return C.CString("success")
 }
 
+func nameserverPolicyForConvertedProxies(proxies []map[string]interface{}) map[string]interface{} {
+	policy := make(map[string]interface{})
+	for _, proxy := range proxies {
+		server, ok := proxy["server"].(string)
+		if !ok || server == "" {
+			continue
+		}
+		if net.ParseIP(server) != nil {
+			continue
+		}
+		policy[server] = "https://223.5.5.5/dns-query"
+	}
+	return policy
+}
+
+func isSubscriptionInfoProxyName(name string) bool {
+	containsMarkers := []string{
+		"剩余流量", "套餐到期", "过滤掉", "官网", "订阅", "用户群",
+	}
+	for _, marker := range containsMarkers {
+		if strings.Contains(name, marker) {
+			return true
+		}
+	}
+
+	lowerName := strings.ToLower(strings.TrimSpace(name))
+	prefixMarkers := []string{"traffic", "expire", "expired", "remaining traffic", "subscription"}
+	for _, marker := range prefixMarkers {
+		if strings.HasPrefix(lowerName, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 //export clashConvertShareLinks
 func clashConvertShareLinks(content *C.char) *C.char {
 	proxies, err := convert.ConvertsV2Ray([]byte(C.GoString(content)))
@@ -432,45 +467,68 @@ func clashConvertShareLinks(content *C.char) *C.char {
 		return C.CString("error:" + err.Error())
 	}
 
+	filteredProxies := make([]map[string]interface{}, 0, len(proxies))
 	names := make([]string, 0, len(proxies))
 	for _, proxy := range proxies {
 		if name, ok := proxy["name"].(string); ok && name != "" {
+			if isSubscriptionInfoProxyName(name) {
+				continue
+			}
+			filteredProxies = append(filteredProxies, proxy)
 			names = append(names, name)
 		}
 	}
 	if len(names) == 0 {
 		return C.CString("error:converted subscription did not contain proxy names")
 	}
+	nameserverPolicy := nameserverPolicyForConvertedProxies(filteredProxies)
+	benchmarkURL := "http://YouTube.com/generate_204"
+	dns := map[string]interface{}{
+		"enable":        true,
+		"listen":        "127.0.0.1:1053",
+		"ipv6":          true,
+		"enhanced-mode": "redir-host",
+		"default-nameserver": []string{
+			"114.114.114.114",
+			"223.5.5.5",
+			"119.29.29.29",
+		},
+		"nameserver": []string{
+			"https://223.5.5.5/dns-query",
+			"https://doh.pub/dns-query",
+			"119.29.29.29",
+			"223.5.5.5",
+			"tls://223.5.5.5:853",
+			"tls://223.6.6.6:853",
+		},
+		"fallback": []string{
+			"https://223.5.5.5/dns-query",
+			"https://doh.pub/dns-query",
+			"tls://1.1.1.1:853",
+			"tls://8.8.8.8:853",
+		},
+		"fallback-filter": map[string]interface{}{
+			"geoip": false,
+		},
+	}
+	if len(nameserverPolicy) > 0 {
+		dns["nameserver-policy"] = nameserverPolicy
+	}
 
 	rawMap := map[string]interface{}{
-		"mode":         "rule",
-		"log-level":    "info",
-		"geodata-mode": true,
-		"mixed-port":   7890,
-		"allow-lan":    false,
-		"geox-url": map[string]interface{}{
-			"geoip":   "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat",
-			"geosite": "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat",
-			"mmdb":    "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb",
-		},
-		"dns": map[string]interface{}{
-			"enable":        true,
-			"ipv6":          false,
-			"enhanced-mode": "redir-host",
-			"nameserver": []string{
-				"223.5.5.5",
-				"119.29.29.29",
-			},
-			"fallback": []string{
-				"1.1.1.1",
-				"8.8.8.8",
-			},
-			"fallback-filter": map[string]interface{}{
-				"geoip":      true,
-				"geoip-code": "CN",
-			},
-		},
-		"proxies": proxies,
+		"mode":                    "rule",
+		"log-level":               "info",
+		"mixed-port":              7890,
+		"allow-lan":               false,
+		"bind-address":            "*",
+		"ipv6":                    true,
+		"udp":                     true,
+		"unified-delay":           true,
+		"cfw-latency-timeout":     8000,
+		"cfw-latency-url":         benchmarkURL,
+		"cfw-conn-break-strategy": true,
+		"dns":                     dns,
+		"proxies":                 filteredProxies,
 		"proxy-groups": []map[string]interface{}{
 			{
 				"name":    "Proxy",
@@ -478,19 +536,18 @@ func clashConvertShareLinks(content *C.char) *C.char {
 				"proxies": append([]string{"Auto", "DIRECT"}, names...),
 			},
 			{
-				"name":     "Auto",
-				"type":     "url-test",
-				"proxies":  names,
-				"url":      "http://cp.cloudflare.com/generate_204",
-				"interval": 300,
+				"name":      "Auto",
+				"type":      "url-test",
+				"proxies":   names,
+				"url":       benchmarkURL,
+				"interval":  300,
+				"tolerance": 200,
 			},
 		},
 		"rules": []string{
 			"DOMAIN,localhost,DIRECT",
 			"DOMAIN-SUFFIX,local,DIRECT",
 			"DOMAIN-SUFFIX,cn,DIRECT",
-			"GEOSITE,private,DIRECT",
-			"GEOSITE,cn,DIRECT",
 			"DOMAIN,www.baidu.com,DIRECT",
 			"DOMAIN,baidu.com,DIRECT",
 			"DOMAIN-KEYWORD,baidu,DIRECT",
@@ -507,8 +564,6 @@ func clashConvertShareLinks(content *C.char) *C.char {
 			"IP-CIDR6,::1/128,DIRECT,no-resolve",
 			"IP-CIDR6,fc00::/7,DIRECT,no-resolve",
 			"IP-CIDR6,fe80::/10,DIRECT,no-resolve",
-			"GEOIP,private,DIRECT",
-			"GEOIP,CN,DIRECT",
 			"MATCH,Proxy",
 		},
 	}
@@ -519,11 +574,11 @@ func clashConvertShareLinks(content *C.char) *C.char {
 	}
 
 	header := "# clashfx-generated: share-links\n" +
-		"# clashfx-template-version: 7\n" +
+		"# clashfx-template-version: 8\n" +
 		"# This file was auto-generated by ClashFX from share-link subscriptions.\n" +
 		"# It is a compatibility config, not a user-authored rule file.\n" +
 		"# ClashFX may safely auto-upgrade this generated template.\n" +
-		"# Current template: mihomo share-link converter + geosite/geoip CN direct routing.\n"
+		"# Current template: mihomo share-link converter + DNS policy + geodata-free rules.\n"
 	return C.CString(header + string(data))
 }
 

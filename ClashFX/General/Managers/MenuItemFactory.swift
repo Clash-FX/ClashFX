@@ -61,7 +61,7 @@ class MenuItemFactory {
                 menu.isEnabled = true
             }
         }
-        updateProxyList(withMenus: menuItems)
+        updateProxyList(withMenus: Array(menuItems.reversed()))
     }
 
     private static func sortedProxyGroupsForMenu(_ groups: [ClashProxy]) -> [ClashProxy] {
@@ -271,6 +271,7 @@ extension MenuItemFactory {
                     return model.key == newModel.key
                 }
                 ConfigManager.selectedProxyRecords.append(newModel)
+                // Close all active connections so selector changes take effect immediately.
                 ConnectionManager.closeAllConnection()
                 // refresh menu items
                 MenuItemFactory.refreshExistingMenuItems()

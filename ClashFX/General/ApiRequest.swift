@@ -104,7 +104,7 @@ class ApiRequest {
             let data = clashGetConfigs()?.toString().data(using: .utf8) ?? Data()
             DispatchQueue.main.async {
                 guard let config = ClashConfig.fromData(data) else {
-                    NSUserNotificationCenter.default.post(title: "Error", info: "Get clash config failed. Try Fix your config file then reload config or restart ClashX.")
+                    NSUserNotificationCenter.default.post(title: "Error", info: "Get clash config failed. Try fixing your config file, then reload the config or restart ClashFX.")
                     (NSApplication.shared.delegate as? AppDelegate)?.startProxy()
                     return
                 }
@@ -120,7 +120,7 @@ class ApiRequest {
     }
 
     static func requestConfigUpdate(configPath: String, callback: @escaping ((ErrorString?) -> Void)) {
-        let placeHolderErrorDesp = "Error occoured, Please try to fix it by restarting ClashX. "
+        let placeHolderErrorDesp = "Error occurred. Please try to fix it by restarting ClashFX. "
 
         // DEV MODE: Use API
         if !useDirectApi() {
@@ -214,7 +214,15 @@ class ApiRequest {
             parameters: ["name": selectProxy],
             encoding: JSONEncoding.default)
             .responseData { response in
-                callback(response.response?.statusCode == 204)
+                let statusCode = response.response?.statusCode ?? -1
+                let success = statusCode == 204
+                if success {
+                    Logger.log("[Proxy Select] Selected '\(selectProxy)' for group '\(group)'")
+                } else {
+                    let body = response.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
+                    Logger.log("[Proxy Select] Failed selecting '\(selectProxy)' for group '\(group)', status: \(statusCode), error: \(response.error?.localizedDescription ?? "unknown error"), body: \(body)", level: .warning)
+                }
+                callback(success)
             }
     }
 
@@ -298,6 +306,20 @@ class ApiRequest {
                 Logger.log("HeathCheck for \(proxy) finished")
             } else {
                 Logger.log("HeathCheck for \(proxy) failed:\(res.response?.statusCode ?? -1)")
+            }
+            completeHandler?()
+        }
+    }
+
+    static func resetAutoProxyGroup(group: ClashProxyName, completeHandler: (() -> Void)? = nil) {
+        Logger.log("[Proxy ReTest] Resetting auto proxy group '\(group)'")
+        req("/proxies/\(group.encoded)", method: .delete).responseData { res in
+            let statusCode = res.response?.statusCode ?? -1
+            if statusCode == 204 {
+                Logger.log("[Proxy ReTest] Auto proxy group '\(group)' reset")
+            } else {
+                let body = res.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
+                Logger.log("[Proxy ReTest] Failed resetting auto proxy group '\(group)', status: \(statusCode), body: \(body)", level: .warning)
             }
             completeHandler?()
         }

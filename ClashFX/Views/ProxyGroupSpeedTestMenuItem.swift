@@ -12,6 +12,8 @@ import Cocoa
 class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     let proxyGroup: ClashProxy
     let testType: TestType
+    private var isTesting = false
+    private var refreshTimer: Timer?
 
     init(group: ClashProxy) {
         proxyGroup = group
@@ -31,7 +33,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         case .benchmark:
             view = ProxyGroupSpeedTestMenuItemView(testType.title)
         case .reTest:
-            title = testType.title
+            view = ProxyGroupSpeedTestMenuItemView(testType.title)
         case .unknown:
             assertionFailure()
         }
@@ -44,20 +46,33 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
 
     @objc func healthCheck() {
         guard testType == .reTest else { return }
-        ApiRequest.healthCheck(proxy: proxyGroup.name)
-        ApiRequest.getMergedProxyData { [weak self] proxyResp in
-            guard let self = self else { return }
-            var providers = Set<ClashProxyName>()
-            self.proxyGroup.all?.compactMap {
-                proxyResp?.proxiesMap[$0]?.enclosingProvider?.name
-            }.forEach {
-                providers.insert($0)
-            }
-            for provider in providers {
-                ApiRequest.healthCheck(proxy: provider)
-            }
+        retestAutoGroup()
+    }
+
+    func retestAutoGroup() {
+        guard testType == .reTest else { return }
+        guard !isTesting else { return }
+
+        isTesting = true
+        isEnabled = false
+        updateViewTitle(NSLocalizedString("Testing", comment: ""))
+
+        ApiRequest.resetAutoProxyGroup(group: proxyGroup.name) {
+            self.scheduleMenuRefresh()
         }
-        menu?.cancelTracking()
+    }
+
+    private func scheduleMenuRefresh() {
+        let timer = Timer(timeInterval: 0.5, repeats: false) { _ in
+            MenuItemFactory.refreshExistingMenuItems()
+        }
+        refreshTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func updateViewTitle(_ title: String) {
+        self.title = title
+        (view as? ProxyGroupSpeedTestMenuItemView)?.updateTitle(title)
     }
 }
 
@@ -94,8 +109,21 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         return [label]
     }
 
+    func updateTitle(_ title: String) {
+        label.stringValue = title
+        setNeedsDisplay()
+    }
+
     override func didClickView() {
-        startBenchmark()
+        guard let speedTestItem = enclosingMenuItem as? ProxyGroupSpeedTestMenuItem else { return }
+        switch speedTestItem.testType {
+        case .benchmark:
+            startBenchmark()
+        case .reTest:
+            speedTestItem.retestAutoGroup()
+        case .unknown:
+            break
+        }
     }
 
     private func startBenchmark() {
