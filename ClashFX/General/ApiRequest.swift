@@ -257,15 +257,27 @@ class ApiRequest {
     }
 
     static func getProxyDelay(proxyName: String, callback: @escaping ((Int) -> Void)) {
+        let benchmarkURL = Settings.benchMarkUrl
+        Logger.log("[Proxy Delay] Testing proxy '\(proxyName)' with url: \(benchmarkURL)")
         req("/proxies/\(proxyName.encoded)/delay",
             method: .get,
-            parameters: ["timeout": 5000, "url": Settings.benchMarkUrl])
+            parameters: ["timeout": 5000, "url": benchmarkURL])
             .responseData { res in
+                let statusCode = res.response?.statusCode ?? -1
                 switch res.result {
                 case let .success(value):
                     let json = JSON(value)
-                    callback(json["delay"].intValue)
+                    let delay = json["delay"].intValue
+                    if delay > 0 {
+                        Logger.log("[Proxy Delay] Proxy '\(proxyName)' succeeded: \(delay) ms, status: \(statusCode)")
+                    } else {
+                        let body = String(data: value, encoding: .utf8) ?? "<non-utf8 body>"
+                        Logger.log("[Proxy Delay] Proxy '\(proxyName)' returned no delay, status: \(statusCode), body: \(body)", level: .warning)
+                    }
+                    callback(delay)
                 case .failure:
+                    let body = res.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
+                    Logger.log("[Proxy Delay] Proxy '\(proxyName)' failed, status: \(statusCode), error: \(res.error?.localizedDescription ?? "unknown error"), body: \(body)", level: .error)
                     callback(0)
                 }
             }
