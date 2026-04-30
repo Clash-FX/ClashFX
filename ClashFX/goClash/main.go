@@ -414,8 +414,11 @@ func applyTunConfig(rawCfg *config.RawConfig) {
 func verifyClashConfig(content *C.char) *C.char {
 
 	b := []byte(C.GoString(content))
-	_, err := config.UnmarshalRawConfig(b)
+	rawCfg, err := config.UnmarshalRawConfig(b)
 	if err != nil {
+		return C.CString(err.Error())
+	}
+	if _, err := config.ParseRawConfig(rawCfg); err != nil {
 		return C.CString(err.Error())
 	}
 

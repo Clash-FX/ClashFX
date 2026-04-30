@@ -376,7 +376,7 @@ class RemoteConfigManager {
             return (true, generatedTemplateVersion(from: finalConfig) ?? generatedShareLinkTemplateVersion)
         }
 
-        if verifyConfig(string: rawConfig) == nil {
+        if finalConfig == rawConfig, verifyConfig(string: rawConfig) == nil {
             return (false, nil)
         }
 
@@ -900,9 +900,7 @@ class RemoteConfigManager {
             }
 
             let newConfig: String
-            if verifyConfig(string: rawConfig) == nil {
-                newConfig = rawConfig
-            } else if looksLikeShareLinks(rawConfig), let converted = buildConfigFromShareLinks(rawConfig) {
+            if looksLikeShareLinks(rawConfig), let converted = buildConfigFromShareLinks(rawConfig) {
                 Logger.log("[Remote Config] Content was raw share links, converted successfully")
                 newConfig = converted
             } else if let decoded = tryDecodeBase64(rawConfig) {
