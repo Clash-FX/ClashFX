@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.26</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.26</h2><ul><li><strong>Subscription Metadata Filtering</strong> — Removed subscription status entries such as remaining traffic, expiry, and filtered line notices from generated proxy groups so they are no longer tested as real nodes.</li><li><strong>Auto Speed Test Menu</strong> — Kept the Auto submenu open after ReTest by refreshing existing menu items instead of rebuilding the active menu.</li><li><strong>ClashFX Branding</strong> — Finished replacing leftover ClashX menu/error labels and stabilized startup menu binding.</li></ul>
+  ]]></description>
+  <pubDate>Thu, 30 Apr 2026 17:45:24 +0000</pubDate>
+  <sparkle:version>1.0.26</sparkle:version>
+  <sparkle:shortVersionString>1.0.26</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.26/ClashFX.dmg"
+    sparkle:version="1.0.26"
+    sparkle:shortVersionString="1.0.26"
+    sparkle:edSignature="uKmVSDaYR+NLbyZ80BxRqNbsg3dL85ByVrKF1bUvYUidYv8Bw0vdRwNLbeZTk0lxYol7KgdkKetN9BYkwmZ/Aw=="
+    length="88981526"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.25</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.25</h2><ul><li><strong>Proxy Delay Diagnostics</strong> — Added detailed logs for proxy delay tests, including proxy name, benchmark URL, HTTP status, response body, and request error details.</li></ul>
