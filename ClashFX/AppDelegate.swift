@@ -1366,7 +1366,9 @@ extension AppDelegate {
             guard item.config == ConfigManager.selectConfigName else { continue }
             Logger.log("Auto selecting \(item.group) \(item.selected)", level: .debug)
             ApiRequest.updateProxyGroup(group: item.group, selectProxy: item.selected) { success in
-                if !success {
+                if success {
+                    ConnectionManager.closeAllConnection()
+                } else {
                     Logger.log("Failed to restore proxy selection: \(item.group) -> \(item.selected), keeping record for next retry", level: .warning)
                 }
             }

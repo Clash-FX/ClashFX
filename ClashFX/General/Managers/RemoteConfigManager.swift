@@ -348,6 +348,21 @@ class RemoteConfigManager {
         return Int(parts[1].trimmingCharacters(in: .whitespaces))
     }
 
+    private static func upgradedGeneratedShareLinkConfig(_ string: String) -> String? {
+        guard isGeneratedShareLinkConfig(string),
+              string.contains("- MATCH,Auto"),
+              string.contains("- name: \"Proxy\"") || string.contains("- name: Proxy") else {
+            return nil
+        }
+
+        var upgraded = string.replacingOccurrences(of: "- MATCH,Auto", with: "- MATCH,Proxy")
+        if let version = generatedTemplateVersion(from: upgraded) {
+            upgraded = upgraded.replacingOccurrences(of: "clashfx-template-version: \(version)",
+                                                     with: "clashfx-template-version: \(generatedShareLinkTemplateVersion)")
+        }
+        return upgraded == string ? nil : upgraded
+    }
+
     private static func isLegacyGeneratedShareLinkConfig(_ string: String) -> Bool {
         if isGeneratedShareLinkConfig(string) {
             return true
@@ -383,11 +398,31 @@ class RemoteConfigManager {
         return (isLegacyGeneratedShareLinkConfig(finalConfig), isLegacyGeneratedShareLinkConfig(finalConfig) ? generatedShareLinkTemplateVersion : nil)
     }
 
+    private func migrateGeneratedLocalConfigFiles() -> [String] {
+        ConfigManager.getConfigFilesList().compactMap { name in
+            let path = Paths.localConfigPath(for: name)
+            guard let content = try? String(contentsOfFile: path, encoding: .utf8),
+                  let upgraded = Self.upgradedGeneratedShareLinkConfig(content) else {
+                return nil
+            }
+
+            do {
+                try upgraded.write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
+                Logger.log("[Generated Config Migration] Updated generated config fallback rule: \(name)")
+                return name
+            } catch {
+                Logger.log("[Generated Config Migration] Failed to update generated config '\(name)': \(error.localizedDescription)", level: .warning)
+                return nil
+            }
+        }
+    }
+
     func migrateLegacyGeneratedRemoteConfigsIfNeeded() {
         let targetVersion = Self.generatedShareLinkTemplateVersion
+        let locallyUpgradedConfigs = migrateGeneratedLocalConfigFiles()
         let completedVersion = UserDefaults.standard.integer(forKey: Self.generatedShareLinkMigrationKey)
-        guard completedVersion < targetVersion else { return }
-        guard AppVersionUtil.hasVersionChanged || AppVersionUtil.isFirstLaunch else { return }
+        guard completedVersion < targetVersion || !locallyUpgradedConfigs.isEmpty else { return }
+        guard AppVersionUtil.hasVersionChanged || AppVersionUtil.isFirstLaunch || !locallyUpgradedConfigs.isEmpty else { return }
 
         let candidates = configs.filter { config in
             if config.generatedByShareLinks,
@@ -408,10 +443,10 @@ class RemoteConfigManager {
         }
 
         let group = DispatchGroup()
-        var didUpdateSelectedConfig = false
-        var upgradedConfigs = [String]()
+        var didUpdateSelectedConfig = locallyUpgradedConfigs.contains(ConfigManager.selectConfigName)
+        var upgradedConfigs = locallyUpgradedConfigs
 
-        for config in candidates {
+        for config in candidates where !upgradedConfigs.contains(config.name) {
             group.enter()
             Self.getRemoteConfigData(config: config) { rawConfig, _ in
                 guard let rawConfig else {
@@ -444,7 +479,7 @@ class RemoteConfigManager {
             self.saveConfigs()
             UserDefaults.standard.set(targetVersion, forKey: Self.generatedShareLinkMigrationKey)
             if !upgradedConfigs.isEmpty {
-                Logger.log("[Generated Config Migration] Upgraded \(upgradedConfigs.count) generated remote config(s): \(upgradedConfigs.joined(separator: ", "))")
+                Logger.log("[Generated Config Migration] Upgraded \(upgradedConfigs.count) generated config(s): \(upgradedConfigs.joined(separator: ", "))")
             }
             if didUpdateSelectedConfig {
                 NSUserNotificationCenter.default.post(title: NSLocalizedString("Compatibility Config Auto-Upgraded", comment: ""),

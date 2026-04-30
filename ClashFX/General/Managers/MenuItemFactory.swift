@@ -271,8 +271,7 @@ extension MenuItemFactory {
                     return model.key == newModel.key
                 }
                 ConfigManager.selectedProxyRecords.append(newModel)
-                // terminal Connections for this group
-                ConnectionManager.closeConnection(for: proxyGroup)
+                ConnectionManager.closeAllConnection()
                 // refresh menu items
                 MenuItemFactory.refreshExistingMenuItems()
             }
