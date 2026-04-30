@@ -1,10 +1,8 @@
 ### Bug Fixes
 
-- **Subscriptions** — Fixed an issue where raw base64 share-link subscriptions failed to import due to improper validation order.
-- **Config Parser** — Tightened remote config verification to catch semantic formatting errors earlier.
+- **Proxy Delay Diagnostics** — Added detailed logs for proxy delay tests, including proxy name, benchmark URL, HTTP status, response body, and request error details.
 
 ---
 ### 修复
 
-- **订阅节点** — 修复了从纯 Base64 的 Share-links 导入订阅时因校验顺序错误导致所有节点无法连接的问题。
-- **配置校验** — 优化了远端配置格式的早期校验逻辑，能在应用前更准确地拦截格式错误。
+- **节点测速诊断** — 为节点延迟测速增加详细日志，包含节点名称、测速 URL、HTTP 状态码、响应内容和请求错误信息，便于继续定位节点全部失败的问题。
