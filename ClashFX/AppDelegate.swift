@@ -84,6 +84,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastStreamResetTime: Date = .distantPast
     private var pendingStreamResetWork: DispatchWorkItem?
 
+    private static let tunDNSServer = "198.18.0.2"
+
     private var savedDNSInfo: [String: Any] {
         get { UserDefaults.standard.dictionary(forKey: "kSavedDNSInfo") ?? [:] }
         set { UserDefaults.standard.set(newValue, forKey: "kSavedDNSInfo") }
@@ -225,8 +227,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(0, forKey: "launch_fail_times")
         Logger.log("ClashFX will terminate")
         if ConfigManager.shared.isEnhancedModeActive {
-            restoreDNSAfterTun()
-            PrivilegedHelperManager.shared.helper()?.stopMihomoCore { _ in }
+            cleanupEnhancedModeForTermination {}
         }
         if NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true) ||
             NetworkChangeNotifier.hasInterfaceProxySetToClash() {
@@ -1007,28 +1008,94 @@ extension AppDelegate {
     private func overrideDNSForTun() {
         guard let helper = PrivilegedHelperManager.shared.helper() else { return }
         helper.getCurrentDNSSetting { [weak self] info in
+            guard let self = self else { return }
             if let dns = info as? [String: Any], !dns.isEmpty {
-                self?.savedDNSInfo = dns
+                if Self.isTunDNSOnly(dns) {
+                    Logger.log("Skip saving TUN DNS as original DNS", level: .warning)
+                } else {
+                    self.savedDNSInfo = dns
+                }
             }
-            helper.overrideDNS(withServers: ["198.18.0.2"],
+            helper.overrideDNS(withServers: [Self.tunDNSServer],
                                filterInterface: Settings.filterInterface) { _ in
                 helper.flushDNSCache { _ in
-                    Logger.log("TUN DNS override: system DNS → 198.18.0.2")
+                    Logger.log("TUN DNS override: system DNS → \(Self.tunDNSServer)")
                 }
             }
         }
     }
 
-    private func restoreDNSAfterTun() {
-        guard let helper = PrivilegedHelperManager.shared.helper() else { return }
+    func restoreDNSAfterTun(completion: (() -> Void)? = nil) {
+        guard let helper = PrivilegedHelperManager.shared.helper() else {
+            completion?()
+            return
+        }
         let saved = savedDNSInfo
-        helper.restoreDNS(withSavedInfo: saved,
+        let restoreInfo: [String: Any]
+        if Self.isTunDNSOnly(saved) {
+            Logger.log("Discarding polluted TUN DNS restore snapshot", level: .warning)
+            restoreInfo = [:]
+        } else {
+            restoreInfo = saved
+        }
+        helper.restoreDNS(withSavedInfo: restoreInfo,
                           filterInterface: Settings.filterInterface) { [weak self] _ in
             self?.savedDNSInfo = [:]
             helper.flushDNSCache { _ in
                 Logger.log("TUN DNS restored")
+                completion?()
             }
         }
+    }
+
+    func cleanupEnhancedModeForTermination(completion: @escaping () -> Void) {
+        guard ConfigManager.shared.isEnhancedModeActive else {
+            completion()
+            return
+        }
+
+        let group = DispatchGroup()
+        group.enter()
+        restoreDNSAfterTun {
+            group.leave()
+        }
+
+        if let helper = PrivilegedHelperManager.shared.helper() {
+            group.enter()
+            helper.stopMihomoCore { _ in
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            ConfigManager.shared.isEnhancedModeActive = false
+            Logger.log("Enhanced Mode cleanup finished")
+            completion()
+        }
+    }
+
+    private static func isTunDNSOnly(_ dnsInfo: [String: Any]) -> Bool {
+        var foundDNSServer = false
+        for value in dnsInfo.values {
+            guard let settings = value as? [String: Any] else { continue }
+            let servers = dnsServers(from: settings["ServerAddresses"])
+            guard !servers.isEmpty else { continue }
+            foundDNSServer = true
+            if servers.contains(where: { $0 != tunDNSServer }) {
+                return false
+            }
+        }
+        return foundDNSServer
+    }
+
+    private static func dnsServers(from value: Any?) -> [String] {
+        if let servers = value as? [String] {
+            return servers
+        }
+        if let servers = value as? [Any] {
+            return servers.compactMap { $0 as? String }
+        }
+        return []
     }
 
     private func restoreEnhancedModeIfNeeded() {
