@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.29</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.29</h2><ul><li><strong>Legacy Config Fallback Rule Repair</strong> — On launch, ClashFX now repairs already-written generated share-link compatibility configs that still contain `MATCH,Auto`, rewriting their fallback rule to `MATCH,Proxy` so manual proxy selections take effect for fallback traffic without waiting for the next remote refresh. Runs once per user, only on ClashFX-generated configs. (Thanks @YangYongAn — #59)</li><li><strong>Restored Selection Connection Cleanup</strong> — When saved proxy selections are automatically restored on config reload, existing connections are now closed once after all selections are applied so new traffic uses the restored route immediately. (#59)</li></ul>
+  ]]></description>
+  <pubDate>Fri, 01 May 2026 04:22:38 +0000</pubDate>
+  <sparkle:version>1.0.29</sparkle:version>
+  <sparkle:shortVersionString>1.0.29</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.29/ClashFX.dmg"
+    sparkle:version="1.0.29"
+    sparkle:shortVersionString="1.0.29"
+    sparkle:edSignature="zuzYfXMyDgvL5PYnjElAHAY0AmONhGvRkSa44p/EI4giPb5Xr0K63q3ts+vaubFEsRm/5uPP5Uo10WdcbN9cBg=="
+    length="89001192"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.28</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.28</h2><ul><li><strong>Subscription Status at Top of Tray Menu</strong> — When the active config is a remote subscription with traffic / expiry data, a dedicated row at the very top of the menu shows the config name, remaining traffic, and expiry. The row hides itself when no subscription metadata is available, so the menu shape is unchanged for users without remote configs.</li><li><strong>Subscription-Userinfo Parsing</strong> — ClashFX now reads the standard `Subscription-Userinfo` HTTP response header (`upload`, `download`, `total`, `expire`) when refreshing remote configs, with fallback parsing of metadata embedded in subscription bodies (e.g. `剩余流量`, `套餐到期`).</li></ul>
