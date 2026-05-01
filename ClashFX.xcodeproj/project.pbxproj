@@ -76,6 +76,7 @@
 		499976C821359F0400E7BF83 /* ClashWebViewContoller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499976C721359F0400E7BF83 /* ClashWebViewContoller.swift */; };
 		499A485522ED707300F6C675 /* RemoteConfigViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499A485322ED707300F6C675 /* RemoteConfigViewController.swift */; };
 		499A485822ED715200F6C675 /* RemoteConfigModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499A485722ED715200F6C675 /* RemoteConfigModel.swift */; };
+		C1F00001270000000000C027 /* SubscriptionInfoFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F00002270000000000C027 /* SubscriptionInfoFormatter.swift */; };
 		499A485A22ED781100F6C675 /* RemoteConfigAddView.xib in Resources */ = {isa = PBXBuildFile; fileRef = 499A485922ED781100F6C675 /* RemoteConfigAddView.xib */; };
 		499A485C22ED793C00F6C675 /* NSView+Nib.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499A485B22ED793C00F6C675 /* NSView+Nib.swift */; };
 		499A485E22ED9B7C00F6C675 /* NSTableView+Reload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499A485D22ED9B7C00F6C675 /* NSTableView+Reload.swift */; };
@@ -258,6 +259,7 @@
 		499976C721359F0400E7BF83 /* ClashWebViewContoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashWebViewContoller.swift; sourceTree = "<group>"; };
 		499A485322ED707300F6C675 /* RemoteConfigViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConfigViewController.swift; sourceTree = "<group>"; };
 		499A485722ED715200F6C675 /* RemoteConfigModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConfigModel.swift; sourceTree = "<group>"; };
+		C1F00002270000000000C027 /* SubscriptionInfoFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionInfoFormatter.swift; sourceTree = "<group>"; };
 		499A485922ED781100F6C675 /* RemoteConfigAddView.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = RemoteConfigAddView.xib; sourceTree = "<group>"; };
 		499A485B22ED793C00F6C675 /* NSView+Nib.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSView+Nib.swift"; sourceTree = "<group>"; };
 		499A485D22ED9B7C00F6C675 /* NSTableView+Reload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSTableView+Reload.swift"; sourceTree = "<group>"; };
@@ -468,6 +470,7 @@
 				49862F9F218418C600A1D5EC /* ClashRule.swift */,
 				49C9EF63223E78F5005D8B6A /* ClashProxy.swift */,
 				499A485722ED715200F6C675 /* RemoteConfigModel.swift */,
+				C1F00002270000000000C027 /* SubscriptionInfoFormatter.swift */,
 				F915A4612366ADEF004840BE /* ClashConnection.swift */,
 				F92D0B23236BC12000575E15 /* SavedProxyModel.swift */,
 				F939724B23A4B33500FE5A3F /* ClashProvider.swift */,
@@ -1065,6 +1068,7 @@
 				49C9AFF22A59366200178BB4 /* ConnectionDetailInfoGeneralView.swift in Sources */,
 				F977FAAC2366790500C17F1F /* AutoUpgradeManager.swift in Sources */,
 				499A485822ED715200F6C675 /* RemoteConfigModel.swift in Sources */,
+				C1F00001270000000000C027 /* SubscriptionInfoFormatter.swift in Sources */,
 				49C9AFF42A593B8800178BB4 /* ConnectionTopListViewModel.swift in Sources */,
 				498D87DA2A617E9900CD456F /* DashboardSubViewControllerProtocol.swift in Sources */,
 				49D176AB23575BB20093DD7B /* ProxyGroupMenuItemView.swift in Sources */,

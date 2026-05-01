@@ -1,12 +1,10 @@
-### Bug Fixes
+### New Features
 
-- **Subscription Metadata Filtering** — Removed subscription status entries such as remaining traffic, expiry, and filtered line notices from generated proxy groups so they are no longer tested as real nodes.
-- **Auto Speed Test Menu** — Kept the Auto submenu open after ReTest by refreshing existing menu items instead of rebuilding the active menu.
-- **ClashFX Branding** — Finished replacing leftover ClashX menu/error labels and stabilized startup menu binding.
+- **Subscription Status at Top of Tray Menu** — When the active config is a remote subscription with traffic / expiry data, a dedicated row at the very top of the menu shows the config name, remaining traffic, and expiry. The row hides itself when no subscription metadata is available, so the menu shape is unchanged for users without remote configs.
+- **Subscription-Userinfo Parsing** — ClashFX now reads the standard `Subscription-Userinfo` HTTP response header (`upload`, `download`, `total`, `expire`) when refreshing remote configs, with fallback parsing of metadata embedded in subscription bodies (e.g. `剩余流量`, `套餐到期`).
 
 ---
-### 修复
+### 新功能
 
-- **订阅元信息过滤** — 从生成的代理组中移除剩余流量、套餐到期、过滤线路等订阅状态项，避免它们被当作真实节点测速。
-- **Auto 测速菜单** — ReTest 后改为刷新现有菜单项，不再重建当前打开的 Auto 子菜单。
-- **ClashFX 品牌文案** — 补齐残留 ClashX 菜单/错误文案替换，并稳定启动阶段菜单绑定。
+- **菜单栏顶部订阅状态行** — 当前激活的远程订阅有流量/到期信息时，状态栏菜单顶部会显示一行专用条目：配置名 + 剩余流量 + 到期。没有订阅信息时整行自动隐藏，菜单形态不变。
+- **Subscription-Userinfo 解析** — 刷新远程配置时会读取标准 `Subscription-Userinfo` 响应头（`upload`、`download`、`total`、`expire`），同时支持从订阅正文里的元信息条目（如 `剩余流量`、`套餐到期`）兜底解析。

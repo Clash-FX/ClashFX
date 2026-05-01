@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.28</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.28</h2><ul><li><strong>Subscription Status at Top of Tray Menu</strong> — When the active config is a remote subscription with traffic / expiry data, a dedicated row at the very top of the menu shows the config name, remaining traffic, and expiry. The row hides itself when no subscription metadata is available, so the menu shape is unchanged for users without remote configs.</li><li><strong>Subscription-Userinfo Parsing</strong> — ClashFX now reads the standard `Subscription-Userinfo` HTTP response header (`upload`, `download`, `total`, `expire`) when refreshing remote configs, with fallback parsing of metadata embedded in subscription bodies (e.g. `剩余流量`, `套餐到期`).</li></ul>
+  ]]></description>
+  <pubDate>Fri, 01 May 2026 02:49:58 +0000</pubDate>
+  <sparkle:version>1.0.28</sparkle:version>
+  <sparkle:shortVersionString>1.0.28</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.28/ClashFX.dmg"
+    sparkle:version="1.0.28"
+    sparkle:shortVersionString="1.0.28"
+    sparkle:edSignature="7D4geAfdr/GiGYqbXubTOes/pxeH7V6x6+Vcz1EKfrafwtjDD7BjtRaMaXIkjxV/j5BuYIejCoRMaqFf1JflAw=="
+    length="88994373"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.26</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.26</h2><ul><li><strong>Subscription Metadata Filtering</strong> — Removed subscription status entries such as remaining traffic, expiry, and filtered line notices from generated proxy groups so they are no longer tested as real nodes.</li><li><strong>Auto Speed Test Menu</strong> — Kept the Auto submenu open after ReTest by refreshing existing menu items instead of rebuilding the active menu.</li><li><strong>ClashFX Branding</strong> — Finished replacing leftover ClashX menu/error labels and stabilized startup menu binding.</li></ul>
