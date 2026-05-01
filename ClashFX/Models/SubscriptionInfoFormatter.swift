@@ -38,6 +38,29 @@ enum SubscriptionInfoFormatter {
         return result
     }
 
+    static func statusRowAttributedTitle(name: String, summary: String) -> NSAttributedString {
+        let displayName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nameLine = displayName.isEmpty
+            ? NSLocalizedString("Subscription", comment: "subscription status row fallback name")
+            : displayName
+
+        let nameParagraph = NSMutableParagraphStyle()
+        nameParagraph.paragraphSpacing = 2
+        let nameAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.menuFont(ofSize: 0),
+            .paragraphStyle: nameParagraph
+        ]
+        let summaryAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+
+        let result = NSMutableAttributedString(string: nameLine, attributes: nameAttrs)
+        result.append(NSAttributedString(string: "\n", attributes: nameAttrs))
+        result.append(NSAttributedString(string: summary, attributes: summaryAttrs))
+        return result
+    }
+
     private static func trafficSummary(for info: SubscriptionInfo) -> String? {
         let used = info.used
         let total = info.total

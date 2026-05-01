@@ -71,6 +71,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Programmatically-added items stored for visibility management
     var langMenuItem: NSMenuItem?
     var configEditorMenuItem: NSMenuItem?
+    private var subscriptionStatusMenuItem: NSMenuItem?
+    private var subscriptionStatusSeparator: NSMenuItem?
 
     var disposeBag = DisposeBag()
     var statusItemView: StatusItemViewProtocol!
@@ -285,6 +287,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItemView.updateViewStatus(enableProxy: ConfigManager.shared.proxyPortAutoSet)
         enhancedModeMenuItem.state = Settings.enhancedMode ? .on : .off
+        installSubscriptionStatusMenuItemIfNeeded()
+        refreshSubscriptionStatusMenuItem()
+    }
+
+    private func installSubscriptionStatusMenuItemIfNeeded() {
+        guard subscriptionStatusMenuItem == nil else { return }
+        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.isHidden = true
+        let separator = NSMenuItem.separator()
+        separator.isHidden = true
+        statusMenu.insertItem(item, at: 0)
+        statusMenu.insertItem(separator, at: 1)
+        subscriptionStatusMenuItem = item
+        subscriptionStatusSeparator = separator
+    }
+
+    func refreshSubscriptionStatusMenuItem() {
+        guard let item = subscriptionStatusMenuItem,
+              let separator = subscriptionStatusSeparator else { return }
+
+        let activeName = ConfigManager.selectConfigName
+        let activeRemote = RemoteConfigManager.shared.configs.first { $0.name == activeName }
+        guard let info = activeRemote?.subscriptionInfo,
+              let summary = SubscriptionInfoFormatter.menuSubtitle(for: info) else {
+            item.attributedTitle = NSAttributedString(string: "")
+            item.title = ""
+            item.isHidden = true
+            separator.isHidden = true
+            return
+        }
+
+        item.attributedTitle = SubscriptionInfoFormatter.statusRowAttributedTitle(
+            name: activeName,
+            summary: summary
+        )
+        item.isHidden = false
+        separator.isHidden = false
     }
 
     func setupData() {
@@ -1423,6 +1463,7 @@ extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         MenuItemFactory.refreshExistingMenuItems()
         updateConfigFiles()
+        refreshSubscriptionStatusMenuItem()
         syncConfig()
         NotificationCenter.default.post(name: .proxyMeneViewShowLeftPadding,
                                         object: nil,
