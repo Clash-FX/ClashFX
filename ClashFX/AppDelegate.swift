@@ -906,24 +906,35 @@ extension AppDelegate {
     }
 
     private func disableEnhancedMode(completion: @escaping (String?) -> Void) {
-        restoreDNSAfterTun()
-        PrivilegedHelperManager.shared.helper()?.stopMihomoCore { [weak self] _ in
-            DispatchQueue.main.async {
-                clashPauseCallbacks()
-                ConfigManager.shared.isEnhancedModeActive = false
-                ConfigManager.shared.isRunning = false
-                clashReopenCacheDB()
-                self?.startProxy()
-                guard ConfigManager.shared.isRunning else {
-                    clashResumeCallbacks()
-                    completion(NSLocalizedString("Failed to restart built-in core", comment: ""))
-                    return
-                }
-                let selectedConfig = ConfigManager.selectConfigName
-                ApiRequest.requestConfigUpdate(configName: selectedConfig) { _ in
-                    clashResumeCallbacks()
-                    completion(nil)
-                }
+        let group = DispatchGroup()
+
+        group.enter()
+        restoreDNSAfterTun {
+            group.leave()
+        }
+
+        if let helper = PrivilegedHelperManager.shared.helper() {
+            group.enter()
+            helper.stopMihomoCore { _ in
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) { [weak self] in
+            clashPauseCallbacks()
+            ConfigManager.shared.isEnhancedModeActive = false
+            ConfigManager.shared.isRunning = false
+            clashReopenCacheDB()
+            self?.startProxy()
+            guard ConfigManager.shared.isRunning else {
+                clashResumeCallbacks()
+                completion(NSLocalizedString("Failed to restart built-in core", comment: ""))
+                return
+            }
+            let selectedConfig = ConfigManager.selectConfigName
+            ApiRequest.requestConfigUpdate(configName: selectedConfig) { _ in
+                clashResumeCallbacks()
+                completion(nil)
             }
         }
     }

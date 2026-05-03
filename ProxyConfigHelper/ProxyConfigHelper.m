@@ -8,6 +8,7 @@
 
 #import "ProxyConfigHelper.h"
 #import <AppKit/AppKit.h>
+#import <Security/Security.h>
 #import "ProxyConfigRemoteProcessProtocol.h"
 #import "ProxySettingTool.h"
 
@@ -54,17 +55,95 @@ ProxyConfigRemoteProcessProtocol
 }
 
 - (BOOL)connectionIsVaild: (NSXPCConnection *)connection {
-    NSRunningApplication *remoteApp =
-    [NSRunningApplication runningApplicationWithProcessIdentifier:connection.processIdentifier];
-    return remoteApp != nil;
+    pid_t pid = connection.processIdentifier;
+    NSRunningApplication *remoteApp = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+    NSString *requirementString = [self authorizedClientRequirement];
+    if (requirementString.length == 0) {
+        NSLog(@"Rejected XPC client because helper has no authorized client requirement");
+        return NO;
+    }
+
+    NSString *authorizedBundleIdentifier = [self authorizedClientBundleIdentifierFromRequirement:requirementString];
+    if (authorizedBundleIdentifier.length == 0 || ![remoteApp.bundleIdentifier isEqualToString:authorizedBundleIdentifier]) {
+        NSLog(@"Rejected XPC client with pid %d and bundle id %@", pid, remoteApp.bundleIdentifier);
+        return NO;
+    }
+
+    SecCodeRef code = NULL;
+    NSDictionary *attributes = @{(__bridge NSString *)kSecGuestAttributePid: @(pid)};
+    OSStatus status = SecCodeCopyGuestWithAttributes(NULL,
+                                                    (__bridge CFDictionaryRef)attributes,
+                                                    kSecCSDefaultFlags,
+                                                    &code);
+    if (status != errSecSuccess || code == NULL) {
+        NSLog(@"Rejected XPC client because code lookup failed: %d", status);
+        return NO;
+    }
+
+    SecRequirementRef requirement = NULL;
+    status = SecRequirementCreateWithString((__bridge CFStringRef)requirementString,
+                                            kSecCSDefaultFlags,
+                                            &requirement);
+    if (status != errSecSuccess || requirement == NULL) {
+        NSLog(@"Rejected XPC client because requirement creation failed: %d", status);
+        CFRelease(code);
+        return NO;
+    }
+
+    status = SecCodeCheckValidity(code, kSecCSDefaultFlags, requirement);
+    CFRelease(requirement);
+    CFRelease(code);
+
+    if (status != errSecSuccess) {
+#if DEBUG
+        if ([remoteApp.bundleURL.pathExtension isEqualToString:@"app"] &&
+            [remoteApp.executableURL.lastPathComponent isEqualToString:@"ClashFX"]) {
+            NSLog(@"Allowing Debug XPC client with ad-hoc signature");
+            return YES;
+        }
+#endif
+        NSLog(@"Rejected XPC client because code signature validation failed: %d", status);
+        return NO;
+    }
+
+    return YES;
+}
+
+- (NSString *)authorizedClientRequirement {
+    NSArray *authorizedClients = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"SMAuthorizedClients"];
+    if (![authorizedClients isKindOfClass:[NSArray class]] || authorizedClients.count == 0) {
+        return nil;
+    }
+    NSString *requirement = authorizedClients.firstObject;
+    if (![requirement isKindOfClass:[NSString class]]) {
+        return nil;
+    }
+    return requirement;
+}
+
+- (NSString *)authorizedClientBundleIdentifierFromRequirement:(NSString *)requirement {
+    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"identifier\\s+\\\"([^\\\"]+)\\\""
+                                                                           options:0
+                                                                             error:nil];
+    NSTextCheckingResult *match = [regex firstMatchInString:requirement
+                                                    options:0
+                                                      range:NSMakeRange(0, requirement.length)];
+    if (match.numberOfRanges < 2) {
+        return nil;
+    }
+    NSRange range = [match rangeAtIndex:1];
+    if (range.location == NSNotFound) {
+        return nil;
+    }
+    return [requirement substringWithRange:range];
 }
 
 // MARK: - NSXPCListenerDelegate
 
 - (BOOL)listener:(NSXPCListener *)listener shouldAcceptNewConnection:(NSXPCConnection *)newConnection {
-//    if (![self connectionIsVaild:newConnection]) {
-//        return NO;
-//    }
+    if (![self connectionIsVaild:newConnection]) {
+        return NO;
+    }
     newConnection.exportedInterface = [NSXPCInterface interfaceWithProtocol:@protocol(ProxyConfigRemoteProcessProtocol)];
     newConnection.exportedObject = self;
     __weak NSXPCConnection *weakConnection = newConnection;
