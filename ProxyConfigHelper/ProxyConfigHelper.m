@@ -54,7 +54,7 @@ ProxyConfigRemoteProcessProtocol
     }
 }
 
-- (BOOL)connectionIsVaild: (NSXPCConnection *)connection {
+- (BOOL)connectionIsValid: (NSXPCConnection *)connection {
     pid_t pid = connection.processIdentifier;
     NSRunningApplication *remoteApp = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
     NSString *requirementString = [self authorizedClientRequirement];
@@ -141,7 +141,7 @@ ProxyConfigRemoteProcessProtocol
 // MARK: - NSXPCListenerDelegate
 
 - (BOOL)listener:(NSXPCListener *)listener shouldAcceptNewConnection:(NSXPCConnection *)newConnection {
-    if (![self connectionIsVaild:newConnection]) {
+    if (![self connectionIsValid:newConnection]) {
         return NO;
     }
     newConnection.exportedInterface = [NSXPCInterface interfaceWithProtocol:@protocol(ProxyConfigRemoteProcessProtocol)];

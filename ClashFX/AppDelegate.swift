@@ -226,6 +226,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ aNotification: Notification) {
         UserDefaults.standard.set(0, forKey: "launch_fail_times")
         Logger.log("ClashFX will terminate")
+        // Fallback: TerminalCleanUpAction.run() already handles Enhanced Mode cleanup
+        // in the normal quit path. This guard only fires if applicationWillTerminate
+        // is reached without going through TerminalCleanUpAction (e.g. forced termination).
         if ConfigManager.shared.isEnhancedModeActive {
             cleanupEnhancedModeForTermination {}
         }
@@ -1036,7 +1039,7 @@ extension AppDelegate {
         }
     }
 
-    func restoreDNSAfterTun(completion: (() -> Void)? = nil) {
+    private func restoreDNSAfterTun(completion: (() -> Void)? = nil) {
         guard let helper = PrivilegedHelperManager.shared.helper() else {
             completion?()
             return
