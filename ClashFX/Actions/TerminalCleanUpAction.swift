@@ -18,6 +18,15 @@ enum TerminalConfirmAction {
         let group = DispatchGroup()
         var shouldWait = false
 
+        if ConfigManager.shared.isEnhancedModeActive {
+            Logger.log("ClashFX quit need clean Enhanced Mode")
+            shouldWait = true
+            group.enter()
+            AppDelegate.shared.cleanupEnhancedModeForTermination {
+                group.leave()
+            }
+        }
+
         if ConfigManager.shared.proxyPortAutoSet && !ConfigManager.shared.isProxySetByOtherVariable.value || NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true) ||
             NetworkChangeNotifier.hasInterfaceProxySetToClash() {
             Logger.log("ClashFX quit need clean proxy setting")
@@ -40,7 +49,7 @@ enum TerminalConfirmAction {
         AppDelegate.shared.disposeBag = DisposeBag()
 
         DispatchQueue.global(qos: .default).async {
-            let res = group.wait(timeout: .now() + 5)
+            let res = group.wait(timeout: .now() + 10)
             switch res {
             case .success:
                 Logger.log("ClashFX quit after clean up finish")
