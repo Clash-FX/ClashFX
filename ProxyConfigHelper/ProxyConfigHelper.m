@@ -95,13 +95,17 @@ ProxyConfigRemoteProcessProtocol
     CFRelease(code);
 
     if (status != errSecSuccess) {
-#if DEBUG
+        // Ad-hoc signing fallback: SMAuthorizedClients requires a Developer ID
+        // certificate (subject.OU = MEWHFZ92DY), which ad-hoc signed builds
+        // cannot satisfy. Bundle ID was already validated above; accept the
+        // connection if the executable matches a ClashFX .app bundle.
+        // TODO(#65): remove once releases ship with a Developer ID signature.
         if ([remoteApp.bundleURL.pathExtension isEqualToString:@"app"] &&
             [remoteApp.executableURL.lastPathComponent isEqualToString:@"ClashFX"]) {
-            NSLog(@"Allowing Debug XPC client with ad-hoc signature");
+            NSLog(@"Allowing XPC client with ad-hoc signature (pid=%d, bundle=%@)",
+                  pid, remoteApp.bundleIdentifier);
             return YES;
         }
-#endif
         NSLog(@"Rejected XPC client because code signature validation failed: %d", status);
         return NO;
     }
