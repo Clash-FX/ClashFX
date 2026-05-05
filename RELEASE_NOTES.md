@@ -1,10 +1,10 @@
 ### Bug Fixes
 
-- **Legacy Config Fallback Rule Repair** — On launch, ClashFX now repairs already-written generated share-link compatibility configs that still contain `MATCH,Auto`, rewriting their fallback rule to `MATCH,Proxy` so manual proxy selections take effect for fallback traffic without waiting for the next remote refresh. Runs once per user, only on ClashFX-generated configs. (Thanks @YangYongAn — #59)
-- **Restored Selection Connection Cleanup** — When saved proxy selections are automatically restored on config reload, existing connections are now closed once after all selections are applied so new traffic uses the restored route immediately. (#59)
+- **System Proxy Toggle Restored** — The privileged helper now accepts ad-hoc signed clients again, so toggling system proxy from the menu bar works and the helper install dialog no longer loops. Regression introduced in v1.0.30 by the strict XPC code-signature check; bundle-ID validation is preserved. Thanks @agentforhuan for the detailed report. (#65, #68)
+- **GEOIP Database Update Fixed** — `Debug → Update GEOIP Database` now succeeds. The default download URL was pointing to mihomo's proprietary metadb format which the verifier rejected, causing every update to fail with "Database verify fail" and silently fall back to the bundled database. Thanks @qgdsdfq8xv-a11y. (#66, #67)
 
 ---
 ### 修复
 
-- **旧生成配置兜底规则修复** — 启动时会自动修复已落盘的 ClashFX 生成兼容配置中残留的 `MATCH,Auto`，把兜底规则改为 `MATCH,Proxy`，让手动选择的节点立即对兜底流量生效，不必等下一次远程刷新。每用户只跑一次，仅作用于带 ClashFX 生成标记的配置。（感谢 @YangYongAn — #59）
-- **恢复记忆选择后清理连接** — 配置重载时自动恢复已保存的代理选择后，会在所有选择恢复完成后统一关闭一次现有连接，让新流量立刻走恢复后的路由。（#59）
+- **修复系统代理开关失效** — 特权助手恢复了对 ad-hoc 签名客户端的接受，菜单栏的系统代理切换重新可用，助手安装弹窗不再死循环。该问题是 v1.0.30 引入的 XPC 代码签名严格校验导致；本次仍保留 bundle ID 校验。感谢 @agentforhuan 的详细报告。（#65, #68）
+- **修复 GEOIP 数据库更新** — `调试 → 更新 GEOIP 数据库` 现在能成功。默认下载地址原本指向 mihomo 的私有 metadb 格式，验证器无法识别，每次更新都报 "Database verify fail" 并悄悄回退到内置数据库。感谢 @qgdsdfq8xv-a11y。（#66, #67）
