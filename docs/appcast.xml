@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.31</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.31</h2><ul><li><strong>System Proxy Toggle Restored</strong> — The privileged helper now accepts ad-hoc signed clients again, so toggling system proxy from the menu bar works and the helper install dialog no longer loops. Regression introduced in v1.0.30 by the strict XPC code-signature check; bundle-ID validation is preserved. Thanks @agentforhuan for the detailed report. (#65, #68)</li><li><strong>GEOIP Database Update Fixed</strong> — `Debug → Update GEOIP Database` now succeeds. The default download URL was pointing to mihomo's proprietary metadb format which the verifier rejected, causing every update to fail with "Database verify fail" and silently fall back to the bundled database. Thanks @qgdsdfq8xv-a11y. (#66, #67)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 05 May 2026 09:08:26 +0000</pubDate>
+  <sparkle:version>1.0.31</sparkle:version>
+  <sparkle:shortVersionString>1.0.31</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.31/ClashFX.dmg"
+    sparkle:version="1.0.31"
+    sparkle:shortVersionString="1.0.31"
+    sparkle:edSignature="mkLD9SxPcrAzYtFt2WSLtp0+yjUIoGfI/QQqaWnqpXe3lkehDEjswyQRdlbPgz8CD3xCB/gXYhjILkLBzIx8Bw=="
+    length="89062865"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.30</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.30</h2><ul><li><strong>Legacy Config Fallback Rule Repair</strong> — On launch, ClashFX now repairs already-written generated share-link compatibility configs that still contain `MATCH,Auto`, rewriting their fallback rule to `MATCH,Proxy` so manual proxy selections take effect for fallback traffic without waiting for the next remote refresh. Runs once per user, only on ClashFX-generated configs. (Thanks @YangYongAn — #59)</li><li><strong>Restored Selection Connection Cleanup</strong> — When saved proxy selections are automatically restored on config reload, existing connections are now closed once after all selections are applied so new traffic uses the restored route immediately. (#59)</li></ul>
