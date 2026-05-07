@@ -405,7 +405,7 @@ func applyTunConfig(rawCfg *config.RawConfig) {
 		rawCfg.DNS.DefaultNameserver = []string{
 			"114.114.114.114",
 			"223.5.5.5",
-			"8.8.8.8",
+			"119.29.29.29",
 		}
 	}
 }
@@ -896,7 +896,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 		dns["nameserver"] = []string{"https://doh.pub/dns-query", "tls://223.5.5.5:853"}
 	}
 	if dns["default-nameserver"] == nil {
-		dns["default-nameserver"] = []string{"114.114.114.114", "223.5.5.5", "8.8.8.8"}
+		dns["default-nameserver"] = []string{"114.114.114.114", "223.5.5.5", "119.29.29.29"}
 	}
 	// Use a free port for DNS listen to avoid conflict with in-process clash core
 	if dnsPort, err := freeport.GetFreePort(); err == nil {
