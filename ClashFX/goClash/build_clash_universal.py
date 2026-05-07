@@ -22,7 +22,7 @@ go_bin = "go"
 
 def build_clash(version, build_time, arch):
     command = f"""
-{go_bin} build -trimpath -ldflags '-X "github.com/metacubex/mihomo/constant.Version={version}" \
+{go_bin} build -trimpath -tags with_gvisor -ldflags '-X "github.com/metacubex/mihomo/constant.Version={version}" \
 -X "github.com/metacubex/mihomo/constant.BuildTime={build_time}"' \
 -buildmode=c-archive -o goClash_{arch}.a """
     envs = os.environ.copy()
