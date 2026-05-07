@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.32</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.32</h2><ul><li><strong>WireGuard Proxy Loading Fixed</strong> — Configs containing WireGuard proxies failed to load with `create WireGuard device: gVisor is not included in this build, rebuild with -tags with_gvisor`. The embedded mihomo core was built without the `with_gvisor` build tag required by mihomo's userspace WireGuard implementation; the standalone `mihomo_core` binary already had it, but the c-archive linked into the main app process did not. Thanks @DareYouS. (#70, #71)</li></ul>
+  ]]></description>
+  <pubDate>Thu, 07 May 2026 03:08:24 +0000</pubDate>
+  <sparkle:version>1.0.32</sparkle:version>
+  <sparkle:shortVersionString>1.0.32</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.32/ClashFX.dmg"
+    sparkle:version="1.0.32"
+    sparkle:shortVersionString="1.0.32"
+    sparkle:edSignature="npwrgBdnLEjPEFl64bQS1upSunFEo+ZrtKJTjTD87ENdA1jKAL1KCz8hfZcd2B25MhoXQ/OXHv1laLQR4F0OAA=="
+    length="91002858"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.31</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.31</h2><ul><li><strong>System Proxy Toggle Restored</strong> — The privileged helper now accepts ad-hoc signed clients again, so toggling system proxy from the menu bar works and the helper install dialog no longer loops. Regression introduced in v1.0.30 by the strict XPC code-signature check; bundle-ID validation is preserved. Thanks @agentforhuan for the detailed report. (#65, #68)</li><li><strong>GEOIP Database Update Fixed</strong> — `Debug → Update GEOIP Database` now succeeds. The default download URL was pointing to mihomo's proprietary metadb format which the verifier rejected, causing every update to fail with "Database verify fail" and silently fall back to the bundled database. Thanks @qgdsdfq8xv-a11y. (#66, #67)</li></ul>
