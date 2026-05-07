@@ -1,10 +1,8 @@
 ### Bug Fixes
 
-- **System Proxy Toggle Restored** — The privileged helper now accepts ad-hoc signed clients again, so toggling system proxy from the menu bar works and the helper install dialog no longer loops. Regression introduced in v1.0.30 by the strict XPC code-signature check; bundle-ID validation is preserved. Thanks @agentforhuan for the detailed report. (#65, #68)
-- **GEOIP Database Update Fixed** — `Debug → Update GEOIP Database` now succeeds. The default download URL was pointing to mihomo's proprietary metadb format which the verifier rejected, causing every update to fail with "Database verify fail" and silently fall back to the bundled database. Thanks @qgdsdfq8xv-a11y. (#66, #67)
+- **WireGuard Proxy Loading Fixed** — Configs containing WireGuard proxies failed to load with `create WireGuard device: gVisor is not included in this build, rebuild with -tags with_gvisor`. The embedded mihomo core was built without the `with_gvisor` build tag required by mihomo's userspace WireGuard implementation; the standalone `mihomo_core` binary already had it, but the c-archive linked into the main app process did not. Thanks @DareYouS. (#70, #71)
 
 ---
 ### 修复
 
-- **修复系统代理开关失效** — 特权助手恢复了对 ad-hoc 签名客户端的接受，菜单栏的系统代理切换重新可用，助手安装弹窗不再死循环。该问题是 v1.0.30 引入的 XPC 代码签名严格校验导致；本次仍保留 bundle ID 校验。感谢 @agentforhuan 的详细报告。（#65, #68）
-- **修复 GEOIP 数据库更新** — `调试 → 更新 GEOIP 数据库` 现在能成功。默认下载地址原本指向 mihomo 的私有 metadb 格式，验证器无法识别，每次更新都报 "Database verify fail" 并悄悄回退到内置数据库。感谢 @qgdsdfq8xv-a11y。（#66, #67）
+- **修复 WireGuard 代理加载失败** — 含 WireGuard 节点的配置加载失败，报错 `create WireGuard device: gVisor is not included in this build, rebuild with -tags with_gvisor`。内嵌的 mihomo 核心在编译时缺少 `with_gvisor` 标签（mihomo 用户态 WireGuard 实现所必需）；独立的 `mihomo_core` 二进制本就带了这个标签，但链接进主进程的 c-archive 没带。感谢 @DareYouS。（#70, #71）
