@@ -1,8 +1,12 @@
 ### Bug Fixes
 
-- **WireGuard Proxy Loading Fixed** — Configs containing WireGuard proxies failed to load with `create WireGuard device: gVisor is not included in this build, rebuild with -tags with_gvisor`. The embedded mihomo core was built without the `with_gvisor` build tag required by mihomo's userspace WireGuard implementation; the standalone `mihomo_core` binary already had it, but the c-archive linked into the main app process did not. Thanks @DareYouS. (#70, #71)
+- **Selected Subscription Restored on Relaunch** — ClashFX now keeps the selected remote subscription/config visible after restart instead of temporarily falling back to `config` while the core is stopped. (#75)
+- **Enhanced Mode Startup Recovery Hardened** — Startup cleanup now targets only ClashFX-owned stale `mihomo_core` processes and avoids killing unrelated mihomo processes on the system. (#75)
+- **Quit Menu Remains Responsive** — During quit-time proxy/Enhanced Mode cleanup, the menu bar item now shows a disabled “Quitting…” menu instead of appearing unresponsive. (#75)
 
 ---
 ### 修复
 
-- **修复 WireGuard 代理加载失败** — 含 WireGuard 节点的配置加载失败，报错 `create WireGuard device: gVisor is not included in this build, rebuild with -tags with_gvisor`。内嵌的 mihomo 核心在编译时缺少 `with_gvisor` 标签（mihomo 用户态 WireGuard 实现所必需）；独立的 `mihomo_core` 二进制本就带了这个标签，但链接进主进程的 c-archive 没带。感谢 @DareYouS。（#70, #71）
+- **重启后保留已选订阅** — ClashFX 重启后会继续显示已选中的远程订阅/配置，不再因为核心尚未运行而临时回退到 `config`。（#75）
+- **增强模式启动恢复更安全** — 启动清理现在只会处理 ClashFX 自己遗留的 `mihomo_core` 进程，避免误杀系统中的其他 mihomo 进程。（#75）
+- **退出清理时菜单保持可反馈** — 退出期间等待代理/增强模式清理时，状态栏菜单会显示不可点击的“Quitting…”提示，不再表现得像没有响应。（#75）
