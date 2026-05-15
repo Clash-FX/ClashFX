@@ -59,7 +59,7 @@ Download from the [Releases](https://github.com/Clash-FX/ClashFX/releases) page.
 
 ### Default Paths
 
-The default configuration directory is `$HOME/.config/clash`
+The default configuration directory is `$HOME/.config/clashfx`
 
 The default configuration file name is `config.yaml`. You can use custom config names and switch between them in the `Config` menu.
 
