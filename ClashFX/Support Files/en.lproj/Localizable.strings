@@ -190,8 +190,11 @@
 /* No comment provided by engineer. */
 "Please enable the location service for ClashFX to detect your current WiFi network's SSID name and provide the auto-suspend services." = "Please enable the location service for ClashFX to detect your current WiFi network's SSID name and provide the auto-suspend services.";
 
-/* No comment provided by engineer. */
-"Ports Open Fail, Please try to restart ClashFX" = "Ports Open Fail, Please try to restart ClashFX";
+/* Diagnostic shown when mihomo_core returns a config with no usable port */
+"The proxy core is running, but reports no listening port (both mixed-port and port are 0). The active configuration is missing required port fields." = "The proxy core is running, but reports no listening port (both mixed-port and port are 0). The active configuration is missing required port fields.";
+
+/* Header above the last lines of mihomo_core log */
+"Recent core log:" = "Recent core log:";
 
 /* No comment provided by engineer. */
 "Prelease" = "Prelease";
