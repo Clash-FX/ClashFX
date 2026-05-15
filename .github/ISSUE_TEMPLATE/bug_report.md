@@ -44,20 +44,50 @@ Paste the ClashX configuration below.
 ……
 ```
 
-### ClashX log
+### ClashFX log
 <!--
-在下方附上 ClashX 的日志，log level 最好使用 DEBUG。点击菜单栏->帮助->显示日志
-Paste the ClashX log below with the log level set to `DEBUG`.
+在下方附上 ClashFX 的日志，log level 最好使用 DEBUG。点击菜单栏->帮助->显示日志
+Paste the ClashFX log below with the log level set to `DEBUG`.
 -->
 ```
 ……
 ```
 
 
-### ClashX Crash log
+### mihomo_core log (only if you use Enhanced Mode)
 <!--
-在下方附上 ClashX 的系统崩溃日志，位于 ~/Library/Logs/DiagnosticReports
-Paste the ClashX system crash log. Located in ~/Library/Logs/DiagnosticReports
+增强模式下 core 日志位于 ~/.config/clashfx/.mihomo_core.log，请贴最后 200 行：
+  tail -200 ~/.config/clashfx/.mihomo_core.log
+
+If you're using Enhanced Mode, the core log lives at
+~/.config/clashfx/.mihomo_core.log. Paste the last 200 lines:
+  tail -200 ~/.config/clashfx/.mihomo_core.log
+-->
+```
+……
+```
+
+
+### Enhanced config port settings (only if you hit "Ports Open Fail")
+<!--
+如果遇到 "端口打开失败 / Ports Open Fail" 弹窗，请贴 enhanced 配置里的端口字段：
+  grep -E '^(mixed-port|port|socks-port|external-controller):' \
+    ~/.config/clashfx/.enhanced_config.yaml
+
+If you hit the "Ports Open Fail" popup, paste the port settings from the
+enhanced config:
+  grep -E '^(mixed-port|port|socks-port|external-controller):' \
+    ~/.config/clashfx/.enhanced_config.yaml
+-->
+```
+……
+```
+
+
+### ClashFX Crash log
+<!--
+在下方附上 ClashFX 的系统崩溃日志，位于 ~/Library/Logs/DiagnosticReports
+Paste the ClashFX system crash log. Located in ~/Library/Logs/DiagnosticReports
 -->
 ```
 ……

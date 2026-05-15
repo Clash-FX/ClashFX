@@ -190,8 +190,11 @@
 /* No comment provided by engineer. */
 "Please enable the location service for ClashFX to detect your current WiFi network's SSID name and provide the auto-suspend services." = "請允許 ClashFX 使用定位服務，以獲取您目前連接的 WiFi 名稱，並提供按需暫停服務。";
 
-/* No comment provided by engineer. */
-"Ports Open Fail, Please try to restart ClashFX" = "端口打開失敗，請嘗試重啟ClashFX";
+/* Diagnostic shown when mihomo_core returns a config with no usable port */
+"The proxy core is running, but reports no listening port (both mixed-port and port are 0). The active configuration is missing required port fields." = "代理核心已啟動，但未監聽任何端口（mixed-port 和 port 都是 0）。當前生效的配置缺少端口欄位。";
+
+/* Header above the last lines of mihomo_core log */
+"Recent core log:" = "最近的核心日誌：";
 
 /* No comment provided by engineer. */
 "Prelease" = "Prelease";

@@ -933,12 +933,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	profile["store-selected"] = true
 	rawMap["profile"] = profile
 
-	mixedPort, _ := rawMap["mixed-port"].(int)
-	httpPort, _ := rawMap["port"].(int)
-	socksPort, _ := rawMap["socks-port"].(int)
-	if mixedPort == 0 && httpPort == 0 && socksPort == 0 {
-		rawMap["mixed-port"] = 7890
-	}
+	ensureDefaultProxyPort(rawMap)
 
 	data, err := yaml.Marshal(rawMap)
 	if err != nil {

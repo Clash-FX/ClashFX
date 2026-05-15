@@ -59,7 +59,7 @@
 
 ### 默认路径
 
-默认配置目录为 `$HOME/.config/clash`
+默认配置目录为 `$HOME/.config/clashfx`
 
 默认配置文件名为 `config.yaml`。你可以使用自定义配置名称，并在 `配置` 菜单中切换。
 

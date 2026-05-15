@@ -59,7 +59,7 @@
 
 ### 預設路徑
 
-預設設定目錄為 `$HOME/.config/clash`
+預設設定目錄為 `$HOME/.config/clashfx`
 
 預設設定檔名為 `config.yaml`。您可以使用自訂設定名稱，並在「設定」選單中切換。
 
