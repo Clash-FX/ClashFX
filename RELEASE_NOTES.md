@@ -1,12 +1,12 @@
 ### Bug Fixes
 
-- **Reliable Enhanced Mode Port Resolution** — `clashWriteEnhancedConfig` now promotes any user-configured `port` or `socks-port` into `mixed-port` and only falls back to `7890` when nothing is configured, eliminating the "Ports Open Fail" popup for source configs that omit explicit port fields. (#75)
-- **Actionable Port-Open Failure Alert** — The startup error now describes the real cause (mixed-port and port both 0) and embeds the last lines of `~/.config/clashfx/.mihomo_core.log`; the "Edit Config" button opens the active `.enhanced_config.yaml` when Enhanced Mode is on. (#75)
-- **Corrected Configuration Path Documentation** — READMEs and the bug report template now reference `~/.config/clashfx` instead of the legacy `~/.config/clash`. (#75)
+- **Enhanced Mode Startup Readiness Hardened** — Enhanced Mode now waits until `/configs` reports a usable `mixed-port` or `port` before treating the external mihomo core as ready, avoiding the misleading "Ports Open Fail" popup when mihomo is already listening. (#75)
+- **Transient Port-Zero Retry** — ClashFX now retries `/configs` responses that temporarily report `port=0`, and reissues the request if the active API/config context changes during the retry window. (#75)
+- **Enhanced Mode Tray Highlight** — The menu bar icon now lights up when Enhanced Mode is active, even if the system proxy toggle is off. (#75)
 
 ---
 ### 修复
 
-- **增强模式端口可靠生成** — `clashWriteEnhancedConfig` 现在会将用户配置的 `port` 或 `socks-port` 自动提升为 `mixed-port`，只有完全未配置时才回退到 `7890`，从根源上消除订阅未显式声明端口字段时的“端口打开失败”弹窗。（#75）
-- **更可操作的启动失败提示** — 启动错误弹窗现在描述真实原因（mixed-port 和 port 均为 0），并嵌入 `~/.config/clashfx/.mihomo_core.log` 末尾内容；增强模式下点击“编辑配置”会直接打开当前生效的 `.enhanced_config.yaml`。（#75）
-- **配置路径文档更正** — README 与 issue 模板中的配置目录从遗留的 `~/.config/clash` 修正为 `~/.config/clashfx`。（#75）
+- **增强模式启动就绪判断加固** — 增强模式现在会等待 `/configs` 返回可用的 `mixed-port` 或 `port` 后才认为外部 mihomo core 已就绪，避免 mihomo 已经监听端口时仍误弹“端口打开失败”。（#75）
+- **临时 port=0 自动重试** — ClashFX 现在会对 `/configs` 短暂返回 `port=0` 的情况进行退避重试；如果重试期间 API/配置上下文发生变化，会自动按最新上下文重新请求。（#75）
+- **增强模式图标高亮** — 菜单栏图标现在会在增强模式启用时变亮，不再必须开启“系统代理”才高亮。（#75）
