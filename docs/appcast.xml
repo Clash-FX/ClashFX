@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.35</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.35</h2><ul><li><strong>Enhanced Mode Startup Readiness Hardened</strong> — Enhanced Mode now waits until `/configs` reports a usable `mixed-port` or `port` before treating the external mihomo core as ready, avoiding the misleading "Ports Open Fail" popup when mihomo is already listening. (#75)</li><li><strong>Transient Port-Zero Retry</strong> — ClashFX now retries `/configs` responses that temporarily report `port=0`, and reissues the request if the active API/config context changes during the retry window. (#75)</li><li><strong>Enhanced Mode Tray Highlight</strong> — The menu bar icon now lights up when Enhanced Mode is active, even if the system proxy toggle is off. (#75)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 18 May 2026 04:27:10 +0000</pubDate>
+  <sparkle:version>1.0.35</sparkle:version>
+  <sparkle:shortVersionString>1.0.35</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.35/ClashFX.dmg"
+    sparkle:version="1.0.35"
+    sparkle:shortVersionString="1.0.35"
+    sparkle:edSignature="52HBHp84BI7GNGrGHimcZQfZM0ZKSyC39cfXw1Bikb+PYiKtqkcEeE2XhQaK+uBNYR3xidqn5cJJDM82XEMoBA=="
+    length="90978641"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.34</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.34</h2><ul><li><strong>Reliable Enhanced Mode Port Resolution</strong> — `clashWriteEnhancedConfig` now promotes any user-configured `port` or `socks-port` into `mixed-port` and only falls back to `7890` when nothing is configured, eliminating the "Ports Open Fail" popup for source configs that omit explicit port fields. (#75)</li><li><strong>Actionable Port-Open Failure Alert</strong> — The startup error now describes the real cause (mixed-port and port both 0) and embeds the last lines of `~/.config/clashfx/.mihomo_core.log`; the "Edit Config" button opens the active `.enhanced_config.yaml` when Enhanced Mode is on. (#75)</li><li><strong>Corrected Configuration Path Documentation</strong> — READMEs and the bug report template now reference `~/.config/clashfx` instead of the legacy `~/.config/clash`. (#75)</li></ul>
