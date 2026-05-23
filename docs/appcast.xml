@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.36</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.36</h2><ul><li><strong>Built-in App Icons</strong> — Appearance settings now include selectable built-in ClashFX app icons, with a Default option and custom uploads still supported.</li><li><strong>Persistent Release App Icon Switching</strong> — Release app bundles can persist Finder/Dock icon changes while Xcode/DerivedData builds stay session-only to avoid signing damage.</li><li><strong>Enhanced Mode Uses the Selected Config Path</strong> — Enhanced Mode now resolves the active config through the same path logic as the rest of the app, including iCloud fallback handling.</li><li><strong>Custom Icon Uploads Normalize to PNG</strong> — Uploaded app icon images are converted to PNG before saving, avoiding mismatched file contents when users choose ICNS or other supported image formats.</li><li><strong>Web Cache Cleanup Moved Off Main Thread</strong> — Cookie and WebKit data cleanup now runs on a utility queue to avoid blocking startup UI work.</li></ul>
+  ]]></description>
+  <pubDate>Sat, 23 May 2026 10:58:33 +0000</pubDate>
+  <sparkle:version>1.0.36</sparkle:version>
+  <sparkle:shortVersionString>1.0.36</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.36/ClashFX.dmg"
+    sparkle:version="1.0.36"
+    sparkle:shortVersionString="1.0.36"
+    sparkle:edSignature="CcTmBfeDO9JgrQFXoRo2g1ntfU3EANdVVdXszmVQAtKKPl/T38QRhDZtptN8cotS5bJXtfqnjpe2+tX/P3R+DQ=="
+    length="100101869"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.35</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.35</h2><ul><li><strong>Enhanced Mode Startup Readiness Hardened</strong> — Enhanced Mode now waits until `/configs` reports a usable `mixed-port` or `port` before treating the external mihomo core as ready, avoiding the misleading "Ports Open Fail" popup when mihomo is already listening. (#75)</li><li><strong>Transient Port-Zero Retry</strong> — ClashFX now retries `/configs` responses that temporarily report `port=0`, and reissues the request if the active API/config context changes during the retry window. (#75)</li><li><strong>Enhanced Mode Tray Highlight</strong> — The menu bar icon now lights up when Enhanced Mode is active, even if the system proxy toggle is off. (#75)</li></ul>
