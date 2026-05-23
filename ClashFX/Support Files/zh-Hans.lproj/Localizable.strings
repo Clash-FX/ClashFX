@@ -526,3 +526,19 @@
 
 /* Tray Menu Settings hint */
 "Show or hide items in the tray menu." = "选择托盘菜单中各项目的显示与隐藏";
+
+/* App icon picker */
+"Built-in app icons" = "内置 APP 图标";
+"FX Portal" = "FX 舷窗";
+"FX Frost" = "冰霜舷窗";
+"Classic Face" = "经典猫脸";
+"Classic Sitting" = "经典坐姿猫";
+"Flat Blue" = "扁平蓝猫";
+"The file could not be converted to PNG." = "文件无法转换为 PNG。";
+"App logo changed" = "应用图标已更换";
+"Dock and Finder may need a moment to refresh the app icon." = "Dock 和访达可能需要一点时间刷新应用图标。";
+"macOS did not allow changing the app bundle icon. If you are running from Xcode, try testing a copied app bundle." = "macOS 未允许更改 APP bundle 图标。如果你正在从 Xcode 运行，请复制出 app bundle 后再测试。";
+"Running from Xcode only updates the current Dock icon. Copy the app bundle out of DerivedData to test Finder icon changes." = "从 Xcode 运行时只会更新当前 Dock 图标。要测试访达里的 APP 图标变化，请把 app bundle 从 DerivedData 复制出来再试。";
+"Running from Xcode only updates the current Dock icon. Copy a Release app bundle out of DerivedData to test Finder icon changes." = "从 Xcode 运行时只会更新当前 Dock 图标。要测试访达里的应用图标变化，请复制 Release app bundle 后再试。";
+"Dock changed for this session, but this app bundle cannot persist Finder icon changes." = "当前 Dock 图标已更新，但这个 app bundle 不能持久保存访达图标变化。";
+"Default" = "默认";

@@ -489,3 +489,19 @@
 
 /* Tray Menu Settings hint */
 "Show or hide items in the tray menu." = "Выберите элементы для отображения в меню трея";
+
+/* App icon picker */
+"Built-in app icons" = "Встроенные значки приложения";
+"FX Portal" = "FX Portal";
+"FX Frost" = "FX Frost";
+"Classic Face" = "Classic Face";
+"Classic Sitting" = "Classic Sitting";
+"Flat Blue" = "Flat Blue";
+"The file could not be converted to PNG." = "Не удалось преобразовать файл в PNG.";
+"App logo changed" = "Значок приложения изменен";
+"Dock and Finder may need a moment to refresh the app icon." = "Dock и Finder может потребоваться немного времени, чтобы обновить значок приложения.";
+"macOS did not allow changing the app bundle icon. If you are running from Xcode, try testing a copied app bundle." = "macOS не разрешила изменить значок app bundle. Если приложение запущено из Xcode, попробуйте протестировать скопированный app bundle.";
+"Running from Xcode only updates the current Dock icon. Copy the app bundle out of DerivedData to test Finder icon changes." = "При запуске из Xcode обновляется только текущий значок Dock. Чтобы проверить изменение значка Finder, скопируйте app bundle из DerivedData.";
+"Running from Xcode only updates the current Dock icon. Copy a Release app bundle out of DerivedData to test Finder icon changes." = "При запуске из Xcode обновляется только текущий значок Dock. Чтобы проверить изменение значка Finder, скопируйте Release app bundle.";
+"Dock changed for this session, but this app bundle cannot persist Finder icon changes." = "Значок Dock обновлен для текущего сеанса, но этот app bundle не может сохранить изменения значка Finder.";
+"Default" = "По умолчанию";

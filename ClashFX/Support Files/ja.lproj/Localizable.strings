@@ -489,3 +489,19 @@
 
 /* Tray Menu Settings hint */
 "Show or hide items in the tray menu." = "トレイメニューに表示する項目を選択";
+
+/* App icon picker */
+"Built-in app icons" = "内蔵アプリアイコン";
+"FX Portal" = "FX ポータル";
+"FX Frost" = "FX フロスト";
+"Classic Face" = "クラシックフェイス";
+"Classic Sitting" = "クラシック座り猫";
+"Flat Blue" = "フラットブルー";
+"The file could not be converted to PNG." = "ファイルを PNG に変換できませんでした。";
+"App logo changed" = "アプリアイコンを変更しました";
+"Dock and Finder may need a moment to refresh the app icon." = "Dock と Finder がアプリアイコンを更新するまで少し時間がかかる場合があります。";
+"macOS did not allow changing the app bundle icon. If you are running from Xcode, try testing a copied app bundle." = "macOS がアプリバンドルのアイコン変更を許可しませんでした。Xcode から実行している場合は、コピーした app bundle でテストしてください。";
+"Running from Xcode only updates the current Dock icon. Copy the app bundle out of DerivedData to test Finder icon changes." = "Xcode から実行している場合は現在の Dock アイコンのみ更新されます。Finder のアイコン変更をテストするには、app bundle を DerivedData の外へコピーしてください。";
+"Running from Xcode only updates the current Dock icon. Copy a Release app bundle out of DerivedData to test Finder icon changes." = "Xcode から実行している場合は現在の Dock アイコンのみ更新されます。Finder のアイコン変更をテストするには、Release app bundle をコピーしてください。";
+"Dock changed for this session, but this app bundle cannot persist Finder icon changes." = "現在の Dock アイコンは更新されましたが、この app bundle では Finder のアイコン変更を保存できません。";
+"Default" = "デフォルト";
