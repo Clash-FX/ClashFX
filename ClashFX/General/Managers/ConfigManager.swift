@@ -148,6 +148,7 @@ class ConfigManager {
         if ICloudManager.shared.useiCloud.value {
             ICloudManager.shared.getUrl { url in
                 guard let url = url else {
+                    complete?(Paths.localConfigPath(for: configName))
                     return
                 }
                 let configPath = url.appendingPathComponent(Paths.configFileName(for: configName)).path
