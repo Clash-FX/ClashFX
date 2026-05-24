@@ -12,6 +12,14 @@ enum AppLogoTool {
     private static let defaultLogoID = "default"
     private static let customLogoID = "custom"
 
+    static let originalDefaultIcon: NSImage = {
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            return image
+        }
+        return NSApp.applicationIconImage
+    }()
+
     struct BuiltInLogo: Equatable {
         let id: String
         let title: String
