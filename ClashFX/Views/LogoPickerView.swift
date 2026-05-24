@@ -40,7 +40,7 @@ class LogoPickerView: ImagePickerView {
         if let selectedLogo = AppLogoTool.loadSelectedLogo() {
             return selectedLogo
         }
-        return NSApp.applicationIconImage
+        return AppLogoTool.originalDefaultIcon
     }
 
     override func makeAdditionalContentView() -> NSView? {
@@ -61,7 +61,7 @@ class LogoPickerView: ImagePickerView {
         let defaultButton = makeIconButton(
             id: "default",
             title: NSLocalizedString("Default", comment: ""),
-            image: NSImage(named: NSImage.applicationIconName) ?? NSApp.applicationIconImage
+            image: AppLogoTool.originalDefaultIcon
         )
         let buttons = [defaultButton] + AppLogoTool.builtInLogos.map { logo in
             makeIconButton(id: logo.id, title: logo.title, image: AppLogoTool.loadBuiltInLogo(logo))
