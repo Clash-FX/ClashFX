@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.37</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.37</h2><ul><li><strong>Refined Menu Bar Icon Choices</strong> — Appearance settings now present a cleaner built-in menu bar icon set, with the new outline and solid cat-face icons promoted to the first choices after Default.</li><li><strong>Settings Window Layout Loop Fixed</strong> — Opening Appearance settings no longer triggers the AppKit layout-pass loop crash, and the icon/menu settings area remains scrollable.</li><li><strong>Built-in App Icon Visual Size Normalized</strong> — Built-in app icons now keep transparent visual padding inside their 1024×1024 assets so they appear closer to standard macOS Dock icon sizing.</li><li><strong>Menu Bar Icon Labels Simplified</strong> — Built-in menu bar icon names no longer include generic “scheme/variant” prefixes across supported languages.</li></ul>
+  ]]></description>
+  <pubDate>Sun, 24 May 2026 10:53:08 +0000</pubDate>
+  <sparkle:version>1.0.37</sparkle:version>
+  <sparkle:shortVersionString>1.0.37</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.37/ClashFX.dmg"
+    sparkle:version="1.0.37"
+    sparkle:shortVersionString="1.0.37"
+    sparkle:edSignature="N6mHomHKa9M5/AuMK5mP8YcoDUFjEc58qlobeR3dlL0dAgg1bJuoQm0+knax5JopzN6r3aPY4c/QaA3HMogMBw=="
+    length="95711025"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.36</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.36</h2><ul><li><strong>Built-in App Icons</strong> — Appearance settings now include selectable built-in ClashFX app icons, with a Default option and custom uploads still supported.</li><li><strong>Persistent Release App Icon Switching</strong> — Release app bundles can persist Finder/Dock icon changes while Xcode/DerivedData builds stay session-only to avoid signing damage.</li><li><strong>Enhanced Mode Uses the Selected Config Path</strong> — Enhanced Mode now resolves the active config through the same path logic as the rest of the app, including iCloud fallback handling.</li><li><strong>Custom Icon Uploads Normalize to PNG</strong> — Uploaded app icon images are converted to PNG before saving, avoiding mismatched file contents when users choose ICNS or other supported image formats.</li><li><strong>Web Cache Cleanup Moved Off Main Thread</strong> — Cookie and WebKit data cleanup now runs on a utility queue to avoid blocking startup UI work.</li></ul>
