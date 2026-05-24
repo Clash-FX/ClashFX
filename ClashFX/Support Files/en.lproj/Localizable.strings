@@ -506,6 +506,14 @@
 "Dock changed for this session, but this app bundle cannot persist Finder icon changes." = "Dock changed for this session, but this app bundle cannot persist Finder icon changes.";
 "Default" = "Default";
 
+/* Menu bar icon picker */
+"Built-in menu bar icons" = "Built-in menu bar icons";
+"Lightning Cat" = "Lightning Cat";
+"Network Nodes" = "Network Nodes";
+"Linked Nodes" = "Linked Nodes";
+"Shield Cat" = "Shield Cat";
+"Bolt Outline" = "Bolt Outline";
+
 /* Advanced TUN Settings */
 "Advanced TUN Settings…" = "Advanced TUN Settings…";
 "Advanced TUN Settings" = "Advanced TUN Settings";

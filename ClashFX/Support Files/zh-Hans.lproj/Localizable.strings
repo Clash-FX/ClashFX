@@ -543,6 +543,14 @@
 "Dock changed for this session, but this app bundle cannot persist Finder icon changes." = "当前 Dock 图标已更新，但这个 app bundle 不能持久保存访达图标变化。";
 "Default" = "默认";
 
+/* Menu bar icon picker */
+"Built-in menu bar icons" = "内置菜单栏图标";
+"Lightning Cat" = "方案 1：闪电猫";
+"Network Nodes" = "方案 2：节点网络";
+"Linked Nodes" = "方案 2：节点连线";
+"Shield Cat" = "方案 3：盾牌猫";
+"Bolt Outline" = "方案 4：闪电线框";
+
 /* Advanced TUN Settings */
 "Advanced TUN Settings…" = "高级 TUN 设置…";
 "Advanced TUN Settings" = "高级 TUN 设置";
