@@ -110,6 +110,9 @@ enum Settings {
     @UserDefault("appLanguage", defaultValue: "")
     static var appLanguage: String
 
+    @UserDefault("selectedMenuIconID", defaultValue: "default")
+    static var selectedMenuIconID: String
+
     // MARK: - Tray Menu Visibility
 
     @UserDefault("trayMenuShowProxyMode", defaultValue: true)
