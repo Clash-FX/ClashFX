@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.0.38</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.0.38</h2><ul><li><strong>Bypass Common Chinese Apps Toggle</strong> — Enhanced Mode menu now includes an opt-in toggle that injects a curated `PROCESS-NAME` rule-set into the generated config, letting high-frequency Chinese apps (WeChat, QQ, DingTalk, Feishu, Bilibili, etc.) bypass the proxy and go direct. The list is maintained at https://github.com/Clash-FX/cn-apps-direct and updates automatically every 24 hours. Defaults to off; existing users see no behavior change after update.</li><li><strong>Hidden Proxy Groups Now Honored</strong> — Proxy groups marked `hidden: true` in YAML are now filtered from the status bar menu, matching mihomo's documented semantics. Hidden groups still participate in speed tests and rule routing internally.</li><li><strong>Status Bar No Longer Shows Duplicate Icon On Restart</strong> — Restarting ClashFX from the menu no longer leaves an old "Quitting…" menu bar icon next to the new instance. The restart flow now removes the status item immediately, tears down Enhanced Mode before relaunching, and waits for the new instance's `applicationDidFinishLaunching` before terminating the old one. Average restart takes 0.45–1.1 seconds and the menu bar transitions cleanly.</li><li><strong>Launch Crash Under macOS 26 SDK Fixed</strong> — `WKWebsiteDataStore` calls were moved back to the main queue. Under Xcode 26's stricter main-thread checker, calling these WebKit APIs from a background queue would crash the app on launch.</li></ul>
+  ]]></description>
+  <pubDate>Sun, 24 May 2026 13:38:34 +0000</pubDate>
+  <sparkle:version>1.0.38</sparkle:version>
+  <sparkle:shortVersionString>1.0.38</sparkle:shortVersionString>
+  <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.0.38/ClashFX.dmg"
+    sparkle:version="1.0.38"
+    sparkle:shortVersionString="1.0.38"
+    sparkle:edSignature="hLg0kS2iJh5iDhVQDLpvM3c+6FfqZgeXz+2TmldoxiYrJI/xKxVtMjvUwvBq+Dl/un3LmA5ubbg/d5lU/BAhCQ=="
+    length="95704452"
+    type="application/octet-stream"
+  />
+</item>
+    <item>
   <title>Version 1.0.37</title>
   <description><![CDATA[
     <h2>ClashFX v1.0.37</h2><ul><li><strong>Refined Menu Bar Icon Choices</strong> — Appearance settings now present a cleaner built-in menu bar icon set, with the new outline and solid cat-face icons promoted to the first choices after Default.</li><li><strong>Settings Window Layout Loop Fixed</strong> — Opening Appearance settings no longer triggers the AppKit layout-pass loop crash, and the icon/menu settings area remains scrollable.</li><li><strong>Built-in App Icon Visual Size Normalized</strong> — Built-in app icons now keep transparent visual padding inside their 1024×1024 assets so they appear closer to standard macOS Dock icon sizing.</li><li><strong>Menu Bar Icon Labels Simplified</strong> — Built-in menu bar icon names no longer include generic “scheme/variant” prefixes across supported languages.</li></ul>
