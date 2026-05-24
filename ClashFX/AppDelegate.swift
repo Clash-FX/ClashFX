@@ -85,6 +85,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastStreamResetTime: Date = .distantPast
     private var pendingStreamResetWork: DispatchWorkItem?
 
+    /// Short-circuits TerminalConfirmAction during self-relaunch so the old
+    /// status bar icon does not linger on "Quitting…" beside the new one (#84 #91).
+    private var isRestarting = false
+
     private static let tunDNSServer = "198.18.0.2"
 
     private var savedDNSInfo: [String: Any] {
@@ -216,6 +220,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if isRestarting {
+            Logger.log("ClashFX restart: skipping interactive terminate flow")
+            return .terminateNow
+        }
         return TerminalConfirmAction.run()
     }
 
@@ -1450,20 +1458,46 @@ extension AppDelegate {
     }
 
     private func restartApp() {
+        guard !isRestarting else { return }
+        isRestarting = true
         let path = Bundle.main.bundlePath
-        if #available(macOS 10.15, *) {
-            let url = URL(fileURLWithPath: path)
-            let config = NSWorkspace.OpenConfiguration()
-            config.createsNewApplicationInstance = true
-            NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in }
-        } else {
-            let task = Process()
-            task.launchPath = "/bin/sh"
-            task.arguments = ["-c", "sleep 0.5 && open \"\(path)\""]
-            task.launch()
+
+        if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            NSApp.terminate(nil)
+
+        let launchAndExit: () -> Void = {
+            let terminate = {
+                DispatchQueue.main.async {
+                    NSApp.terminate(nil)
+                }
+            }
+            if #available(macOS 10.15, *) {
+                let url = URL(fileURLWithPath: path)
+                let config = NSWorkspace.OpenConfiguration()
+                config.createsNewApplicationInstance = true
+                NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
+                    if let error = error {
+                        Logger.log("ClashFX restart: openApplication failed: \(error.localizedDescription)", level: .error)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: terminate)
+                }
+            } else {
+                let task = Process()
+                task.launchPath = "/bin/sh"
+                task.arguments = ["-c", "sleep 0.5 && open \"\(path)\""]
+                task.launch()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: terminate)
+            }
+        }
+
+        if ConfigManager.shared.isEnhancedModeActive {
+            Logger.log("ClashFX restart: cleaning Enhanced Mode before relaunch")
+            cleanupEnhancedModeForTermination {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: launchAndExit)
+            }
+        } else {
+            launchAndExit()
         }
     }
 }
