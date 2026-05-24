@@ -108,6 +108,7 @@ class ClashProxy: Codable {
     let history: [ClashProxySpeedHistory]
     let now: ClashProxyName?
     let alive: Bool?
+    let hidden: Bool?
     weak var enclosingResp: ClashProxyResp?
     weak var enclosingProvider: ClashProvider?
 
@@ -139,7 +140,7 @@ class ClashProxy: Codable {
     lazy var isSpeedTestable: Bool = !speedtestAble.isEmpty
 
     private enum CodingKeys: String, CodingKey {
-        case type, all, history, now, name, alive
+        case type, all, history, now, name, alive, hidden
     }
 
     lazy var maxProxyNameLength: CGFloat = {

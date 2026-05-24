@@ -44,7 +44,8 @@ class MenuItemFactory {
         let leftPadding = AppDelegate.shared.hasMenuSelected()
         guard let proxyInfo = proxyInfo else { return }
         var menuItems = [NSMenuItem]()
-        for proxy in sortedProxyGroupsForMenu(proxyInfo.proxyGroups) {
+        let visibleGroups = proxyInfo.proxyGroups.filter { !($0.hidden ?? false) }
+        for proxy in sortedProxyGroupsForMenu(visibleGroups) {
             var menu: NSMenuItem?
             switch proxy.type {
             case .select: menu = generateSelectorMenuItem(proxyGroup: proxy, proxyInfo: proxyInfo, leftPadding: leftPadding)
