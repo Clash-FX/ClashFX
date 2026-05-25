@@ -214,7 +214,7 @@ jobs:
             sparkle:shortVersionString="{tag}"
             sparkle:edSignature="{signature}"
             length="{length}"
-            type="application/octet-stream"
+            type="application/x-apple-diskimage"
           />
         </item>"""
 

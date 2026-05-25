@@ -55,7 +55,7 @@ NEW_ITEM=$(cat <<EOF
         sparkle:shortVersionString="$VERSION"
         sparkle:edSignature="$SIGNATURE"
         length="$LENGTH"
-        type="application/octet-stream"
+        type="application/x-apple-diskimage"
       />
     </item>
 EOF
