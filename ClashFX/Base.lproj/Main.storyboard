@@ -1238,6 +1238,7 @@
                         </constraints>
                     </view>
                     <connections>
+                        <outlet property="appIconImageView" destination="4SV-eS-si0" id="23V-vu-WDI"/>
                         <outlet property="buildTimeLabel" destination="qla-PJ-sDO" id="zce-NL-ftN"/>
                         <outlet property="coreVersionLabel" destination="dDI-8K-OOb" id="vHu-Qr-E1k"/>
                         <outlet property="versionLabel" destination="gP8-vp-ASP" id="2V8-vb-VKi"/>
