@@ -89,6 +89,7 @@ extension NSUserNotificationCenter {
             return
         }
         let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
         alert.messageText = title
         alert.informativeText = info
         alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))

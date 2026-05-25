@@ -11,6 +11,7 @@ import Cocoa
 extension NSAlert {
     static func alert(with text: String) {
         let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
         alert.messageText = text
         alert.alertStyle = .warning
         alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
