@@ -28,14 +28,22 @@
 
 Download from the [Releases](https://github.com/Clash-FX/ClashFX/releases) page.
 
-### 🧪 Lab Channel (Optional)
+### 🧪 Update Channels: Stable & Lab
 
-Want the latest fixes and experimental features before they ship to everyone?
-Open **Settings → Debug → Update Channel → Lab (Experimental)** to opt into
-faster, more frequent releases. Lab builds are less stable than regular releases — please report any
-issues on GitHub. You can switch back to Stable at any time.
+ClashFX ships through two update channels. You can choose either — both are first-class.
 
-Stable users: no action needed, you're already on the right track.
+| | 🟢 Stable | 🟠 Lab |
+|---|---|---|
+| **Default** | ✅ | — |
+| **Release cadence** | Every 2–7 days, when fixes accumulate | As soon as a fix lands — sometimes daily |
+| **What you get** | Tested fixes only | Latest fixes + occasional experimental features |
+| **Visual badge** | None | Small orange dot on the top-right of the Dock / Applications icon |
+
+**Opt into Lab**: open `ClashFX → Settings → Debug → Update Channel → Lab (Experimental)` and confirm. The orange dot appears immediately. You can switch back to Stable from the same place at any time.
+
+**Found a Lab bug?** Use `Help → Send Feedback…` to open a pre-filled GitHub issue (diagnostic info auto-attached and redacted), or `Help → Copy Diagnostic Info…` to copy the report manually.
+
+Stable users: you're already on the recommended channel — nothing to change.
 
 ## 🔨 Build from Source
 
