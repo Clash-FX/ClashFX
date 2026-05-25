@@ -151,6 +151,12 @@ enum Settings {
     @UserDefault("trayMenuShowEnhancedMode", defaultValue: true)
     static var trayMenuShowEnhancedMode: Bool
 
+    @UserDefault("trayMenuShowAdvancedTun", defaultValue: true)
+    static var trayMenuShowAdvancedTun: Bool
+
+    @UserDefault("trayMenuShowBypassChineseApps", defaultValue: true)
+    static var trayMenuShowBypassChineseApps: Bool
+
     @UserDefault("trayMenuShowCopyShellCmd", defaultValue: true)
     static var trayMenuShowCopyShellCmd: Bool
 

@@ -64,6 +64,8 @@ class TrayMenuSettingView: NSView {
                 children: [
                     ItemRow(title: NSLocalizedString("System Proxy", comment: ""), getter: { Settings.trayMenuShowSystemProxy }, setter: { Settings.trayMenuShowSystemProxy = $0 }),
                     ItemRow(title: NSLocalizedString("Enhanced Mode", comment: ""), getter: { Settings.trayMenuShowEnhancedMode }, setter: { Settings.trayMenuShowEnhancedMode = $0 }),
+                    ItemRow(title: NSLocalizedString("Advanced TUN Settings…", comment: ""), getter: { Settings.trayMenuShowAdvancedTun }, setter: { Settings.trayMenuShowAdvancedTun = $0 }),
+                    ItemRow(title: NSLocalizedString("Bypass Common Chinese Apps", comment: ""), getter: { Settings.trayMenuShowBypassChineseApps }, setter: { Settings.trayMenuShowBypassChineseApps = $0 }),
                     ItemRow(title: NSLocalizedString("Copy Shell Command", comment: ""), getter: { Settings.trayMenuShowCopyShellCmd }, setter: { Settings.trayMenuShowCopyShellCmd = $0 }),
                 ]
             )),

@@ -1968,12 +1968,12 @@ extension AppDelegate {
         let showProxyActions = Settings.trayMenuShowProxyActions
         proxySettingMenuItem.isHidden = !(showProxyActions && Settings.trayMenuShowSystemProxy)
         enhancedModeMenuItem.isHidden = !(showProxyActions && Settings.trayMenuShowEnhancedMode)
-        advancedTunMenuItem?.isHidden = enhancedModeMenuItem.isHidden
-        bypassChineseAppsMenuItem?.isHidden = enhancedModeMenuItem.isHidden
+        advancedTunMenuItem?.isHidden = !(showProxyActions && Settings.trayMenuShowAdvancedTun)
+        bypassChineseAppsMenuItem?.isHidden = !(showProxyActions && Settings.trayMenuShowBypassChineseApps)
         let showCopy = showProxyActions && Settings.trayMenuShowCopyShellCmd
         copyExportCommandMenuItem.isHidden = !showCopy
         copyExportCommandExternalMenuItem.isHidden = !showCopy
-        let anyProxyAction = showProxyActions && (Settings.trayMenuShowSystemProxy || Settings.trayMenuShowEnhancedMode || Settings.trayMenuShowCopyShellCmd)
+        let anyProxyAction = showProxyActions && (Settings.trayMenuShowSystemProxy || Settings.trayMenuShowEnhancedMode || Settings.trayMenuShowAdvancedTun || Settings.trayMenuShowBypassChineseApps || Settings.trayMenuShowCopyShellCmd)
         proxyActionsSeparator.isHidden = !anyProxyAction
 
         // General Settings group
