@@ -523,3 +523,35 @@
 "TUN MTU (%d–%d):" = "TUN MTU（%d–%d）：";
 "Interface (empty = auto-detect):" = "出口網卡（留空 = 自動偵測）：";
 "Invalid MTU. Kept previous value." = "MTU 無效,已保留原值。";
+
+/* Lab channel */
+"Update channel name" = "更新通道";
+"Stable" = "正式版";
+"Lab (Experimental)" = "實驗室版 (Lab)";
+"Lab" = "Lab";
+
+"Join the ClashFX Lab?" = "加入 ClashFX 實驗室？";
+"Lab builds receive bug fixes and experimental features sooner, but update more often and are less stable than Stable. You can switch back any time. Please report any issues on GitHub." = "實驗室版會更早收到 bug 修復和實驗性功能,更新更頻繁,穩定性低於正式版。你可以隨時切換回來。遇到問題請在 GitHub 反饋。";
+"Join Lab" = "加入實驗室";
+"Leave the ClashFX Lab?" = "退出 ClashFX 實驗室？";
+"You will keep running your current Lab version until the next Stable release catches up. To downgrade immediately, use \"Roll back to Stable\" below." = "你將繼續使用目前的 Lab 版本,直到下一個正式版本發佈並自動覆蓋。若要立即降級,請使用下方的「回退到正式版」。";
+"Leave Lab" = "退出實驗室";
+
+"Send Feedback…" = "回饋問題…";
+"Copy Diagnostic Info…" = "複製診斷資訊…";
+"Open Crash Log Folder" = "開啟當機日誌目錄";
+"Roll Back to Stable…" = "回退到正式版…";
+
+"Diagnostic information ready" = "診斷資訊已準備好";
+"The report below has been sanitized (IPs, domains, and credentials replaced with placeholders). Review it before sharing, then copy to clipboard." = "以下報告已脫敏(IP、網域、憑證已替換為佔位符)。複製前請確認內容,再貼到剪貼簿。";
+"Copy to Clipboard" = "複製到剪貼簿";
+
+"Roll back to the latest Stable release" = "回退到最新正式版";
+"This opens the Stable download page in your browser. To complete the rollback:" = "將在瀏覽器中開啟正式版下載頁面。完成回退的步驟:";
+"Download ClashFX.dmg, then mount it." = "下載 ClashFX.dmg,然後雙擊掛載。";
+"Drag ClashFX into Applications and choose \"Replace\"." = "將 ClashFX 拖入「應用程式」,選擇「取代」。";
+"Reopen ClashFX." = "重新開啟 ClashFX。";
+"Your settings and configuration are preserved." = "你的所有設定和配置都將保留。";
+"Stable will not auto-upgrade back to Lab." = "正式版不會自動升級回 Lab。";
+"If Enhanced Mode is on, please disable it before downgrading." = "如果已啟用增強模式,請先關閉再降級。";
+"Open Download Page" = "開啟下載頁";

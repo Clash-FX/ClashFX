@@ -523,3 +523,39 @@
 "TUN MTU (%d–%d):" = "TUN MTU (%d–%d):";
 "Interface (empty = auto-detect):" = "Interface (empty = auto-detect):";
 "Invalid MTU. Kept previous value." = "Invalid MTU. Kept previous value.";
+
+/* Lab channel - update channel names */
+"Update channel name" = "Update channel name";
+"Stable" = "Stable";
+"Lab (Experimental)" = "Lab (Experimental)";
+"Lab" = "Lab";
+
+/* Lab channel - join/leave dialogs */
+"Join the ClashFX Lab?" = "Join the ClashFX Lab?";
+"Lab builds receive bug fixes and experimental features sooner, but update more often and are less stable than Stable. You can switch back any time. Please report any issues on GitHub." = "Lab builds receive bug fixes and experimental features sooner, but update more often and are less stable than Stable. You can switch back any time. Please report any issues on GitHub.";
+"Join Lab" = "Join Lab";
+"Leave the ClashFX Lab?" = "Leave the ClashFX Lab?";
+"You will keep running your current Lab version until the next Stable release catches up. To downgrade immediately, use \"Roll back to Stable\" below." = "You will keep running your current Lab version until the next Stable release catches up. To downgrade immediately, use \"Roll back to Stable\" below.";
+"Leave Lab" = "Leave Lab";
+
+/* Lab channel - Help menu items */
+"Send Feedback…" = "Send Feedback…";
+"Copy Diagnostic Info…" = "Copy Diagnostic Info…";
+"Open Crash Log Folder" = "Open Crash Log Folder";
+"Roll Back to Stable…" = "Roll Back to Stable…";
+
+/* Lab channel - diagnostic preview */
+"Diagnostic information ready" = "Diagnostic information ready";
+"The report below has been sanitized (IPs, domains, and credentials replaced with placeholders). Review it before sharing, then copy to clipboard." = "The report below has been sanitized (IPs, domains, and credentials replaced with placeholders). Review it before sharing, then copy to clipboard.";
+"Copy to Clipboard" = "Copy to Clipboard";
+
+/* Lab channel - rollback dialog */
+"Roll back to the latest Stable release" = "Roll back to the latest Stable release";
+"This opens the Stable download page in your browser. To complete the rollback:" = "This opens the Stable download page in your browser. To complete the rollback:";
+"Download ClashFX.dmg, then mount it." = "Download ClashFX.dmg, then mount it.";
+"Drag ClashFX into Applications and choose \"Replace\"." = "Drag ClashFX into Applications and choose \"Replace\".";
+"Reopen ClashFX." = "Reopen ClashFX.";
+"Your settings and configuration are preserved." = "Your settings and configuration are preserved.";
+"Stable will not auto-upgrade back to Lab." = "Stable will not auto-upgrade back to Lab.";
+"If Enhanced Mode is on, please disable it before downgrading." = "If Enhanced Mode is on, please disable it before downgrading.";
+"Open Download Page" = "Open Download Page";

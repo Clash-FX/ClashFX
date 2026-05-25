@@ -73,6 +73,29 @@ class StatusItemView: NSView, StatusItemViewProtocol {
         frame = CGRect(x: 0, y: 0, width: width, height: 22)
     }
 
+    private var labDotLayer: CALayer?
+
+    func updateLabBadge(isLab: Bool) {
+        guard imageView != nil else { return }
+        imageView.wantsLayer = true
+        if isLab {
+            let dot = labDotLayer ?? CALayer()
+            dot.backgroundColor = NSColor.systemOrange.cgColor
+            dot.cornerRadius = 2
+            dot.borderWidth = 0.5
+            dot.borderColor = NSColor.windowBackgroundColor.cgColor
+            let iconBounds = imageView.bounds
+            dot.frame = CGRect(x: iconBounds.maxX - 5, y: iconBounds.maxY - 5, width: 4, height: 4)
+            if labDotLayer == nil {
+                imageView.layer?.addSublayer(dot)
+                labDotLayer = dot
+            }
+        } else {
+            labDotLayer?.removeFromSuperlayer()
+            labDotLayer = nil
+        }
+    }
+
     func updateViewStatus(enableProxy: Bool) {
         if enableProxy {
             imageView.contentTintColor = NSColor.labelColor

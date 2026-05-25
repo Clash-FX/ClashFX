@@ -75,6 +75,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var subscriptionStatusSeparator: NSMenuItem?
     private weak var advancedTunMenuItem: NSMenuItem?
     private weak var bypassChineseAppsMenuItem: NSMenuItem?
+    var labHelpMenuItems: [NSMenuItem] = []
 
     var disposeBag = DisposeBag()
     var statusItemView: StatusItemViewProtocol!
@@ -118,6 +119,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: statusItemLengthWithSpeed)
         statusItemView = StatusItemView.create(statusItem: statusItem)
         statusItemView.updateSize(width: statusItemLengthWithSpeed)
+        statusItemView.updateLabBadge(isLab: AutoUpgradeManager.isLabBuild)
+        NotificationCenter.default.addObserver(
+            forName: Settings.labChannelDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.statusItemView?.updateLabBadge(isLab: AutoUpgradeManager.isLabBuild)
+        }
         statusMenu.delegate = self
         statusItem.menu = statusMenu
         AppLogoTool.applyLogo()
@@ -152,6 +161,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 启用自动更新检查（使用fork项目的GitHub Pages）
         AutoUpgradeManager.shared.setup()
         AutoUpgradeManager.shared.setupCheckForUpdatesMenuItem(checkForUpdateMenuItem)
+        installLabHelpMenuItems()
         // install proxy helper
         _ = ClashResourceManager.check()
         PrivilegedHelperManager.shared.checkInstall()
@@ -815,6 +825,66 @@ extension AppDelegate {
         } else {
             disableEnhancedMode(completion: completion)
         }
+    }
+
+    private func installLabHelpMenuItems() {
+        guard let parent = helpMenuItem.submenu ?? helpMenuItem.menu else { return }
+
+        parent.addItem(NSMenuItem.separator())
+
+        let feedback = NSMenuItem(
+            title: NSLocalizedString("Send Feedback…", comment: ""),
+            action: #selector(actionLabSendFeedback(_:)),
+            keyEquivalent: ""
+        )
+        feedback.target = self
+        parent.addItem(feedback)
+        labHelpMenuItems.append(feedback)
+
+        let copyDiag = NSMenuItem(
+            title: NSLocalizedString("Copy Diagnostic Info…", comment: ""),
+            action: #selector(actionLabCopyDiagnostic(_:)),
+            keyEquivalent: ""
+        )
+        copyDiag.target = self
+        parent.addItem(copyDiag)
+        labHelpMenuItems.append(copyDiag)
+
+        let crashLogs = NSMenuItem(
+            title: NSLocalizedString("Open Crash Log Folder", comment: ""),
+            action: #selector(actionLabOpenCrashLogs(_:)),
+            keyEquivalent: ""
+        )
+        crashLogs.target = self
+        parent.addItem(crashLogs)
+        labHelpMenuItems.append(crashLogs)
+
+        if AutoUpgradeManager.isLabBuild {
+            let rollback = NSMenuItem(
+                title: NSLocalizedString("Roll Back to Stable…", comment: ""),
+                action: #selector(actionLabRollback(_:)),
+                keyEquivalent: ""
+            )
+            rollback.target = self
+            parent.addItem(rollback)
+            labHelpMenuItems.append(rollback)
+        }
+    }
+
+    @objc private func actionLabSendFeedback(_ sender: Any) {
+        LabSupport.openGitHubIssueWithTemplate()
+    }
+
+    @objc private func actionLabCopyDiagnostic(_ sender: Any) {
+        LabSupport.copyDiagnosticToPasteboardWithPreview()
+    }
+
+    @objc private func actionLabOpenCrashLogs(_ sender: Any) {
+        LabSupport.openCrashLogFolder()
+    }
+
+    @objc private func actionLabRollback(_ sender: Any) {
+        LabSupport.presentRollbackDialog()
     }
 
     private func installAdvancedTunMenuItem() {
@@ -1882,7 +1952,8 @@ extension AppDelegate {
 
         // Help group
         let showHelp = Settings.trayMenuShowHelp
-        let anyHelpChild = Settings.trayMenuShowAbout || Settings.trayMenuShowCheckUpdate || Settings.trayMenuShowLogLevel || Settings.trayMenuShowShowLog || Settings.trayMenuShowPorts
+        let anyLabHelpChild = !labHelpMenuItems.isEmpty
+        let anyHelpChild = Settings.trayMenuShowAbout || Settings.trayMenuShowCheckUpdate || Settings.trayMenuShowLogLevel || Settings.trayMenuShowShowLog || Settings.trayMenuShowPorts || anyLabHelpChild
         helpMenuItem.isHidden = !(showHelp && anyHelpChild)
         aboutMenuItem.isHidden = !(showHelp && Settings.trayMenuShowAbout)
         checkForUpdateMenuItem.isHidden = !(showHelp && Settings.trayMenuShowCheckUpdate)

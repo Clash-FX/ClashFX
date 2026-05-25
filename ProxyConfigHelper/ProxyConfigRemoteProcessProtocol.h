@@ -11,11 +11,20 @@
 typedef void(^stringReplyBlock)(NSString *);
 typedef void(^boolReplyBlock)(BOOL);
 typedef void(^dictReplyBlock)(NSDictionary *);
+typedef void(^uintReplyBlock)(NSUInteger);
+
+#define CLASHFX_HELPER_PROTOCOL_VERSION 1
 
 @protocol ProxyConfigRemoteProcessProtocol <NSObject>
 @required
 
 - (void)getVersion:(stringReplyBlock)reply;
+
+@optional
+
+- (void)getProtocolVersion:(uintReplyBlock)reply NS_SWIFT_NAME(getHelperProtocolVersion(_:));
+
+@required
 
 - (void)enableProxyWithPort:(int)port
                   socksPort:(int)socksPort

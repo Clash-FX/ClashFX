@@ -523,3 +523,35 @@
 "TUN MTU (%d–%d):" = "TUN MTU (%d–%d):";
 "Interface (empty = auto-detect):" = "Интерфейс (пусто = автоопределение):";
 "Invalid MTU. Kept previous value." = "Неверный MTU. Сохранено прежнее значение.";
+
+/* Lab channel */
+"Update channel name" = "Канал обновлений";
+"Stable" = "Стабильный";
+"Lab (Experimental)" = "Лаборатория (экспериментальный)";
+"Lab" = "Lab";
+
+"Join the ClashFX Lab?" = "Присоединиться к ClashFX Lab?";
+"Lab builds receive bug fixes and experimental features sooner, but update more often and are less stable than Stable. You can switch back any time. Please report any issues on GitHub." = "Сборки Lab быстрее получают исправления ошибок и экспериментальные функции, но обновляются чаще и менее стабильны. Можно отключить в любой момент. Сообщайте о проблемах на GitHub.";
+"Join Lab" = "Присоединиться";
+"Leave the ClashFX Lab?" = "Покинуть ClashFX Lab?";
+"You will keep running your current Lab version until the next Stable release catches up. To downgrade immediately, use \"Roll back to Stable\" below." = "Вы продолжите работу в текущей Lab-версии, пока её не догонит следующий стабильный релиз. Чтобы откатиться немедленно, используйте \"Откатиться на Стабильный\" ниже.";
+"Leave Lab" = "Покинуть Lab";
+
+"Send Feedback…" = "Отправить отзыв…";
+"Copy Diagnostic Info…" = "Скопировать диагностику…";
+"Open Crash Log Folder" = "Открыть папку отчётов о сбоях";
+"Roll Back to Stable…" = "Откатиться на Стабильный…";
+
+"Diagnostic information ready" = "Диагностический отчёт готов";
+"The report below has been sanitized (IPs, domains, and credentials replaced with placeholders). Review it before sharing, then copy to clipboard." = "Отчёт ниже очищен (IP, домены и учётные данные заменены плейсхолдерами). Проверьте перед публикацией, затем скопируйте в буфер обмена.";
+"Copy to Clipboard" = "Скопировать";
+
+"Roll back to the latest Stable release" = "Откатиться к последнему Стабильному релизу";
+"This opens the Stable download page in your browser. To complete the rollback:" = "Откроется страница загрузки Стабильной версии в браузере. Чтобы завершить откат:";
+"Download ClashFX.dmg, then mount it." = "Скачайте ClashFX.dmg и смонтируйте.";
+"Drag ClashFX into Applications and choose \"Replace\"." = "Перетащите ClashFX в «Программы», выберите «Заменить».";
+"Reopen ClashFX." = "Перезапустите ClashFX.";
+"Your settings and configuration are preserved." = "Ваши настройки и конфигурации сохранятся.";
+"Stable will not auto-upgrade back to Lab." = "Стабильный канал не будет авто-обновляться обратно на Lab.";
+"If Enhanced Mode is on, please disable it before downgrading." = "Если включён Enhanced Mode, отключите его перед откатом.";
+"Open Download Page" = "Открыть страницу загрузки";

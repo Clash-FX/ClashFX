@@ -28,6 +28,14 @@
 
 從 [Releases](https://github.com/Clash-FX/ClashFX/releases) 頁面下載。
 
+### 🧪 實驗室通道 (可選)
+
+想搶先體驗最新修復和實驗性功能？
+在 **設定 → Debug → Update Channel → Lab (Experimental)** 中訂閱實驗室通道，獲得更頻繁、更早的更新。
+Lab 版穩定性低於正式版 —— 遇到問題請在 GitHub 回饋。隨時可以切回正式版。
+
+正式版使用者：無需任何操作,你已經在穩定通道上了。
+
 ## 🔨 從原始碼建置
 
 ### 環境需求

@@ -257,6 +257,10 @@ ProxyConfigRemoteProcessProtocol
     reply(version);
 }
 
+- (void)getProtocolVersion:(uintReplyBlock)reply {
+    reply(CLASHFX_HELPER_PROTOCOL_VERSION);
+}
+
 - (void)enableProxyWithPort:(int)port
           socksPort:(int)socksPort
             pac:(NSString *)pac

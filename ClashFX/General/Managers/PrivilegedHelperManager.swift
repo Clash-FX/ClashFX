@@ -152,13 +152,33 @@ class PrivilegedHelperManager {
         case needUpdate
     }
 
+    private static let firstHelperProtocolVersion = "1.0.38.1"
+
+    private static func compareVersion(_ lhs: String, _ rhs: String) -> ComparisonResult {
+        let l = lhs.split(separator: ".").map { Int($0) ?? 0 }
+        let r = rhs.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0 ..< max(l.count, r.count) {
+            let a = i < l.count ? l[i] : 0
+            let b = i < r.count ? r[i] : 0
+            if a < b { return .orderedAscending }
+            if a > b { return .orderedDescending }
+        }
+        return .orderedSame
+    }
+
     private func getHelperStatus(callback: @escaping ((HelperStatus) -> Void)) {
-        var called = false
-        let reply: ((HelperStatus) -> Void) = {
-            status in
-            if called { return }
-            called = true
-            callback(status)
+        let finishQueue = DispatchQueue(label: "com.clashfx.helper-status-finish")
+        var finished = false
+        let finish: ((HelperStatus) -> Void) = { [weak self] status in
+            finishQueue.async {
+                guard !finished else { return }
+                finished = true
+                DispatchQueue.main.async {
+                    self?.timer?.invalidate()
+                    self?.timer = nil
+                    callback(status)
+                }
+            }
         }
 
         let helperURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchServices/" + PrivilegedHelperManager.machServiceName)
@@ -166,12 +186,12 @@ class PrivilegedHelperManager {
             let helperBundleInfo = CFBundleCopyInfoDictionaryForURL(helperURL as CFURL) as? [String: Any],
             let helperVersion = helperBundleInfo["CFBundleShortVersionString"] as? String else {
             Logger.log("check helper status fail")
-            reply(.noFound)
+            finish(.noFound)
             return
         }
         let helperFileExists = FileManager.default.fileExists(atPath: "/Library/PrivilegedHelperTools/\(PrivilegedHelperManager.machServiceName)")
         if !helperFileExists {
-            reply(.noFound)
+            finish(.noFound)
             return
         }
         let timeout: TimeInterval = helperFileExists ? 15 : 5
@@ -179,17 +199,32 @@ class PrivilegedHelperManager {
 
         timer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
             Logger.log("check helper timeout time: \(timeout)")
-            reply(.noFound)
+            finish(.noFound)
         }
 
-        helper()?.getVersion { [weak timer] installedHelperVersion in
-            timer?.invalidate()
-            timer = nil
-            Logger.log("helper version \(installedHelperVersion ?? "") require version \(helperVersion)", level: .debug)
-            let versionMatch = installedHelperVersion == helperVersion
-            let interval = Date().timeIntervalSince(time)
-            Logger.log("check helper using time: \(interval)")
-            reply(versionMatch ? .installed : .needUpdate)
+        let h = helper()
+        h?.getVersion { installedHelperVersion in
+            Logger.log("helper version \(installedHelperVersion ?? "nil") require version \(helperVersion)", level: .debug)
+            Logger.log("check helper using time: \(Date().timeIntervalSince(time))")
+            guard let installedHelperVersion else {
+                finish(.needUpdate)
+                return
+            }
+            if installedHelperVersion == helperVersion {
+                finish(.installed)
+                return
+            }
+            let cmp = Self.compareVersion(installedHelperVersion, Self.firstHelperProtocolVersion)
+            guard cmp != .orderedAscending else {
+                Logger.log("old helper \(installedHelperVersion) predates protocol versioning; needUpdate", level: .debug)
+                finish(.needUpdate)
+                return
+            }
+            h?.getHelperProtocolVersion? { installedProtocolVersion in
+                let expected = UInt(CLASHFX_HELPER_PROTOCOL_VERSION)
+                Logger.log("helper protocol v\(installedProtocolVersion) expect v\(expected)", level: .debug)
+                finish(installedProtocolVersion == expected ? .installed : .needUpdate)
+            }
         }
     }
 }

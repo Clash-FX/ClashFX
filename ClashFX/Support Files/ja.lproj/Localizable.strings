@@ -523,3 +523,35 @@
 "TUN MTU (%d–%d):" = "TUN MTU(%d–%d):";
 "Interface (empty = auto-detect):" = "インターフェース(空欄 = 自動検出):";
 "Invalid MTU. Kept previous value." = "MTU が無効です。以前の値を保持しました。";
+
+/* Lab channel */
+"Update channel name" = "アップデートチャンネル";
+"Stable" = "安定版";
+"Lab (Experimental)" = "ラボ版 (実験的)";
+"Lab" = "Lab";
+
+"Join the ClashFX Lab?" = "ClashFX Lab に参加しますか？";
+"Lab builds receive bug fixes and experimental features sooner, but update more often and are less stable than Stable. You can switch back any time. Please report any issues on GitHub." = "Lab ビルドは修正や実験的機能をいち早く受け取れますが、更新頻度が高く、安定版より不安定です。いつでも戻せます。問題があれば GitHub で報告してください。";
+"Join Lab" = "Lab に参加";
+"Leave the ClashFX Lab?" = "ClashFX Lab から離脱しますか？";
+"You will keep running your current Lab version until the next Stable release catches up. To downgrade immediately, use \"Roll back to Stable\" below." = "次の安定版がリリースされるまで、現在の Lab バージョンが継続して動作します。今すぐダウングレードするには、下の「安定版にロールバック」を使用してください。";
+"Leave Lab" = "Lab から離脱";
+
+"Send Feedback…" = "問題を報告…";
+"Copy Diagnostic Info…" = "診断情報をコピー…";
+"Open Crash Log Folder" = "クラッシュログフォルダを開く";
+"Roll Back to Stable…" = "安定版にロールバック…";
+
+"Diagnostic information ready" = "診断情報の準備が完了";
+"The report below has been sanitized (IPs, domains, and credentials replaced with placeholders). Review it before sharing, then copy to clipboard." = "下記レポートはサニタイズ済みです(IP、ドメイン、認証情報はプレースホルダに置換)。共有前に内容を確認してから、クリップボードにコピーしてください。";
+"Copy to Clipboard" = "クリップボードにコピー";
+
+"Roll back to the latest Stable release" = "最新の安定版にロールバック";
+"This opens the Stable download page in your browser. To complete the rollback:" = "ブラウザで安定版のダウンロードページを開きます。ロールバックの手順:";
+"Download ClashFX.dmg, then mount it." = "ClashFX.dmg をダウンロードしてマウント。";
+"Drag ClashFX into Applications and choose \"Replace\"." = "ClashFX を「アプリケーション」にドラッグし、「置換」を選択。";
+"Reopen ClashFX." = "ClashFX を再起動。";
+"Your settings and configuration are preserved." = "設定と構成はすべて保持されます。";
+"Stable will not auto-upgrade back to Lab." = "安定版は Lab に自動アップグレードしません。";
+"If Enhanced Mode is on, please disable it before downgrading." = "Enhanced Mode が有効な場合は、ダウングレード前に無効化してください。";
+"Open Download Page" = "ダウンロードページを開く";

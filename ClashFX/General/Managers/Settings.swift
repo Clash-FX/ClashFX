@@ -116,6 +116,23 @@ enum Settings {
     @UserDefault("selectedMenuIconID", defaultValue: "default")
     static var selectedMenuIconID: String
 
+    // MARK: - Update Channel (Lab)
+
+    /// When true, Sparkle additionally accepts items tagged <sparkle:channel>lab</sparkle:channel>; off = stable only.
+    @UserDefault("isLabChannel", defaultValue: false)
+    static var isLabChannel: Bool
+
+    /// Posted on isLabChannel change. Observed by menu bar badge, settings pane, and about window.
+    static let labChannelDidChangeNotification = Notification.Name("ClashFX.labChannelDidChange")
+
+    static func setLabChannel(_ enabled: Bool) {
+        let old = isLabChannel
+        isLabChannel = enabled
+        if old != enabled {
+            NotificationCenter.default.post(name: labChannelDidChangeNotification, object: nil)
+        }
+    }
+
     // MARK: - Tray Menu Visibility
 
     @UserDefault("trayMenuShowProxyMode", defaultValue: true)

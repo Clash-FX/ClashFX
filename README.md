@@ -28,6 +28,15 @@
 
 Download from the [Releases](https://github.com/Clash-FX/ClashFX/releases) page.
 
+### 🧪 Lab Channel (Optional)
+
+Want the latest fixes and experimental features before they ship to everyone?
+Open **Settings → Debug → Update Channel → Lab (Experimental)** to opt into
+faster, more frequent releases. Lab builds are less stable than regular releases — please report any
+issues on GitHub. You can switch back to Stable at any time.
+
+Stable users: no action needed, you're already on the right track.
+
 ## 🔨 Build from Source
 
 ### Prerequisites

@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
 
 env:
@@ -46,8 +47,20 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       run: |
         tag=${GITHUB_REF##*/}
-        bundle exec fastlane run set_info_plist_value path:ClashFX/Info.plist key:BETA value:false
-        bundle exec fastlane run increment_build_number_in_plist build_number:"${tag}" scheme:"ClashFX"
+        seg_count=$(echo "$tag" | awk -F. '{print NF}')
+        if [ "$seg_count" -ge 4 ]; then
+          echo "Lab release detected (4-segment tag): $tag"
+          echo "RELEASE_CHANNEL=lab" >> $GITHUB_ENV
+          beta_flag=true
+        else
+          echo "Stable release detected (3-segment tag): $tag"
+          echo "RELEASE_CHANNEL=stable" >> $GITHUB_ENV
+          beta_flag=false
+        fi
+        build_number=$(echo "$tag" | awk -F. '{ printf "%d%03d%03d%03d", $1, $2, $3, ($4 == "" ? 0 : $4) }')
+        echo "build_number=$build_number"
+        bundle exec fastlane run set_info_plist_value path:ClashFX/Info.plist key:BETA value:$beta_flag
+        bundle exec fastlane run increment_build_number_in_plist build_number:"${build_number}" scheme:"ClashFX"
         bundle exec fastlane run increment_version_number_in_plist version_number:"${tag}" scheme:"ClashFX"
 
     - name: update dev build version
@@ -152,21 +165,23 @@ jobs:
             ClashFX.app.dSYM.zip
             ClashFX.dmg
         draft: false
-        prerelease: false
+        prerelease: ${{ env.RELEASE_CHANNEL == 'lab' }}
         body_path: RELEASE_NOTES.md
 
     - name: update appcast.xml
       if: startsWith(github.ref, 'refs/tags/')
       run: |
         tag=${GITHUB_REF##*/}
-        python3 - "$tag" "$SPARKLE_SIGNATURE" "$SPARKLE_LENGTH" <<'PYEOF'
+        python3 - "$tag" "$SPARKLE_SIGNATURE" "$SPARKLE_LENGTH" "${RELEASE_CHANNEL:-stable}" <<'PYEOF'
         import sys, re
         from datetime import datetime, timezone
 
-        tag, signature, length = sys.argv[1], sys.argv[2], sys.argv[3]
+        tag, signature, length, channel = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
         pub_date = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
 
-        notes_html = f"<h2>ClashFX v{tag}</h2>"
+        is_lab = channel == "lab"
+        title_suffix = " (Lab)" if is_lab else ""
+        notes_html = f"<h2>ClashFX v{tag}{title_suffix}</h2>"
         try:
             with open("RELEASE_NOTES.md") as f:
                 content = f.read()
@@ -174,23 +189,25 @@ jobs:
             items = re.findall(r"^- \*\*(.+?)\*\* — (.+)$", en_section, re.MULTILINE)
             if items:
                 notes_html += "<ul>"
-                for title, desc in items:
-                    notes_html += f"<li><strong>{title}</strong> — {desc}</li>"
+                for ti, desc in items:
+                    notes_html += f"<li><strong>{ti}</strong> — {desc}</li>"
                 notes_html += "</ul>"
             else:
                 notes_html += "<p>See release notes on GitHub.</p>"
         except Exception:
             notes_html += "<p>See release notes on GitHub.</p>"
 
+        channel_tag = "          <sparkle:channel>lab</sparkle:channel>\n" if is_lab else ""
+
         new_item = f"""    <item>
-          <title>Version {tag}</title>
+          <title>Version {tag}{title_suffix}</title>
           <description><![CDATA[
             {notes_html}
           ]]></description>
           <pubDate>{pub_date}</pubDate>
           <sparkle:version>{tag}</sparkle:version>
           <sparkle:shortVersionString>{tag}</sparkle:shortVersionString>
-          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+{channel_tag}          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
           <enclosure
             url="https://github.com/Clash-FX/ClashFX/releases/download/{tag}/ClashFX.dmg"
             sparkle:version="{tag}"
