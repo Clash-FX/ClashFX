@@ -582,7 +582,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .notification(.systemNetworkStatusIPUpdate).map { _ in
                 NetworkChangeNotifier.getPrimaryIPAddress(allowIPV6: false)
             }.bind { [weak self] _ in
-                if RemoteControlManager.selectConfig != nil {
+                if !ApiRequest.useDirectApi() {
                     self?.resetStreamApi()
                 }
             }.disposed(by: disposeBag)
