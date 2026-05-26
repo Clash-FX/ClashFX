@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.1</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.1</h2><ul><li><strong>Status Bar Speed Recovery</strong> — The menu bar upload/download speed display now recovers when the traffic or log WebSocket closes cleanly, stalls without an error, or becomes stale after macOS sleep/wake.</li><li><strong>Network Change Recovery</strong> — ClashFX now resets the traffic stream after local IP/interface changes so the menu bar speed indicator does not stay frozen after switching Wi-Fi, VPN, or network environments.</li><li><strong>Remote Subscription Compatibility</strong> — Remote config downloads now use a Clash Meta-compatible User-Agent, fixing providers that returned only base64/share-link node lists instead of full YAML rules and proxy groups.</li><li><strong>Legacy TUN Route Exclusions</strong> — Enhanced Mode now automatically converts old LAN wildcard exclusions such as `10.*`, `192.168.*`, and `172.16.*`–`172.31.*` into valid CIDR ranges before generating the mihomo config. The Go config writer also accepts these legacy entries as a fallback.</li></ul>
+  ]]></description>
+  <pubDate>Tue, 26 May 2026 14:42:45 +0000</pubDate>
+  <sparkle:version>1.1.1</sparkle:version>
+  <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.1/ClashFX.dmg"
+    sparkle:version="1.1.1"
+    sparkle:shortVersionString="1.1.1"
+    sparkle:edSignature="rcjK8MyckOw3DHwuOvyxnZGExNa2cZdXfg2Npq7TWARTG8Yq14IqNvqNhJm1aIeBP4HM17jbEyMJE2xK6BjWAw=="
+    length="94357168"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.0</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.0</h2><ul><li><strong>Lab Update Channel</strong> — ClashFX now ships Stable and Lab updates from the same Sparkle feed. Stable remains the default, while `Settings → Debug → Update Channel → Lab (Experimental)` opts into 4-segment Lab builds that receive fixes earlier and show a small orange badge on the app icon.</li><li><strong>Lab Feedback Toolkit</strong> — The Help menu now includes Lab-oriented feedback and diagnostics actions so testers can open a pre-filled GitHub issue, copy redacted diagnostic info, open crash logs, or follow the manual rollback guide without anonymous telemetry.</li><li><strong>Bypass Common Chinese Apps Toggle</strong> — Enhanced Mode can inject the `Clash-FX/cn-apps-direct` `PROCESS-NAME` rule-provider so common Chinese apps such as WeChat, QQ, DingTalk, Feishu, and Bilibili go direct. The list updates automatically every 24 hours and defaults to off.</li><li><strong>Hidden Proxy Groups Now Honored</strong> — Proxy groups marked `hidden: true` in YAML are filtered from the status bar menu while still participating in speed tests and rule routing internally.</li><li><strong>App Icon Refresh</strong> — The bundled app icon set was refreshed for better visual consistency, and the default app icon padding now matches the built-in alternatives.</li><li><strong>Proxy Provider Subscription Status</strong> — Local custom YAML files that use remote `proxy-providers` now show subscription usage in the menu by reading provider response metadata.</li><li><strong>Localhost TUN Exclusions</strong> — Enhanced Mode route exclusions now accept valid hostnames such as `localhost`, preventing local services from being forced through Fake-IP routing.</li><li><strong>Sparkle DMG Metadata</strong> — Release appcasts now publish DMG enclosures as `application/x-apple-diskimage`, matching the GitHub release asset type and Sparkle expectations.</li><li><strong>Web View Cache Cleanup</strong> — Web resource cleanup now clears only disk and memory cache, preserving local storage and IndexedDB data.</li><li><strong>Menu Visibility Settings</strong> — The menu display preferences now include the newly added Advanced TUN Settings and Bypass Common Chinese Apps actions.</li><li><strong>Current Icon in Alerts</strong> — About, alert, and notification fallback windows now use the currently selected app icon instead of a stale bundled icon.</li><li><strong>Status Bar Restart Cleanup</strong> — Restarting ClashFX from the menu no longer leaves a duplicate old status bar icon behind.</li><li><strong>Launch Crash Under macOS 26 SDK Fixed</strong> — `WKWebsiteDataStore` calls were moved back to the main queue for compatibility with stricter WebKit main-thread checks.</li></ul>
