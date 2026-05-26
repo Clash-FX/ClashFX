@@ -799,6 +799,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func resetProxySettingOnWakeupFromSleep() {
+        if !ApiRequest.useDirectApi() {
+            resetStreamApi()
+        }
+
         guard !ConfigManager.shared.isProxySetByOtherVariable.value,
               ConfigManager.shared.proxyPortAutoSet else { return }
         guard NetworkChangeNotifier.getPrimaryInterface() != nil else { return }
@@ -807,10 +811,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Logger.log("Resting proxy setting, current:\(rawProxy)", level: .warning)
             SystemProxyManager.shared.disableProxy()
             SystemProxyManager.shared.enableProxy()
-        }
-
-        if RemoteControlManager.selectConfig != nil {
-            resetStreamApi()
         }
     }
 
