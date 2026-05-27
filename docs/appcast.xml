@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.2.1 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.2.1 (Lab)</h2><ul><li><strong>Status Bar Menu No Longer Greys Out Unexpectedly</strong> — Action items in the status bar menu (Set as System Proxy, Enhanced Mode, Copy Terminal Command, Quit, etc.) could become disabled when another window briefly stole the responder chain (e.g. during Sparkle update prompts or Settings sheets). All menu items now have explicit targets and a centralized `validateMenuItem:` implementation, so the menu state remains correct regardless of focus changes.</li><li><strong>Bypass Common Chinese Apps Now Reflects Enhanced Mode</strong> — The "Bypass Common Chinese Apps" toggle relies on `PROCESS-NAME` rules that only resolve under Enhanced Mode (TUN). Under Rule mode mihomo cannot see the originating process, so the toggle was previously a silent no-op. It is now disabled in Rule mode with a tooltip explaining the requirement; toggling Enhanced Mode on automatically re-enables it.</li><li><strong>External Control Mode No Longer Breaks Other Menu Items</strong> — Selecting an External Control instance used to disable Sparkle's auto-validation for the entire status menu, which could leave unrelated items greyed out. Disable logic now targets only the actions that genuinely don't apply to a remote core (Set as System Proxy, Copy Terminal Command), while everything else stays usable.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 27 May 2026 04:14:40 +0000</pubDate>
+  <sparkle:version>1001002001</sparkle:version>
+  <sparkle:shortVersionString>1.1.2.1</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.2.1/ClashFX.dmg"
+    sparkle:version="1001002001"
+    sparkle:shortVersionString="1.1.2.1"
+    sparkle:edSignature="q7LSIaB+h2Dt5D9tV6e5MdoXTFHzkZC3e9o77aisFN2o2Yx6qA47VRPs2VlZmgMLTq9a0U25RRiIeo2XgmEuAw=="
+    length="94352530"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.1</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.1</h2><ul><li><strong>Status Bar Speed Recovery</strong> — The menu bar upload/download speed display now recovers when the traffic or log WebSocket closes cleanly, stalls without an error, or becomes stale after macOS sleep/wake.</li><li><strong>Network Change Recovery</strong> — ClashFX now resets the traffic stream after local IP/interface changes so the menu bar speed indicator does not stay frozen after switching Wi-Fi, VPN, or network environments.</li><li><strong>Remote Subscription Compatibility</strong> — Remote config downloads now use a Clash Meta-compatible User-Agent, fixing providers that returned only base64/share-link node lists instead of full YAML rules and proxy groups.</li><li><strong>Legacy TUN Route Exclusions</strong> — Enhanced Mode now automatically converts old LAN wildcard exclusions such as `10.*`, `192.168.*`, and `172.16.*`–`172.31.*` into valid CIDR ranges before generating the mihomo config. The Go config writer also accepts these legacy entries as a fallback.</li></ul>
