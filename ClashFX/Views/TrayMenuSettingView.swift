@@ -118,6 +118,10 @@ class TrayMenuSettingView: NSView {
                     ItemRow(title: NSLocalizedString("Log Level", comment: ""), getter: { Settings.trayMenuShowLogLevel }, setter: { Settings.trayMenuShowLogLevel = $0 }),
                     ItemRow(title: NSLocalizedString("Show Log", comment: ""), getter: { Settings.trayMenuShowShowLog }, setter: { Settings.trayMenuShowShowLog = $0 }),
                     ItemRow(title: NSLocalizedString("Ports", comment: ""), getter: { Settings.trayMenuShowPorts }, setter: { Settings.trayMenuShowPorts = $0 }),
+                    ItemRow(title: NSLocalizedString("Send Feedback…", comment: ""), getter: { Settings.trayMenuShowFeedback }, setter: { Settings.trayMenuShowFeedback = $0 }),
+                    ItemRow(title: NSLocalizedString("Copy Diagnostic Info…", comment: ""), getter: { Settings.trayMenuShowCopyDiagnostic }, setter: { Settings.trayMenuShowCopyDiagnostic = $0 }),
+                    ItemRow(title: NSLocalizedString("Open Crash Log Folder", comment: ""), getter: { Settings.trayMenuShowCrashLogs }, setter: { Settings.trayMenuShowCrashLogs = $0 }),
+                    ItemRow(title: NSLocalizedString("Roll Back to Stable…", comment: ""), getter: { Settings.trayMenuShowRollback }, setter: { Settings.trayMenuShowRollback = $0 }),
                 ]
             )),
         ]

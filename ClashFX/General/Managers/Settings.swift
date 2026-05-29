@@ -349,4 +349,16 @@ enum Settings {
 
     @UserDefault("trayMenuShowPorts", defaultValue: true)
     static var trayMenuShowPorts: Bool
+
+    @UserDefault("trayMenuShowFeedback", defaultValue: true)
+    static var trayMenuShowFeedback: Bool
+
+    @UserDefault("trayMenuShowCopyDiagnostic", defaultValue: true)
+    static var trayMenuShowCopyDiagnostic: Bool
+
+    @UserDefault("trayMenuShowCrashLogs", defaultValue: true)
+    static var trayMenuShowCrashLogs: Bool
+
+    @UserDefault("trayMenuShowRollback", defaultValue: true)
+    static var trayMenuShowRollback: Bool
 }

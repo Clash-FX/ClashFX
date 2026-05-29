@@ -80,6 +80,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var advancedTunMenuItem: NSMenuItem?
     private weak var bypassChineseAppsMenuItem: NSMenuItem?
     var labHelpMenuItems: [NSMenuItem] = []
+    private weak var labFeedbackMenuItem: NSMenuItem?
+    private weak var labCopyDiagMenuItem: NSMenuItem?
+    private weak var labCrashLogsMenuItem: NSMenuItem?
+    private weak var labRollbackMenuItem: NSMenuItem?
+    private weak var labHelpSeparator: NSMenuItem?
 
     var disposeBag = DisposeBag()
     var statusItemView: StatusItemViewProtocol!
@@ -962,7 +967,9 @@ extension AppDelegate {
     private func installLabHelpMenuItems() {
         guard let parent = helpMenuItem.submenu ?? helpMenuItem.menu else { return }
 
-        parent.addItem(NSMenuItem.separator())
+        let sep = NSMenuItem.separator()
+        parent.addItem(sep)
+        labHelpSeparator = sep
 
         let feedback = NSMenuItem(
             title: NSLocalizedString("Send Feedback…", comment: ""),
@@ -972,6 +979,7 @@ extension AppDelegate {
         feedback.target = self
         parent.addItem(feedback)
         labHelpMenuItems.append(feedback)
+        labFeedbackMenuItem = feedback
 
         let copyDiag = NSMenuItem(
             title: NSLocalizedString("Copy Diagnostic Info…", comment: ""),
@@ -981,6 +989,7 @@ extension AppDelegate {
         copyDiag.target = self
         parent.addItem(copyDiag)
         labHelpMenuItems.append(copyDiag)
+        labCopyDiagMenuItem = copyDiag
 
         let crashLogs = NSMenuItem(
             title: NSLocalizedString("Open Crash Log Folder", comment: ""),
@@ -990,6 +999,7 @@ extension AppDelegate {
         crashLogs.target = self
         parent.addItem(crashLogs)
         labHelpMenuItems.append(crashLogs)
+        labCrashLogsMenuItem = crashLogs
 
         if AutoUpgradeManager.isLabBuild {
             let rollback = NSMenuItem(
@@ -1000,6 +1010,7 @@ extension AppDelegate {
             rollback.target = self
             parent.addItem(rollback)
             labHelpMenuItems.append(rollback)
+            labRollbackMenuItem = rollback
         }
     }
 
@@ -2130,7 +2141,11 @@ extension AppDelegate {
 
         // Help group
         let showHelp = Settings.trayMenuShowHelp
-        let anyLabHelpChild = !labHelpMenuItems.isEmpty
+        let feedbackVisible = showHelp && Settings.trayMenuShowFeedback && labFeedbackMenuItem != nil
+        let copyDiagVisible = showHelp && Settings.trayMenuShowCopyDiagnostic && labCopyDiagMenuItem != nil
+        let crashLogsVisible = showHelp && Settings.trayMenuShowCrashLogs && labCrashLogsMenuItem != nil
+        let rollbackVisible = showHelp && Settings.trayMenuShowRollback && labRollbackMenuItem != nil
+        let anyLabHelpChild = feedbackVisible || copyDiagVisible || crashLogsVisible || rollbackVisible
         let anyHelpChild = Settings.trayMenuShowAbout || Settings.trayMenuShowCheckUpdate || Settings.trayMenuShowLogLevel || Settings.trayMenuShowShowLog || Settings.trayMenuShowPorts || anyLabHelpChild
         helpMenuItem.isHidden = !(showHelp && anyHelpChild)
         aboutMenuItem.isHidden = !(showHelp && Settings.trayMenuShowAbout)
@@ -2138,5 +2153,10 @@ extension AppDelegate {
         logLevelMenuItem.isHidden = !(showHelp && Settings.trayMenuShowLogLevel)
         showLogMenuItem.isHidden = !(showHelp && Settings.trayMenuShowShowLog)
         portsMenuItem.isHidden = !(showHelp && Settings.trayMenuShowPorts)
+        labFeedbackMenuItem?.isHidden = !feedbackVisible
+        labCopyDiagMenuItem?.isHidden = !copyDiagVisible
+        labCrashLogsMenuItem?.isHidden = !crashLogsVisible
+        labRollbackMenuItem?.isHidden = !rollbackVisible
+        labHelpSeparator?.isHidden = !anyLabHelpChild
     }
 }
