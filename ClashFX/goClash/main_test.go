@@ -49,3 +49,84 @@ func TestSplitTunRouteExcludeEntriesRejectsInvalidText(t *testing.T) {
 		t.Fatalf("invalid = %v, want %v", got, want)
 	}
 }
+
+func TestPrependUniqueRulesAddsEnhancedCoreProcessRulesFirst(t *testing.T) {
+	rawMap := map[string]interface{}{
+		"rules": []interface{}{
+			"DOMAIN-SUFFIX,example.com,DIRECT",
+			"MATCH,Proxy",
+		},
+	}
+
+	prependUniqueRules(rawMap, enhancedCoreProcessDirectRules)
+
+	rules := rawMap["rules"].([]interface{})
+	want := []string{
+		"PROCESS-NAME,mihomo,DIRECT",
+		"PROCESS-NAME,mihomo-bin,DIRECT",
+		"PROCESS-NAME,mihomo_core,DIRECT",
+		"DOMAIN-SUFFIX,example.com,DIRECT",
+		"MATCH,Proxy",
+	}
+	if len(rules) != len(want) {
+		t.Fatalf("rules = %v, want %v", rules, want)
+	}
+	for i := range want {
+		if rules[i] != want[i] {
+			t.Fatalf("rules = %v, want %v", rules, want)
+		}
+	}
+}
+
+func TestPrependUniqueRulesKeepsExistingEnhancedCoreProcessRule(t *testing.T) {
+	rawMap := map[string]interface{}{
+		"rules": []interface{}{
+			"PROCESS-NAME,mihomo,DIRECT",
+			"MATCH,Proxy",
+		},
+	}
+
+	prependUniqueRules(rawMap, []string{"PROCESS-NAME,mihomo,DIRECT"})
+
+	rules := rawMap["rules"].([]interface{})
+	want := []string{"PROCESS-NAME,mihomo,DIRECT", "MATCH,Proxy"}
+	if len(rules) != len(want) {
+		t.Fatalf("rules = %v, want %v", rules, want)
+	}
+	for i := range want {
+		if rules[i] != want[i] {
+			t.Fatalf("rules = %v, want %v", rules, want)
+		}
+	}
+}
+
+func TestLockEnhancedLanBindingDisablesWildcardWhenAllowLanOff(t *testing.T) {
+	rawMap := map[string]interface{}{
+		"bind-address": "*",
+	}
+
+	lockEnhancedLanBinding(rawMap)
+
+	if rawMap["allow-lan"] != false {
+		t.Fatalf("allow-lan = %v, want false", rawMap["allow-lan"])
+	}
+	if rawMap["bind-address"] != "127.0.0.1" {
+		t.Fatalf("bind-address = %v, want 127.0.0.1", rawMap["bind-address"])
+	}
+}
+
+func TestLockEnhancedLanBindingPreservesExplicitAllowLan(t *testing.T) {
+	rawMap := map[string]interface{}{
+		"allow-lan":    true,
+		"bind-address": "*",
+	}
+
+	lockEnhancedLanBinding(rawMap)
+
+	if rawMap["allow-lan"] != true {
+		t.Fatalf("allow-lan = %v, want true", rawMap["allow-lan"])
+	}
+	if rawMap["bind-address"] != "*" {
+		t.Fatalf("bind-address = %v, want *", rawMap["bind-address"])
+	}
+}

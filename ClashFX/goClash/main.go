@@ -61,6 +61,12 @@ var (
 
 const defaultTunMTU uint32 = 1500
 
+var enhancedCoreProcessDirectRules = []string{
+	"PROCESS-NAME,mihomo,DIRECT",
+	"PROCESS-NAME,mihomo-bin,DIRECT",
+	"PROCESS-NAME,mihomo_core,DIRECT",
+}
+
 func isAddrValid(addr string) bool {
 	if addr != "" {
 		comps := strings.Split(addr, ":")
@@ -268,6 +274,35 @@ func mergeInterfaceSlice(base interface{}, additions []string) []interface{} {
 		result = append(result, item)
 	}
 	return result
+}
+
+func prependUniqueRules(rawMap map[string]interface{}, additions []string) {
+	existingRules, _ := rawMap["rules"].([]interface{})
+	newRules := make([]interface{}, 0, len(existingRules)+len(additions))
+	for _, rule := range additions {
+		if !interfaceSliceContainsString(existingRules, rule) {
+			newRules = append(newRules, rule)
+		}
+	}
+	newRules = append(newRules, existingRules...)
+	rawMap["rules"] = newRules
+}
+
+func interfaceSliceContainsString(items []interface{}, target string) bool {
+	for _, item := range items {
+		if rule, ok := item.(string); ok && rule == target {
+			return true
+		}
+	}
+	return false
+}
+
+func lockEnhancedLanBinding(rawMap map[string]interface{}) {
+	if allowLan, _ := rawMap["allow-lan"].(bool); allowLan {
+		return
+	}
+	rawMap["allow-lan"] = false
+	rawMap["bind-address"] = "127.0.0.1"
 }
 
 func mergePrefixInterfaceSlice(base interface{}, additions []netip.Prefix) []interface{} {
@@ -1008,6 +1043,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	if savedUIPath != "" {
 		rawMap["external-ui"] = savedUIPath
 	}
+	lockEnhancedLanBinding(rawMap)
 
 	profile, _ := rawMap["profile"].(map[string]interface{})
 	if profile == nil {
@@ -1038,6 +1074,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 		newRules = append(newRules, existingRules...)
 		rawMap["rules"] = newRules
 	}
+	prependUniqueRules(rawMap, enhancedCoreProcessDirectRules)
 
 	data, err := yaml.Marshal(rawMap)
 	if err != nil {
