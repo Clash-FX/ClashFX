@@ -263,6 +263,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        DispatchQueue.main.async { [weak self] in
+            self?.statusItem?.button?.performClick(nil)
+        }
+        return true
+    }
+
     func checkMenuIconVisable() {
         guard let button = statusItem.button else { assertionFailure(); return }
         guard let window = button.window else { assertionFailure(); return }
@@ -1135,6 +1142,14 @@ extension AppDelegate {
     }
 
     private func enableEnhancedMode(completion: @escaping (String?) -> Void) {
+        // Allow one retry: each attempt regenerates .enhanced_config.yaml, which
+        // re-picks the controller port (stable 19090, or a fresh free port if it
+        // is occupied by a stale core). This absorbs transient port races and
+        // leftover mihomo_core processes that would otherwise fail the launch.
+        attemptEnableEnhancedMode(attemptsLeft: 1, alreadySuspended: false, completion: completion)
+    }
+
+    private func attemptEnableEnhancedMode(attemptsLeft: Int, alreadySuspended: Bool, completion: @escaping (String?) -> Void) {
         let tempConfigPath = kConfigFolderPath + ".enhanced_config.yaml"
         let selectedConfigName = ConfigManager.selectConfigName
 
@@ -1152,7 +1167,15 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     guard let self = self else { return }
 
+                    let resumeIfNeeded = {
+                        if alreadySuspended {
+                            clashResumeCallbacks()
+                            _ = clashResumeCore()
+                        }
+                    }
+
                     guard !writeResult.hasPrefix("error:") else {
+                        resumeIfNeeded()
                         completion(writeResult)
                         return
                     }
@@ -1161,24 +1184,30 @@ extension AppDelegate {
                           let portInfo = try? JSONSerialization.jsonObject(with: jsonData) as? [String: String],
                           let extController = portInfo["externalController"],
                           let port = extController.components(separatedBy: ":").last else {
+                        resumeIfNeeded()
                         completion(NSLocalizedString("Failed to parse enhanced config", comment: ""))
                         return
                     }
                     let secret = portInfo["secret"] ?? ""
 
                     guard let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else {
+                        resumeIfNeeded()
                         completion(NSLocalizedString("mihomo_core not found", comment: ""))
                         return
                     }
 
                     guard let helper = PrivilegedHelperManager.shared.helper() else {
+                        resumeIfNeeded()
                         completion(NSLocalizedString("Helper not available", comment: ""))
                         return
                     }
 
-                    // Pause callbacks before suspending core to prevent error storms
-                    clashPauseCallbacks()
-                    clashSuspendCore()
+                    // Pause callbacks before suspending core to prevent error storms.
+                    // Only suspend once across the whole retry sequence.
+                    if !alreadySuspended {
+                        clashPauseCallbacks()
+                        clashSuspendCore()
+                    }
 
                     helper.startMihomoCore(
                         withBinaryPath: binaryPath,
@@ -1187,9 +1216,18 @@ extension AppDelegate {
                     ) { [weak self] error in
                         DispatchQueue.main.async {
                             if let error = error {
-                                clashResumeCallbacks()
-                                _ = clashResumeCore()
-                                completion(error)
+                                if attemptsLeft > 0 {
+                                    Logger.log("External core launch failed (\(error)), retrying (\(attemptsLeft) left)", level: .warning)
+                                    helper.stopMihomoCore { _ in
+                                        DispatchQueue.main.async {
+                                            self?.attemptEnableEnhancedMode(attemptsLeft: attemptsLeft - 1, alreadySuspended: true, completion: completion)
+                                        }
+                                    }
+                                } else {
+                                    clashResumeCallbacks()
+                                    _ = clashResumeCore()
+                                    completion(error)
+                                }
                             } else {
                                 ConfigManager.shared.apiPort = port
                                 ConfigManager.shared.apiSecret = secret
@@ -1201,6 +1239,15 @@ extension AppDelegate {
                                         self?.verifyTunStatus(port: port, secret: secret)
                                         self?.overrideDNSForTun()
                                         completion(nil)
+                                    } else if attemptsLeft > 0 {
+                                        Logger.log("External core not ready, regenerating config and retrying (\(attemptsLeft) left)", level: .warning)
+                                        ConfigManager.shared.isEnhancedModeActive = false
+                                        self?.refreshStatusItemViewStatus()
+                                        helper.stopMihomoCore { _ in
+                                            DispatchQueue.main.async {
+                                                self?.attemptEnableEnhancedMode(attemptsLeft: attemptsLeft - 1, alreadySuspended: true, completion: completion)
+                                            }
+                                        }
                                     } else {
                                         Logger.log("External core failed to start, rolling back", level: .error)
                                         helper.stopMihomoCore { _ in
