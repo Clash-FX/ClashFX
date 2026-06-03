@@ -56,10 +56,12 @@ var (
 	tunInterfaceName string = ""
 	tunMu            sync.Mutex
 	savedUIPath      string
-	callbacksPaused  int32 // atomic: 0=active, 1=paused
+	callbacksPaused  int32        // atomic: 0=active, 1=paused
+	userTunStackRaw  atomic.Value // string; race-free across config reload vs enhanced-mode toggle
 )
 
 const defaultTunMTU uint32 = 1500
+const enhancedControllerPort = 19090
 
 var enhancedCoreProcessDirectRules = []string{
 	"PROCESS-NAME,mihomo,DIRECT",
@@ -305,6 +307,22 @@ func lockEnhancedLanBinding(rawMap map[string]interface{}) {
 	rawMap["bind-address"] = "127.0.0.1"
 }
 
+// resolveTunStack returns a valid mihomo TUN stack string.
+// It respects an explicit user choice (case-insensitive: system/gvisor/mixed)
+// and falls back to "mixed" (ClashFX default) when empty or invalid.
+func resolveTunStack(userValue string) string {
+	switch strings.ToLower(strings.TrimSpace(userValue)) {
+	case "system":
+		return "system"
+	case "gvisor":
+		return "gvisor"
+	case "mixed":
+		return "mixed"
+	default:
+		return "mixed"
+	}
+}
+
 func mergePrefixInterfaceSlice(base interface{}, additions []netip.Prefix) []interface{} {
 	var existing []netip.Prefix
 	switch value := base.(type) {
@@ -368,8 +386,29 @@ func getRawCfg() (*config.RawConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	userTunStackRaw.Store(extractRawTunStack(buf))
 	return config.UnmarshalRawConfig(buf)
+}
+
+// extractRawTunStack reads tun.stack as a raw string from config bytes,
+// returning "" when absent.
+func extractRawTunStack(buf []byte) string {
+	var probe map[string]interface{}
+	if err := yaml.Unmarshal(buf, &probe); err != nil {
+		return ""
+	}
+	tun, ok := probe["tun"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	stack, _ := tun["stack"].(string)
+	return stack
+}
+
+// loadUserTunStackRaw returns the last raw tun.stack string captured by getRawCfg.
+func loadUserTunStackRaw() string {
+	s, _ := userTunStackRaw.Load().(string)
+	return s
 }
 
 func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint32, externalController string) (*config.Config, error) {
@@ -473,7 +512,9 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 // Must be called while tunMu is held.
 func applyTunConfig(rawCfg *config.RawConfig) {
 	rawCfg.Tun.Enable = true
-	rawCfg.Tun.Stack = constant.TunMixed
+	if err := (&rawCfg.Tun.Stack).UnmarshalText([]byte(resolveTunStack(loadUserTunStackRaw()))); err != nil {
+		rawCfg.Tun.Stack = constant.TunMixed
+	}
 	rawCfg.Tun.AutoRoute = true
 	rawCfg.Tun.StrictRoute = true
 	rawCfg.Tun.DNSHijack = []string{"any:53", "tcp://any:53"}
@@ -978,9 +1019,15 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 		return C.CString("error:" + err.Error())
 	}
 
+	userTunStack := ""
+	if existingTun, ok := rawMap["tun"].(map[string]interface{}); ok {
+		if s, ok := existingTun["stack"].(string); ok {
+			userTunStack = s
+		}
+	}
 	rawMap["tun"] = map[string]interface{}{
 		"enable":                true,
-		"stack":                 "mixed",
+		"stack":                 resolveTunStack(userTunStack),
 		"auto-route":            true,
 		"auto-detect-interface": ifaceName == "",
 		"strict-route":          true,
@@ -1029,11 +1076,17 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 		rawMap["tun"] = tunMap
 	}
 
-	if port, err := freeport.GetFreePort(); err == nil {
-		rawMap["external-controller"] = "127.0.0.1:" + strconv.Itoa(port)
-	} else {
-		rawMap["external-controller"] = "127.0.0.1:19090"
+	// Pin a stable controller port so the Yacd dashboard origin
+	// (127.0.0.1:PORT) stays constant across launches; otherwise its
+	// per-origin localStorage (theme, columns) resets every time. Fall back
+	// to a random free port only if the stable port is already taken.
+	ecPort := enhancedControllerPort
+	if !checkPortAvailable(ecPort) {
+		if p, err := freeport.GetFreePort(); err == nil {
+			ecPort = p
+		}
 	}
+	rawMap["external-controller"] = "127.0.0.1:" + strconv.Itoa(ecPort)
 	ec := rawMap["external-controller"].(string)
 
 	if secretOverride != "" {

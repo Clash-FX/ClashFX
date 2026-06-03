@@ -130,3 +130,19 @@ func TestLockEnhancedLanBindingPreservesExplicitAllowLan(t *testing.T) {
 		t.Fatalf("bind-address = %v, want *", rawMap["bind-address"])
 	}
 }
+
+func TestResolveTunStack(t *testing.T) {
+	cases := map[string]string{
+		"system":   "system",
+		"System":   "system",
+		" GVISOR ": "gvisor",
+		"mixed":    "mixed",
+		"":         "mixed",
+		"bogus":    "mixed",
+	}
+	for in, want := range cases {
+		if got := resolveTunStack(in); got != want {
+			t.Errorf("resolveTunStack(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
