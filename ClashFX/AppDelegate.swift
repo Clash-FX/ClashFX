@@ -358,9 +358,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let info = activeRemote?.subscriptionInfo ?? localProxyProviderSubscriptionInfoCache[activeName]
 
         guard let info,
-              let summary = SubscriptionInfoFormatter.menuSubtitle(for: info) else {
+              let summary = SubscriptionInfoFormatter.menuSubtitle(for: info),
+              let fullSummary = SubscriptionInfoFormatter.fullMenuSubtitle(for: info) else {
             item.attributedTitle = NSAttributedString(string: "")
             item.title = ""
+            item.toolTip = nil
             item.isHidden = true
             separator.isHidden = true
             refreshLocalProxyProviderSubscriptionStatus(configName: activeName)
@@ -371,6 +373,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: activeName,
             summary: summary
         )
+        item.toolTip = fullSummary
         item.isHidden = false
         separator.isHidden = false
     }

@@ -8,7 +8,13 @@
 import Cocoa
 
 enum SubscriptionInfoFormatter {
+    private static let maximumMenuSummaryCharacters = 64
+
     static func menuSubtitle(for info: SubscriptionInfo) -> String? {
+        fullMenuSubtitle(for: info).map(truncatedMenuSummary)
+    }
+
+    static func fullMenuSubtitle(for info: SubscriptionInfo) -> String? {
         var parts: [String] = []
         if let traffic = trafficSummary(for: info) {
             parts.append(traffic)
@@ -107,5 +113,10 @@ enum SubscriptionInfoFormatter {
         formatter.includesUnit = true
         formatter.zeroPadsFractionDigits = false
         return formatter.string(fromByteCount: bytes)
+    }
+
+    private static func truncatedMenuSummary(_ summary: String) -> String {
+        guard summary.count > maximumMenuSummaryCharacters else { return summary }
+        return String(summary.prefix(maximumMenuSummaryCharacters)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 }
