@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.3.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.3.3 (Lab)</h2><ul><li><strong>Subscription Summary No Longer Widens the Menu</strong> — Long remote subscription usage/expiry text in the menu bar now gets shortened in the visible menu item, preventing the whole ClashFX menu from stretching wider than the screen. The full summary is still available via the item tooltip. (#120)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 08 Jun 2026 11:23:56 +0000</pubDate>
+  <sparkle:version>1001003003</sparkle:version>
+  <sparkle:shortVersionString>1.1.3.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.3.3/ClashFX.dmg"
+    sparkle:version="1001003003"
+    sparkle:shortVersionString="1.1.3.3"
+    sparkle:edSignature="uiuPxj0IGewXuZSLsD4VshkoFfCr1Nhs2HJEzr+z1IFXj55YAXkCO7wNlZ5d/YGp4BHJuZuy/Ij7TSyworAMBQ=="
+    length="94471017"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.3.2 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.3.2 (Lab)</h2><ul><li><strong>Enhanced Mode Now Respects Your `tun.stack` Setting</strong> — The generated `.enhanced_config.yaml` previously hardcoded `stack: mixed`, silently overriding a user-configured `tun.stack`. If your config set `system` (or `gvisor`), the dashboard showed `mixed` and reverting it never stuck. ClashFX now reads `tun.stack` from your source config, validates it against `system`/`gvisor`/`mixed` (case-insensitive), and only falls back to `mixed` when it is unset or invalid. Both the embedded and external core paths use the same resolved value so they never diverge. (#115)</li><li><strong>Dashboard Theme & Column Settings Now Persist</strong> — In Enhanced Mode the external controller was assigned a random port on every launch, so the Yacd dashboard origin (`127.0.0.1:PORT`) changed each time and its per-origin `localStorage` (theme, custom columns) appeared to reset. ClashFX now pins a stable controller port (`19090`) and only falls back to a random free port if that port is already taken, keeping the dashboard origin — and your saved preferences — stable across launches. (#115)</li><li><strong>Enhanced Mode Startup Is More Resilient</strong> — Enabling Enhanced Mode now automatically retries once when the external core fails to bind (e.g. a transient port race or a leftover `mihomo_core` process holding the controller port). Each retry regenerates the config with a fresh port instead of failing outright, so toggling Enhanced Mode on is far less likely to error out and require a manual retry.</li><li><strong>Reopening ClashFX Reveals the Menu Bar Icon</strong> — When ClashFX is already running and you launch it again from Finder, Spotlight, Launchpad, or the Dock, it now pops open the menu bar menu so you can locate the icon — helpful when the menu bar is crowded and the icon is hidden. Thanks @hangox for the suggestion. (#114)</li></ul>
