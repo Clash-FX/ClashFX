@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.3</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.3</h2><ul><li><strong>Subscription Summary No Longer Widens the Menu</strong> — Long remote subscription usage/expiry text in the menu bar now gets shortened in the visible menu item, preventing the whole ClashFX menu from stretching wider than the screen. The full summary is still available via the item tooltip. (#120)</li></ul>
+  ]]></description>
+  <pubDate>Thu, 11 Jun 2026 03:54:14 +0000</pubDate>
+  <sparkle:version>1001003000</sparkle:version>
+  <sparkle:shortVersionString>1.1.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.3/ClashFX.dmg"
+    sparkle:version="1001003000"
+    sparkle:shortVersionString="1.1.3"
+    sparkle:edSignature="EV3k1PGeaRBDlpwQxdwtmn4wyHU/3LnWp7QQb2olSscby7LB1R8VkNAZlVFVZJfxT7g0ulNNopNLWUIL/YyUAQ=="
+    length="108780249"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.3.3 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.3.3 (Lab)</h2><ul><li><strong>Subscription Summary No Longer Widens the Menu</strong> — Long remote subscription usage/expiry text in the menu bar now gets shortened in the visible menu item, preventing the whole ClashFX menu from stretching wider than the screen. The full summary is still available via the item tooltip. (#120)</li></ul>
