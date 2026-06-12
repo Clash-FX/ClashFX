@@ -6,21 +6,20 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
-  <title>Version 1.1.4.1 (Lab)</title>
+  <title>Version 1.1.4</title>
   <description><![CDATA[
-    <h2>ClashFX v1.1.4.1 (Lab)</h2><ul><li><strong>Menu Bar Speed Indicator No Longer Shakes</strong> — The upload/download speed text now redraws inside a stable menu bar item width instead of resizing the whole status item whenever the number of digits changes, so nearby menu bar icons no longer jump when speeds cross values like `9.xx` → `10.xx`. (#122)</li><li><strong>Enhanced Mode Restore Is More Reliable After Restart</strong> — When ClashFX launches with Enhanced Mode previously enabled, it now retries the restore flow for up to about one minute while the privileged helper and external core come online. This avoids giving up after a single early attempt during app or macOS startup. (#123)</li></ul>
+    <h2>ClashFX v1.1.4</h2><ul><li><strong>Menu Bar Speed Indicator No Longer Shakes</strong> — The upload/download speed text now redraws inside a stable menu bar item width instead of resizing the whole status item whenever the number of digits changes, so nearby menu bar icons no longer jump when speeds cross values like `9.xx` → `10.xx`. (#122)</li><li><strong>Enhanced Mode Restore Is More Reliable After Restart</strong> — When ClashFX launches with Enhanced Mode previously enabled, it now retries the restore flow for up to about one minute while the privileged helper and external core come online. This avoids giving up after a single early attempt during app or macOS startup. (#123)</li></ul>
   ]]></description>
-  <pubDate>Thu, 11 Jun 2026 04:19:41 +0000</pubDate>
-  <sparkle:version>1001004001</sparkle:version>
-  <sparkle:shortVersionString>1.1.4.1</sparkle:shortVersionString>
-            <sparkle:channel>lab</sparkle:channel>
-          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <pubDate>Fri, 12 Jun 2026 06:49:50 +0000</pubDate>
+  <sparkle:version>1001004000</sparkle:version>
+  <sparkle:shortVersionString>1.1.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
   <enclosure
-    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.4.1/ClashFX.dmg"
-    sparkle:version="1001004001"
-    sparkle:shortVersionString="1.1.4.1"
-    sparkle:edSignature="Lx4sJuRuwbDpiGJD3rqlM6AutgcAbnr49RTrCRwSZCldu5viWNygXSSB2QejrmYrCfw7Uea5flQjKCvkRGbZDQ=="
-    length="94463761"
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.4/ClashFX.dmg"
+    sparkle:version="1001004000"
+    sparkle:shortVersionString="1.1.4"
+    sparkle:edSignature="Le2UcTJtPP3jusQPwadFrczAg4lhl3wG8IlKk/68zlrvYgpm2bpST32GBZYLAwiggnMISBqU7ET2G4l+k4xbAw=="
+    length="94486443"
     type="application/x-apple-diskimage"
   />
 </item>
