@@ -95,6 +95,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var lastStreamResetTime: Date = .distantPast
     private var pendingStreamResetWork: DispatchWorkItem?
+    private var pendingEnhancedModeRefreshWork: DispatchWorkItem?
     private static let enhancedModeRestoreMaxAttempts = 12
     private static let enhancedModeRestoreRetryDelay: TimeInterval = 5
 
@@ -964,9 +965,7 @@ extension AppDelegate {
                     .post(title: NSLocalizedString("Enhanced Mode", comment: ""),
                           info: NSLocalizedString(info, comment: ""))
             }
-            self.syncConfig()
-            self.resetStreamApi()
-            MenuItemFactory.refreshExistingMenuItems()
+            self.scheduleEnhancedModePostToggleRefresh()
         }
 
         if newState {
@@ -1152,6 +1151,18 @@ extension AppDelegate {
         // is occupied by a stale core). This absorbs transient port races and
         // leftover mihomo_core processes that would otherwise fail the launch.
         attemptEnableEnhancedMode(attemptsLeft: 1, alreadySuspended: false, completion: completion)
+    }
+
+    private func scheduleEnhancedModePostToggleRefresh() {
+        pendingEnhancedModeRefreshWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.syncConfig()
+            self.resetStreamApi()
+            MenuItemFactory.refreshExistingMenuItems()
+        }
+        pendingEnhancedModeRefreshWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
     }
 
     private func attemptEnableEnhancedMode(attemptsLeft: Int, alreadySuspended: Bool, completion: @escaping (String?) -> Void) {
@@ -1580,9 +1591,7 @@ extension AppDelegate {
             } else {
                 self.enhancedModeMenuItem.state = .on
                 Logger.log("Enhanced Mode restored successfully")
-                self.syncConfig()
-                self.resetStreamApi()
-                MenuItemFactory.refreshExistingMenuItems()
+                self.scheduleEnhancedModePostToggleRefresh()
             }
         }
     }
@@ -1591,9 +1600,7 @@ extension AppDelegate {
         Settings.enhancedMode = false
         enhancedModeMenuItem.state = .off
         Logger.log("Failed to restore Enhanced Mode: \(error)", level: .error)
-        syncConfig()
-        resetStreamApi()
-        MenuItemFactory.refreshExistingMenuItems()
+        scheduleEnhancedModePostToggleRefresh()
     }
 
     @IBAction func actionAllowFromLan(_ sender: NSMenuItem) {
