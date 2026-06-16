@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.4.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.4.2 (Lab)</h2><ul><li><strong>Menu Bar Status Item Uses Less Space</strong> — The upload/download speed indicator now sizes the macOS menu bar item from the actual rendered speed text instead of reserving a wide fixed block, keeping ClashFX compact in crowded menu bars while still expanding when longer speeds need room. (#127)</li><li><strong>Enhanced Mode Toggle No Longer Rebuilds the Menu Immediately</strong> — After enabling or disabling Enhanced Mode, ClashFX now coalesces and slightly delays the config/stream/proxy-menu refresh work so quickly reopening the menu does not visibly freeze or flash during the toggle completion. (#125)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 16 Jun 2026 10:04:22 +0000</pubDate>
+  <sparkle:version>1001004002</sparkle:version>
+  <sparkle:shortVersionString>1.1.4.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.4.2/ClashFX.dmg"
+    sparkle:version="1001004002"
+    sparkle:shortVersionString="1.1.4.2"
+    sparkle:edSignature="CcIQNJ1bGNjcDAukt08D/LOyj7QsHko5C7tNguLRD2M+vkt+OnYQcT5s3hlRdjUh6V1MpargYciLtK4BIbJBCg=="
+    length="94446835"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.4</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.4</h2><ul><li><strong>Menu Bar Speed Indicator No Longer Shakes</strong> — The upload/download speed text now redraws inside a stable menu bar item width instead of resizing the whole status item whenever the number of digits changes, so nearby menu bar icons no longer jump when speeds cross values like `9.xx` → `10.xx`. (#122)</li><li><strong>Enhanced Mode Restore Is More Reliable After Restart</strong> — When ClashFX launches with Enhanced Mode previously enabled, it now retries the restore flow for up to about one minute while the privileged helper and external core come online. This avoids giving up after a single early attempt during app or macOS startup. (#123)</li></ul>
