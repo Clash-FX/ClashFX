@@ -72,6 +72,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Programmatically-added items stored for visibility management
     var langMenuItem: NSMenuItem?
     var configEditorMenuItem: NSMenuItem?
+    var profileMixinMenuItem: NSMenuItem?
     private var subscriptionStatusMenuItem: NSMenuItem?
     private var subscriptionStatusSeparator: NSMenuItem?
     private var localProxyProviderSubscriptionInfoCache: [String: SubscriptionInfo] = [:]
@@ -99,6 +100,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingEnhancedModeRefreshWork: DispatchWorkItem?
     private static let enhancedModeRestoreMaxAttempts = 12
     private static let enhancedModeRestoreRetryDelay: TimeInterval = 5
+    private static let runtimePatchedConfigPath = kConfigFolderPath + ".runtime_config.yaml"
 
     /// Short-circuits TerminalConfirmAction during self-relaunch so the old
     /// status bar icon does not linger on "Quitting…" beside the new one (#84 #91).
@@ -171,6 +173,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         setupLanguageMenu()
         setupConfigEditorMenuItem()
+        setupProfileMixinMenuItem()
         // 启用自动更新检查（使用fork项目的GitHub Pages）
         AutoUpgradeManager.shared.setup()
         AutoUpgradeManager.shared.setupCheckForUpdatesMenuItem(checkForUpdateMenuItem)
@@ -817,74 +820,129 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        requestConfigUpdateApplyingRulePatch(configName: config, callback: reloadCallback)
+        requestConfigUpdateApplyingRuntimePatch(configName: config, callback: reloadCallback)
     }
 
-    private static let rulePatchedConfigPath = kConfigFolderPath + ".rule_patched_config.runtime"
-
-    private func requestConfigUpdateApplyingRulePatch(configName: String, callback: @escaping ((ErrorString?) -> Void)) {
-        if let patchedPath = writeRulePatchedConfigIfNeeded(for: configName) {
-            ApiRequest.requestConfigUpdate(configPath: patchedPath, callback: callback)
-        } else {
-            ApiRequest.requestConfigUpdate(configName: configName, callback: callback)
+    private func requestConfigUpdateApplyingRuntimePatch(configName: String, callback: @escaping ((ErrorString?) -> Void)) {
+        ConfigManager.getConfigPath(configName: configName) { [weak self] sourcePath in
+            guard let self = self else { return }
+            if let patchedPath = self.writeRuntimePatchedConfigIfNeeded(
+                for: configName,
+                sourcePath: sourcePath,
+                includeRulePatch: true
+            ) {
+                ApiRequest.requestConfigUpdate(configPath: patchedPath, callback: callback)
+            } else {
+                ApiRequest.requestConfigUpdate(configPath: sourcePath, callback: callback)
+            }
         }
     }
 
-    private func writeRulePatchedConfigIfNeeded(for configName: String) -> String? {
+    private func writeRuntimePatchedConfigIfNeeded(
+        for configName: String,
+        sourcePath: String,
+        includeRulePatch: Bool
+    ) -> String? {
         let removePatched: () -> Void = {
-            try? FileManager.default.removeItem(atPath: Self.rulePatchedConfigPath)
+            try? FileManager.default.removeItem(atPath: Self.runtimePatchedConfigPath)
         }
 
-        guard !Settings.enhancedMode else {
-            removePatched()
-            return nil
-        }
-
-        guard !ICloudManager.shared.useiCloud.value else {
-            removePatched()
-            return nil
-        }
-
-        let injectedRules = Settings.proxyIgnoreListAsRules()
-        guard !injectedRules.isEmpty else {
-            removePatched()
-            return nil
-        }
-
-        let userPath = Paths.localConfigPath(for: configName)
-        guard FileManager.default.fileExists(atPath: userPath) else {
+        guard FileManager.default.fileExists(atPath: sourcePath) else {
             removePatched()
             return nil
         }
 
         do {
-            let yaml = try String(contentsOfFile: userPath, encoding: .utf8)
+            let yaml = try String(contentsOfFile: sourcePath, encoding: .utf8)
             guard var root = try Yams.load(yaml: yaml) as? [String: Any] else {
-                Logger.log("[Rule Patch] YAML root is not a dictionary, skipping", level: .warning)
+                Logger.log("[Runtime Patch] YAML root is not a dictionary, skipping", level: .warning)
                 removePatched()
                 return nil
             }
-            let existingRules: [String]
-            if let rules = root["rules"] {
-                guard let parsedRules = rules as? [String] else {
-                    Logger.log("[Rule Patch] YAML rules is not a string array, skipping", level: .warning)
-                    removePatched()
-                    return nil
+
+            var changed = applyProfileMixin(to: &root)
+
+            if includeRulePatch && !Settings.enhancedMode {
+                let injectedRules = Settings.proxyIgnoreListAsRules()
+                if !injectedRules.isEmpty {
+                    let existingRules: [String]
+                    if let rules = root["rules"] {
+                        guard let parsedRules = rules as? [String] else {
+                            Logger.log("[Runtime Patch] YAML rules is not a string array, skipping", level: .warning)
+                            removePatched()
+                            return nil
+                        }
+                        existingRules = parsedRules
+                    } else {
+                        existingRules = []
+                    }
+                    root["rules"] = injectedRules + existingRules
+                    changed = true
                 }
-                existingRules = parsedRules
-            } else {
-                existingRules = []
             }
-            root["rules"] = injectedRules + existingRules
+
+            guard changed else {
+                removePatched()
+                return nil
+            }
+
             let patched = try Yams.dump(object: root)
-            try patched.write(toFile: Self.rulePatchedConfigPath, atomically: true, encoding: .utf8)
-            Logger.log("[Rule Patch] Injected \(injectedRules.count) ignore rules into \(Self.rulePatchedConfigPath)")
-            return Self.rulePatchedConfigPath
+            try patched.write(toFile: Self.runtimePatchedConfigPath, atomically: true, encoding: .utf8)
+            Logger.log("[Runtime Patch] Wrote runtime config for \(configName) to \(Self.runtimePatchedConfigPath)")
+            return Self.runtimePatchedConfigPath
         } catch {
-            Logger.log("[Rule Patch] Failed: \(error.localizedDescription)", level: .warning)
+            Logger.log("[Runtime Patch] Failed: \(error.localizedDescription)", level: .warning)
             removePatched()
             return nil
         }
+    }
+
+    private func applyProfileMixin(to root: inout [String: Any]) -> Bool {
+        guard FileManager.default.fileExists(atPath: Paths.profileMixinPath) else { return false }
+
+        do {
+            let yaml = try String(contentsOfFile: Paths.profileMixinPath, encoding: .utf8)
+            guard !yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+            guard let mixin = try Yams.load(yaml: yaml) as? [String: Any] else {
+                Logger.log("[Profile Mixin] YAML root is not a dictionary, skipping", level: .warning)
+                return false
+            }
+            root = mergeProfileMixin(mixin, into: root)
+            Logger.log("[Profile Mixin] Applied \(Paths.profileMixinPath)")
+            return true
+        } catch {
+            Logger.log("[Profile Mixin] Failed: \(error.localizedDescription)", level: .warning)
+            return false
+        }
+    }
+
+    private func mergeProfileMixin(_ mixin: [String: Any], into base: [String: Any]) -> [String: Any] {
+        var merged = base
+        for (key, mixinValue) in mixin {
+            if let baseDict = merged[key] as? [String: Any], let mixinDict = mixinValue as? [String: Any] {
+                merged[key] = mergeProfileMixin(mixinDict, into: baseDict)
+            } else if let baseArray = merged[key] as? [[String: Any]], let mixinArray = mixinValue as? [[String: Any]] {
+                merged[key] = mergeNamedArray(baseArray, with: mixinArray)
+            } else if let baseArray = merged[key] as? [String], let mixinArray = mixinValue as? [String] {
+                merged[key] = baseArray + mixinArray.filter { !baseArray.contains($0) }
+            } else {
+                merged[key] = mixinValue
+            }
+        }
+        return merged
+    }
+
+    private func mergeNamedArray(_ base: [[String: Any]], with mixin: [[String: Any]]) -> [[String: Any]] {
+        var merged = base
+        for item in mixin {
+            if let name = item["name"] as? String,
+               let index = merged.firstIndex(where: { ($0["name"] as? String) == name }) {
+                merged[index] = mergeProfileMixin(item, into: merged[index])
+            } else {
+                merged.append(item)
+            }
+        }
+        return merged
     }
 
     @objc func resetProxySettingOnWakeupFromSleep() {
@@ -1224,8 +1282,13 @@ extension AppDelegate {
 
         ConfigManager.getConfigPath(configName: selectedConfigName) { selectedConfigPath in
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let runtimeConfigPath = self?.writeRuntimePatchedConfigIfNeeded(
+                    for: selectedConfigName,
+                    sourcePath: selectedConfigPath,
+                    includeRulePatch: false
+                ) ?? selectedConfigPath
                 let writeResult = clashWriteEnhancedConfig(
-                    selectedConfigPath.goStringBuffer(),
+                    runtimeConfigPath.goStringBuffer(),
                     tempConfigPath.goStringBuffer(),
                     Settings.normalizeAndPersistTunRouteExcludeList().joined(separator: ",").goStringBuffer(),
                     GoUint32(Settings.tunMTU),
@@ -1404,7 +1467,7 @@ extension AppDelegate {
                 return
             }
             let selectedConfig = ConfigManager.selectConfigName
-            self?.requestConfigUpdateApplyingRulePatch(configName: selectedConfig) { _ in
+            self?.requestConfigUpdateApplyingRuntimePatch(configName: selectedConfig) { _ in
                 clashResumeCallbacks()
                 completion(nil)
             }
@@ -1925,8 +1988,42 @@ extension AppDelegate {
         }
     }
 
+    func setupProfileMixinMenuItem() {
+        guard let configMenu = configSeparatorLine.menu else { return }
+        let item = NSMenuItem(
+            title: NSLocalizedString("Profile Mixin", comment: ""),
+            action: #selector(actionOpenProfileMixinEditor(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        if let editorItem = configEditorMenuItem,
+           let editorIndex = configMenu.items.firstIndex(of: editorItem) {
+            configMenu.insertItem(item, at: editorIndex + 1)
+        } else if let separatorIndex = configMenu.items.firstIndex(of: configSeparatorLine) {
+            configMenu.insertItem(item, at: separatorIndex + 1)
+        }
+        profileMixinMenuItem = item
+    }
+
     @objc func actionOpenConfigEditor(_ sender: Any) {
         ConfigEditorWindowController.show()
+    }
+
+    @objc func actionOpenProfileMixinEditor(_ sender: Any) {
+        if !FileManager.default.fileExists(atPath: Paths.profileMixinPath) {
+            let template = """
+            # Profile Mixin is merged into the selected profile at runtime.
+            # Example:
+            # proxy-groups:
+            #   - name: Auto 1x
+            #     type: url-test
+            #     use:
+            #       - ProviderName
+
+            """
+            try? template.write(toFile: Paths.profileMixinPath, atomically: true, encoding: .utf8)
+        }
+        ConfigEditorWindowController.show(configPath: Paths.profileMixinPath)
     }
 
     @IBAction func openConfigFolder(_ sender: Any) {
@@ -2266,6 +2363,7 @@ extension AppDelegate {
         let anyConfigChild = Settings.trayMenuShowConfigSwitcher || Settings.trayMenuShowConfigEditor || Settings.trayMenuShowOpenConfigFolder || Settings.trayMenuShowReloadConfig || Settings.trayMenuShowUpdateExternal || Settings.trayMenuShowRemoteConfig || Settings.trayMenuShowRemoteController
         configsMenuItem.isHidden = !(showConfigs && anyConfigChild)
         configEditorMenuItem?.isHidden = !(showConfigs && Settings.trayMenuShowConfigEditor)
+        profileMixinMenuItem?.isHidden = !(showConfigs && Settings.trayMenuShowConfigEditor)
         openConfigFolderMenuItem.isHidden = !(showConfigs && Settings.trayMenuShowOpenConfigFolder)
         reloadConfigMenuItem.isHidden = !(showConfigs && Settings.trayMenuShowReloadConfig)
         updateExternalResourceMenuItem.isHidden = !(showConfigs && Settings.trayMenuShowUpdateExternal)
