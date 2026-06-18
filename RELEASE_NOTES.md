@@ -6,6 +6,7 @@
 
 ### Bug Fixes
 
+- **Profile Mixin Has Its Own Tray Menu Visibility Toggle** — The new Profile Mixin menu item now has an independent show/hide switch under Configs instead of sharing the Config Editor visibility setting. (#129)
 - **Menu Bar Speed Display Is More Compact and Stable** — The menu bar upload/download speed now uses a short formatter and fixed-width numeric rendering, reducing wasted menu bar space while preventing nearby icons from jumping as speeds change. (#122, #127)
 
 ### Contributors
@@ -25,6 +26,7 @@
 
 ### 修复
 
+- **Profile Mixin 现在有独立的托盘菜单显示开关** — 新增的 Profile Mixin 菜单项现在会在 Configs 分组下提供独立显示 / 隐藏按钮，不再复用 Config Editor 的显示设置。(#129)
 - **菜单栏速度显示更紧凑且稳定** — 上传 / 下载速度现在使用更短的菜单栏专用格式和固定宽度数字渲染，减少菜单栏占用，同时避免速度变化时带动旁边图标跳动。(#122, #127)
 
 ### 贡献者
