@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.4.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.4.3 (Lab)</h2><ul><li><strong>Profile Mixin for Runtime Configs</strong> — The Config menu now includes a Profile Mixin editor backed by `~/.config/clashfx/.profile_mixin.yaml`. ClashFX applies that mixin at runtime for reloads and Enhanced Mode without rewriting subscription files, so custom proxy groups/rules can survive profile updates. (#129)</li><li><strong>Turn Off All Proxy Modes</strong> — A new tray menu action can disable both System Proxy and Enhanced Mode at once, with a tray-menu visibility setting so users can show or hide the shortcut. (#130)</li><li><strong>Use Custom Enhanced Mode Config As-Is</strong> — Advanced TUN Settings now has an opt-in switch that starts Enhanced Mode from the selected/runtime config without injecting ClashFX's generated TUN/DNS settings. Users who maintain their own complete `tun`, fake-IP DNS, `external-controller`, and `allow-lan` config can run it directly. (#118)</li><li><strong>Menu Bar Speed Display Is More Compact and Stable</strong> — The menu bar upload/download speed now uses a short formatter and fixed-width numeric rendering, reducing wasted menu bar space while preventing nearby icons from jumping as speeds change. (#122, #127)</li></ul>
+  ]]></description>
+  <pubDate>Thu, 18 Jun 2026 14:46:24 +0000</pubDate>
+  <sparkle:version>1001004003</sparkle:version>
+  <sparkle:shortVersionString>1.1.4.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.4.3/ClashFX.dmg"
+    sparkle:version="1001004003"
+    sparkle:shortVersionString="1.1.4.3"
+    sparkle:edSignature="PrBRKR9HycNT0XhvWtu4yJ15UwSRGaaOEHFfeJzmtnzElBgFMHeKewQWBJAnokXKkviYwZmMqBgW4nksnNTYAQ=="
+    length="94443866"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.4.2 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.4.2 (Lab)</h2><ul><li><strong>Menu Bar Status Item Uses Less Space</strong> — The upload/download speed indicator now sizes the macOS menu bar item from the actual rendered speed text instead of reserving a wide fixed block, keeping ClashFX compact in crowded menu bars while still expanding when longer speeds need room. (#127)</li><li><strong>Enhanced Mode Toggle No Longer Rebuilds the Menu Immediately</strong> — After enabling or disabling Enhanced Mode, ClashFX now coalesces and slightly delays the config/stream/proxy-menu refresh work so quickly reopening the menu does not visibly freeze or flash during the toggle completion. (#125)</li></ul>
