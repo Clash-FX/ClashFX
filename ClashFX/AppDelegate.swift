@@ -79,6 +79,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var localProxyProviderSubscriptionInfoAttemptTimes: [String: Date] = [:]
     private weak var advancedTunMenuItem: NSMenuItem?
     private weak var bypassChineseAppsMenuItem: NSMenuItem?
+    private weak var turnOffProxyMenuItem: NSMenuItem?
     var labHelpMenuItems: [NSMenuItem] = []
     private weak var labFeedbackMenuItem: NSMenuItem?
     private weak var labCopyDiagMenuItem: NSMenuItem?
@@ -142,6 +143,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppLogoTool.applyLogo()
         }
         setupStatusMenuItemData()
+        installTurnOffProxyMenuItem()
         installAdvancedTunMenuItem()
         installBypassChineseAppsMenuItem()
         DispatchQueue.main.async {
@@ -972,6 +974,57 @@ extension AppDelegate {
             enableEnhancedMode(completion: completion)
         } else {
             disableEnhancedMode(completion: completion)
+        }
+    }
+
+    private func installTurnOffProxyMenuItem() {
+        let item = NSMenuItem(
+            title: NSLocalizedString("Turn Off All Proxy Modes", comment: ""),
+            action: #selector(actionTurnOffAllProxyModes(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.toolTip = NSLocalizedString(
+            "Disable System Proxy and Enhanced Mode together",
+            comment: ""
+        )
+
+        let parentMenu = proxySettingMenuItem.menu ?? statusMenu
+        let insertIndex = parentMenu?.index(of: proxySettingMenuItem) ?? -1
+        if let menu = parentMenu, insertIndex >= 0 {
+            menu.insertItem(item, at: insertIndex)
+        } else {
+            statusMenu.addItem(item)
+        }
+        turnOffProxyMenuItem = item
+    }
+
+    @objc func actionTurnOffAllProxyModes(_ sender: Any?) {
+        if ConfigManager.shared.proxyPortAutoSet || ConfigManager.shared.isProxySetByOtherVariable.value {
+            ConfigManager.shared.isProxySetByOtherVariable.accept(false)
+            ConfigManager.shared.proxyPortAutoSet = false
+            SystemProxyManager.shared.disableProxy()
+            proxySettingMenuItem.state = .off
+        }
+
+        guard Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive else {
+            refreshStatusItemViewStatus(systemProxyActive: false)
+            return
+        }
+
+        enhancedModeMenuItem.isEnabled = false
+        disableEnhancedMode { [weak self] error in
+            guard let self = self else { return }
+            self.enhancedModeMenuItem.isEnabled = true
+            if let error = error {
+                Logger.log("Turn off proxy modes failed: \(error)", level: .error)
+                NSUserNotificationCenter.default.postConfigErrorNotice(msg: error)
+                return
+            }
+            Settings.enhancedMode = false
+            self.enhancedModeMenuItem.state = .off
+            Logger.log("All proxy modes disabled")
+            self.scheduleEnhancedModePostToggleRefresh()
         }
     }
 
@@ -2090,11 +2143,16 @@ extension AppDelegate: NSMenuItemValidation {
         if RemoteControlManager.selectConfig != nil {
             let disabledInRemoteMode: Set<Selector> = [
                 #selector(actionSetSystemProxy(_:)),
+                #selector(actionTurnOffAllProxyModes(_:)),
                 #selector(actionCopyExportCommand(_:))
             ]
             if disabledInRemoteMode.contains(action) {
                 return false
             }
+        }
+
+        if action == #selector(actionTurnOffAllProxyModes(_:)) {
+            return ConfigManager.shared.proxyPortAutoSet || Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive
         }
 
         return true
@@ -2172,6 +2230,7 @@ extension AppDelegate {
 
         // Proxy Actions group
         let showProxyActions = Settings.trayMenuShowProxyActions
+        turnOffProxyMenuItem?.isHidden = !(showProxyActions && Settings.trayMenuShowTurnOffProxy)
         proxySettingMenuItem.isHidden = !(showProxyActions && Settings.trayMenuShowSystemProxy)
         enhancedModeMenuItem.isHidden = !(showProxyActions && Settings.trayMenuShowEnhancedMode)
         advancedTunMenuItem?.isHidden = !(showProxyActions && Settings.trayMenuShowAdvancedTun)
@@ -2179,7 +2238,7 @@ extension AppDelegate {
         let showCopy = showProxyActions && Settings.trayMenuShowCopyShellCmd
         copyExportCommandMenuItem.isHidden = !showCopy
         copyExportCommandExternalMenuItem.isHidden = !showCopy
-        let anyProxyAction = showProxyActions && (Settings.trayMenuShowSystemProxy || Settings.trayMenuShowEnhancedMode || Settings.trayMenuShowAdvancedTun || Settings.trayMenuShowBypassChineseApps || Settings.trayMenuShowCopyShellCmd)
+        let anyProxyAction = showProxyActions && (Settings.trayMenuShowTurnOffProxy || Settings.trayMenuShowSystemProxy || Settings.trayMenuShowEnhancedMode || Settings.trayMenuShowAdvancedTun || Settings.trayMenuShowBypassChineseApps || Settings.trayMenuShowCopyShellCmd)
         proxyActionsSeparator.isHidden = !anyProxyAction
 
         // General Settings group
