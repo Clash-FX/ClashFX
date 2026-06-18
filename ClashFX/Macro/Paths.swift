@@ -4,6 +4,7 @@ let kConfigFolderPath = "\(NSHomeDirectory())/.config/clashfx/"
 let kLegacyConfigFolderPath = "\(NSHomeDirectory())/.config/clash/"
 
 let kDefaultConfigFilePath = "\(kConfigFolderPath)config.yaml"
+let kProfileMixinFilePath = "\(kConfigFolderPath).profile_mixin.yaml"
 
 enum Paths {
     static func localConfigPath(for name: String) -> String {
@@ -12,6 +13,10 @@ enum Paths {
 
     static func configFileName(for name: String) -> String {
         return "\(name).yaml"
+    }
+
+    static var profileMixinPath: String {
+        return kProfileMixinFilePath
     }
 
     static func migrateFromLegacyIfNeeded() {

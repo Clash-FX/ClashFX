@@ -167,6 +167,7 @@ extension ConfigManager {
             let fileURLs = try FileManager.default.contentsOfDirectory(atPath: kConfigFolderPath)
             return fileURLs
                 .filter { String($0.split(separator: ".").last ?? "") == "yaml" }
+                .filter { !$0.hasPrefix(".") }
                 .map { $0.split(separator: ".").dropLast().joined(separator: ".") }
         } catch {
             return ["config"]
