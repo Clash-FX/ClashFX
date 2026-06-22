@@ -557,6 +557,10 @@
 "Open Download Page" = "開啟下載頁";
 "Local development build" = "本機開發版";
 
+/* Turn Off All Proxy Modes */
+"Turn Off All Proxy Modes" = "關閉所有代理模式";
+"Disable System Proxy and Enhanced Mode together" = "同時關閉系統代理和增強模式";
+
 /* Bypass Common Chinese Apps */
 "Bypass Common Chinese Apps" = "繞過常用國內應用";
 

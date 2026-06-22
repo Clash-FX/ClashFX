@@ -557,6 +557,10 @@
 "Open Download Page" = "Открыть страницу загрузки";
 "Local development build" = "Локальная сборка для разработки";
 
+/* Turn Off All Proxy Modes */
+"Turn Off All Proxy Modes" = "Отключить все режимы прокси";
+"Disable System Proxy and Enhanced Mode together" = "Отключить системный прокси и Enhanced Mode вместе";
+
 /* Bypass Common Chinese Apps */
 "Bypass Common Chinese Apps" = "Обход популярных китайских приложений";
 

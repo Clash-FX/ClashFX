@@ -557,6 +557,10 @@
 "Open Download Page" = "ダウンロードページを開く";
 "Local development build" = "ローカル開発ビルド";
 
+/* Turn Off All Proxy Modes */
+"Turn Off All Proxy Modes" = "すべてのプロキシモードをオフ";
+"Disable System Proxy and Enhanced Mode together" = "システムプロキシと拡張モードを同時に無効化";
+
 /* Bypass Common Chinese Apps */
 "Bypass Common Chinese Apps" = "中国の主要アプリをバイパス";
 

@@ -594,6 +594,10 @@
 "Open Download Page" = "打开下载页";
 "Local development build" = "本地开发版";
 
+/* Turn Off All Proxy Modes */
+"Turn Off All Proxy Modes" = "关闭所有代理模式";
+"Disable System Proxy and Enhanced Mode together" = "同时关闭系统代理和增强模式";
+
 /* Bypass Common Chinese Apps */
 "Bypass Common Chinese Apps" = "绕过常用国内应用";
 

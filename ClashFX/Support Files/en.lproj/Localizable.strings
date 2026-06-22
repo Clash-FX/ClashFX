@@ -561,6 +561,10 @@
 "Open Download Page" = "Open Download Page";
 "Local development build" = "Local development build";
 
+/* Turn Off All Proxy Modes */
+"Turn Off All Proxy Modes" = "Turn Off All Proxy Modes";
+"Disable System Proxy and Enhanced Mode together" = "Disable System Proxy and Enhanced Mode together";
+
 /* Bypass Common Chinese Apps */
 "Bypass Common Chinese Apps" = "Bypass Common Chinese Apps";
 
