@@ -1,5 +1,21 @@
 ### Bug Fixes
 
+- **Menu Bar Speed Text Looks More Balanced** — The menu bar upload/download speed now uses the macOS monospaced-digit menu font, uppercase units, and a space between the number and unit, so labels like `186 B/S` and `1.2 KB/S` no longer look cramped or visually mismatched.
+- **Turn Off All Proxy Modes Is Localized** — The tray-menu shortcut for disabling System Proxy and Enhanced Mode now has localized text and tooltip strings across English, Simplified Chinese, Traditional Chinese, Japanese, and Russian instead of falling back to English in non-English menus.
+
+---
+
+### 修复
+
+- **菜单栏网速文字更协调** — 菜单栏上传 / 下载速度现在使用 macOS 等宽数字菜单字体、全大写单位，并在数字与单位之间加入空格，例如 `186 B/S`、`1.2 KB/S`，避免大小写割裂和数字单位粘连的问题。
+- **“关闭所有代理模式”已补齐多语言** — 用于同时关闭 System Proxy 和 Enhanced Mode 的托盘菜单快捷项，现在在英文、简体中文、繁体中文、日文、俄文下都有对应菜单文字和 tooltip，不再在非英文界面回退显示英文。
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Enhanced Mode Disable Restores Manual Proxy Selection** — Turning Enhanced Mode off now reapplies ClashFX's remembered proxy-group selections after the built-in core reloads, so selector groups no longer fall back to the config default such as Auto Select. (#134)
 
 ### Contributors
