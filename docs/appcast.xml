@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.4.7 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.4.7 (Lab)</h2><ul><li><strong>Menu Bar Speed Indicator Is Compact Again</strong> — The menu bar upload/download speed display now uses compact units such as `999KB/s`, a lighter fixed-width font, and competitor-aligned 4pt icon-to-text spacing, reducing the worst-case status item width by about 9pt while keeping the stable-width rendering path. (#137)</li></ul>
+  ]]></description>
+  <pubDate>Wed, 24 Jun 2026 11:27:40 +0000</pubDate>
+  <sparkle:version>1001004007</sparkle:version>
+  <sparkle:shortVersionString>1.1.4.7</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.4.7/ClashFX.dmg"
+    sparkle:version="1001004007"
+    sparkle:shortVersionString="1.1.4.7"
+    sparkle:edSignature="nDt5zQpKS2cj/GoybGIyL4GpZFpO38FbVO/vwW7VysYUGptKnvHk4o+YqZyBwLYGxxk6cBttC9gsWv12+U1lAg=="
+    length="95747453"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.4.6 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.4.6 (Lab)</h2><ul><li><strong>Menu Bar Speed Text Looks More Balanced</strong> — The menu bar upload/download speed now uses the macOS monospaced-digit menu font, uppercase units, and a space between the number and unit, so labels like `186 B/S` and `1.2 KB/S` no longer look cramped or visually mismatched.</li><li><strong>Turn Off All Proxy Modes Is Localized</strong> — The tray-menu shortcut for disabling System Proxy and Enhanced Mode now has localized text and tooltip strings across English, Simplified Chinese, Traditional Chinese, Japanese, and Russian instead of falling back to English in non-English menus.</li></ul>
