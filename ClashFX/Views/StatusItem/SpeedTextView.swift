@@ -10,10 +10,10 @@
 import AppKit
 
 class SpeedTextView: NSView {
-    private static let fixedWidthSample = "999 KB/S"
+    private static let fixedWidthSample = "999KB/s"
 
-    private var upSpeed: String = "0 B/S"
-    private var downSpeed: String = "0 B/S"
+    private var upSpeed: String = "0B/s"
+    private var downSpeed: String = "0B/s"
     private let useLegacyLabels: Bool = {
         if #available(macOS 26, *) {
             return false
@@ -63,7 +63,7 @@ class SpeedTextView: NSView {
     }
 
     private static func makeLegacyLabel() -> NSTextField {
-        let label = NSTextField(labelWithString: "0 B/S")
+        let label = NSTextField(labelWithString: "0B/s")
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = StatusItemTool.speedFont
         label.textColor = .labelColor

@@ -15,7 +15,7 @@ class StatusItemView: NSView, StatusItemViewProtocol {
 
     private var speedTextView: SpeedTextView!
     private let iconOnlyWidth: CGFloat = 25
-    private let speedTextPadding: CGFloat = 11
+    private let speedTextPadding: CGFloat = 7
 
     // Use -1 so the first updateSpeedLabel(0, 0) call always triggers a redraw.
     var up: Int = -1
@@ -60,10 +60,10 @@ class StatusItemView: NSView, StatusItemViewProtocol {
             speedTextView.leadingAnchor.constraint(equalTo: speedContainerView.leadingAnchor),
             speedTextView.trailingAnchor.constraint(equalTo: speedContainerView.trailingAnchor),
             speedTextView.topAnchor.constraint(equalTo: speedContainerView.topAnchor),
-            speedTextView.bottomAnchor.constraint(equalTo: speedContainerView.bottomAnchor),
+            speedTextView.bottomAnchor.constraint(equalTo: speedContainerView.bottomAnchor)
         ])
 
-        speedLeadingConstraint = speedContainerView.leadingAnchor.constraint(greaterThanOrEqualTo: imageView.trailingAnchor, constant: 8)
+        speedLeadingConstraint = speedContainerView.leadingAnchor.constraint(greaterThanOrEqualTo: imageView.trailingAnchor, constant: 4)
         speedLeadingConstraint?.isActive = true
         collapsedSpeedWidthConstraint = speedContainerView.widthAnchor.constraint(equalToConstant: 0)
 
