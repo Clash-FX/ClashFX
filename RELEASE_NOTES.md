@@ -1,5 +1,27 @@
 ### Bug Fixes
 
+- **Menu Bar Speed Indicator Is Compact Again** — The menu bar upload/download speed display now uses compact units such as `999KB/s`, a lighter fixed-width font, and competitor-aligned 4pt icon-to-text spacing, reducing the worst-case status item width by about 9pt while keeping the stable-width rendering path. (#137)
+
+### Contributors
+
+- @mumaxiaozi — Reported the 1.1.4.6 menu bar icon and speed display taking more space than 1.1.4.4 (#137)
+
+---
+
+### 修复
+
+- **菜单栏网速显示重新变紧凑** — 菜单栏上传 / 下载速度现在恢复为 `999KB/s` 这类紧凑单位，改用更细的等宽字体，并将图标与文字间距收紧到接近竞品的 4pt；在保持稳定宽度渲染的同时，最宽状态项约减少 9pt。(#137)
+
+### 贡献者
+
+- @mumaxiaozi — 反馈 1.1.4.6 菜单栏图标与网速显示相比 1.1.4.4 占用更宽的问题 (#137)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Menu Bar Speed Text Looks More Balanced** — The menu bar upload/download speed now uses the macOS monospaced-digit menu font, uppercase units, and a space between the number and unit, so labels like `186 B/S` and `1.2 KB/S` no longer look cramped or visually mismatched.
 - **Turn Off All Proxy Modes Is Localized** — The tray-menu shortcut for disabling System Proxy and Enhanced Mode now has localized text and tooltip strings across English, Simplified Chinese, Traditional Chinese, Japanese, and Russian instead of falling back to English in non-English menus.
 
