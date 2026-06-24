@@ -9,7 +9,7 @@
 import Foundation
 
 enum SpeedUtils {
-    private static let menuBarSpeedUnits = ["B/S", "KB/S", "MB/S", "GB/S", "TB/S"]
+    private static let menuBarSpeedUnits = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"]
     private static let menuBarSpeedThreshold = 1000.0
     private static let menuBarSpeedScales = [
         1.0,
@@ -26,7 +26,7 @@ enum SpeedUtils {
     static func getMenuBarSpeedString(for byte: Int) -> String {
         let bytesPerSecond = max(byte, 0)
         if bytesPerSecond < Int(menuBarSpeedThreshold) {
-            return "\(bytesPerSecond) \(menuBarSpeedUnits[0])"
+            return "\(bytesPerSecond)\(menuBarSpeedUnits[0])"
         }
 
         var unitIndex = 0
@@ -43,9 +43,9 @@ enum SpeedUtils {
         }
 
         if value < 9.95 {
-            return String(format: "%.1f %@", value, menuBarSpeedUnits[unitIndex])
+            return String(format: "%.1f%@", value, menuBarSpeedUnits[unitIndex])
         }
-        return String(format: "%.0f %@", value.rounded(), menuBarSpeedUnits[unitIndex])
+        return String(format: "%.0f%@", value.rounded(), menuBarSpeedUnits[unitIndex])
     }
 
     static func getNetString(for byte: Int) -> String {
