@@ -6,21 +6,20 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
-  <title>Version 1.1.4.7 (Lab)</title>
+  <title>Version 1.1.5</title>
   <description><![CDATA[
-    <h2>ClashFX v1.1.4.7 (Lab)</h2><ul><li><strong>Menu Bar Speed Indicator Is Compact Again</strong> — The menu bar upload/download speed display now uses compact units such as `999KB/s`, a lighter fixed-width font, and competitor-aligned 4pt icon-to-text spacing, reducing the worst-case status item width by about 9pt while keeping the stable-width rendering path. (#137)</li></ul>
+    <h2>ClashFX v1.1.5</h2><ul><li><strong>Menu Bar Speed Indicator Is Compact Again</strong> — The menu bar upload/download speed display now uses compact units such as `999KB/s`, a lighter fixed-width font, and competitor-aligned 4pt icon-to-text spacing, reducing the worst-case status item width by about 9pt while keeping the stable-width rendering path. (#137)</li></ul>
   ]]></description>
-  <pubDate>Wed, 24 Jun 2026 11:27:40 +0000</pubDate>
-  <sparkle:version>1001004007</sparkle:version>
-  <sparkle:shortVersionString>1.1.4.7</sparkle:shortVersionString>
-            <sparkle:channel>lab</sparkle:channel>
-          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <pubDate>Fri, 26 Jun 2026 06:14:20 +0000</pubDate>
+  <sparkle:version>1001005000</sparkle:version>
+  <sparkle:shortVersionString>1.1.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
   <enclosure
-    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.4.7/ClashFX.dmg"
-    sparkle:version="1001004007"
-    sparkle:shortVersionString="1.1.4.7"
-    sparkle:edSignature="nDt5zQpKS2cj/GoybGIyL4GpZFpO38FbVO/vwW7VysYUGptKnvHk4o+YqZyBwLYGxxk6cBttC9gsWv12+U1lAg=="
-    length="95747453"
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5/ClashFX.dmg"
+    sparkle:version="1001005000"
+    sparkle:shortVersionString="1.1.5"
+    sparkle:edSignature="bmcVYk6E6Cri58EoxQ6SKik1E5yJRrAXMqzZgRsRPFtoAT/guEBytYX6V490l2/V8PZCP/sFbmJjCvgdI1sCCA=="
+    length="96251893"
     type="application/x-apple-diskimage"
   />
 </item>
