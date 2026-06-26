@@ -8,7 +8,34 @@
     <item>
   <title>Version 1.1.5</title>
   <description><![CDATA[
-    <h2>ClashFX v1.1.5</h2><ul><li><strong>Menu Bar Speed Indicator Is Compact Again</strong> — The menu bar upload/download speed display now uses compact units such as `999KB/s`, a lighter fixed-width font, and competitor-aligned 4pt icon-to-text spacing, reducing the worst-case status item width by about 9pt while keeping the stable-width rendering path. (#137)</li></ul>
+    <h2>ClashFX v1.1.5</h2>
+    <h3>New Features</h3>
+    <ul>
+      <li><strong>Profile Mixin for Runtime Configs</strong> — Add a Profile Mixin editor backed by <code>~/.config/clashfx/.profile_mixin.yaml</code>, applied at runtime during reloads and Enhanced Mode starts so custom groups and rules survive subscription updates. (#129)</li>
+      <li><strong>Turn Off All Proxy Modes</strong> — Add a tray-menu action that disables both System Proxy and Enhanced Mode at once, with a visibility setting for the shortcut. (#130)</li>
+      <li><strong>Use Custom Enhanced Mode Config As-Is</strong> — Advanced TUN Settings can now start Enhanced Mode directly from the selected/runtime config without injecting ClashFX-generated TUN or DNS settings. (#118)</li>
+    </ul>
+    <h3>Bug Fixes</h3>
+    <ul>
+      <li><strong>Menu Bar Speed Display Is Compact and Stable</strong> — Use compact units, fixed-width numeric rendering, a lighter menu font, and tighter spacing to reduce menu bar width while avoiding icon jitter. (#122, #127, #137)</li>
+      <li><strong>Enhanced Mode Disable Restores Manual Proxy Selection</strong> — Reapply remembered proxy-group selections after returning to the built-in core, so selector groups no longer fall back to defaults such as Auto Select. (#134)</li>
+      <li><strong>Turn Off All Proxy Modes Is Localized</strong> — Localize the shortcut and tooltip across English, Simplified Chinese, Traditional Chinese, Japanese, and Russian.</li>
+      <li><strong>Profile Mixin Has Its Own Menu Visibility Toggle</strong> — Give Profile Mixin an independent Configs menu show/hide switch instead of sharing Config Editor visibility. (#129)</li>
+    </ul>
+    <hr />
+    <h3>新功能</h3>
+    <ul>
+      <li><strong>运行时 Profile Mixin</strong> — Config 菜单现在提供 Profile Mixin 编辑入口，对应 <code>~/.config/clashfx/.profile_mixin.yaml</code>；reload 和 Enhanced Mode 启动时会运行时叠加 mixin，不改写订阅原文件。(#129)</li>
+      <li><strong>一键关闭所有代理模式</strong> — 托盘菜单新增 Turn Off All Proxy Modes，可同时关闭 System Proxy 和 Enhanced Mode，并提供菜单显示开关。(#130)</li>
+      <li><strong>Enhanced Mode 可直接使用自定义配置</strong> — Advanced TUN Settings 新增 Use Custom Config as-is 开关，可直接使用当前选择 / 运行时配置启动，不再注入 ClashFX 生成的 TUN/DNS 设置。(#118)</li>
+    </ul>
+    <h3>修复</h3>
+    <ul>
+      <li><strong>菜单栏网速显示更紧凑且稳定</strong> — 使用更短的单位格式、固定宽度数字、更细的菜单字体和更紧凑的间距，减少菜单栏占用并避免图标跳动。(#122, #127, #137)</li>
+      <li><strong>关闭 Enhanced Mode 后会恢复手动选择的节点</strong> — 重载回内置 core 后会重新应用已记住的策略组节点选择，不再回到配置默认项（例如“自动选择”）。(#134)</li>
+      <li><strong>“关闭所有代理模式”已补齐多语言</strong> — 快捷项和 tooltip 已补齐英文、简体中文、繁体中文、日文、俄文文案。</li>
+      <li><strong>Profile Mixin 现在有独立的菜单显示开关</strong> — Profile Mixin 在 Configs 分组下提供独立显示 / 隐藏按钮，不再复用 Config Editor 的显示设置。(#129)</li>
+    </ul>
   ]]></description>
   <pubDate>Fri, 26 Jun 2026 06:14:20 +0000</pubDate>
   <sparkle:version>1001005000</sparkle:version>
