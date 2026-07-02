@@ -1,5 +1,29 @@
 ### Bug Fixes
 
+- **Proxy Recovers After Wake From Sleep** — After macOS wakes from lid-close sleep, ClashFX now delays recovery until the network interface is ready, checks whether the mihomo API is still healthy, and restarts the active proxy mode when needed. This should avoid the state where proxy traffic stays broken until the app is manually restarted. (#142)
+- **Menu Bar Speed Font Restored** — The menu bar upload/download speed text now uses the original ClashFX menu font again, preserving the latest macOS 26 custom drawing optimization while reverting the visual font regression.
+
+### Contributors
+
+- @ayangweb — Reported proxy failure after lid-close sleep/wake (#142)
+
+---
+
+### 修复
+
+- **睡眠唤醒后代理会自动恢复** — macOS 合盖睡眠后唤醒时，ClashFX 现在会等待网络接口就绪，再检查 mihomo API 是否仍健康；如果 core 已无响应，会按当前代理模式走现有恢复路径重启，避免必须手动重启 App 才能恢复代理的问题。 (#142)
+- **菜单栏网速字体已恢复** — 菜单栏上传 / 下载速度文字重新使用 ClashFX 原有菜单字体，同时保留 macOS 26 的自绘优化，回退字体观感回归。
+
+### 贡献者
+
+- @ayangweb — 反馈合盖睡眠唤醒后代理失效的问题 (#142)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Custom Enhanced Mode Now Applies macOS DNS Override** — When `Use Custom Config as-is` is enabled, ClashFX still keeps the selected config file untouched, but Enhanced Mode now runs the same TUN verification and temporary macOS DNS override as the generated-config path. This prevents system DNS from staying on the router DNS while the custom TUN core is running. (#139)
 
 ### Contributors
