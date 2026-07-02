@@ -27,10 +27,29 @@ enum LabSupport {
         lines.append("- Bypass Chinese Apps: \(Settings.bypassChineseApps)")
         lines.append("- Built-in API mode: \(Settings.builtInApiMode)")
         lines.append("- IPv6: \(Settings.enableIPV6)")
+        lines.append("- System Proxy Auto Set: \(ConfigManager.shared.proxyPortAutoSet)")
+        lines.append("- Proxy Paused by SSID: \(ConfigManager.shared.proxyShouldPaused.value)")
+        lines.append("- Proxy Marked Changed by Other App: \(ConfigManager.shared.isProxySetByOtherVariable.value)")
+        lines.append("- Enhanced Mode Active Runtime: \(ConfigManager.shared.isEnhancedModeActive)")
+        lines.append("")
+        lines.append("### Network state")
+        lines.append("- Primary Interface: \(NetworkChangeNotifier.getPrimaryInterface() ?? "none")")
+        lines.append("- Primary IP: \(NetworkChangeNotifier.getPrimaryIPAddress() ?? "none")")
+        let (http, https, socks) = NetworkChangeNotifier.currentSystemProxySetting()
+        lines.append("- System Proxy Ports: http=\(http), https=\(https), socks=\(socks)")
+        lines.append("- Clash Config Ports: http=\(ConfigManager.shared.currentConfig?.usedHttpPort ?? 0), socks=\(ConfigManager.shared.currentConfig?.usedSocksPort ?? 0), api=\(ConfigManager.shared.apiPort)")
+        lines.append("- System Proxy Matches ClashFX: \(NetworkChangeNotifier.isCurrentSystemSetToClash())")
+        lines.append("- DNS Servers: \(NetworkChangeNotifier.getCurrentDns().joined(separator: ", "))")
+        lines.append("- TUN Interfaces: \(tunInterfaceSummary())")
         lines.append("")
         lines.append("### Recent log (last 50 lines, sensitive data redacted)")
         lines.append("```")
         lines.append(recentLogLines(count: 50))
+        lines.append("```")
+        lines.append("")
+        lines.append("### Recent mihomo_core log (last 30 lines, sensitive data redacted)")
+        lines.append("```")
+        lines.append(fileTailLines(path: kConfigFolderPath + ".mihomo_core.log", count: 30))
         lines.append("```")
         return lines.joined(separator: "\n")
     }
@@ -48,6 +67,10 @@ enum LabSupport {
 
     static func recentLogLines(count: Int) -> String {
         let path = Logger.shared.logFilePath()
+        return fileTailLines(path: path, count: count)
+    }
+
+    static func fileTailLines(path: String, count: Int) -> String {
         guard !path.isEmpty,
               let handle = FileHandle(forReadingAtPath: path)
         else { return "(no log file available)" }
@@ -59,6 +82,38 @@ enum LabSupport {
         let text = String(data: data, encoding: .utf8) ?? ""
         let tail = text.split(separator: "\n", omittingEmptySubsequences: false).suffix(count).joined(separator: "\n")
         return redact(tail)
+    }
+
+    static func tunInterfaceSummary() -> String {
+        var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddrPtr) == 0, let firstAddr = ifaddrPtr else { return "unavailable" }
+        defer { freeifaddrs(ifaddrPtr) }
+
+        var summaries: [String] = []
+        var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
+        while let addr = ptr {
+            defer { ptr = addr.pointee.ifa_next }
+            guard let ifaAddr = addr.pointee.ifa_addr else { continue }
+            let name = String(cString: addr.pointee.ifa_name)
+            guard name.hasPrefix("utun") else { continue }
+            guard ifaAddr.pointee.sa_family == UInt8(AF_INET) else {
+                if !summaries.contains(where: { $0.hasPrefix("\(name):") }) {
+                    summaries.append("\(name): no IPv4")
+                }
+                continue
+            }
+
+            var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            getnameinfo(ifaAddr,
+                        socklen_t(ifaAddr.pointee.sa_len),
+                        &hostname,
+                        socklen_t(hostname.count),
+                        nil,
+                        0,
+                        NI_NUMERICHOST)
+            summaries.append("\(name): \(String(cString: hostname))")
+        }
+        return summaries.isEmpty ? "none" : summaries.joined(separator: ", ")
     }
 
     static func redact(_ input: String) -> String {

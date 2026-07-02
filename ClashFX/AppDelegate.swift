@@ -103,8 +103,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastStreamResetTime: Date = .distantPast
     private var pendingStreamResetWork: DispatchWorkItem?
     private var pendingEnhancedModeRefreshWork: DispatchWorkItem?
+    private var pendingWakeRecoveryWork: DispatchWorkItem?
     private static let enhancedModeRestoreMaxAttempts = 12
     private static let enhancedModeRestoreRetryDelay: TimeInterval = 5
+    private static let wakeRecoveryDelay: TimeInterval = 3
+    private static let wakeRecoveryRetryDelay: TimeInterval = 2
+    private static let wakeRecoveryMaxAttempts = 3
     private static let runtimePatchedConfigPath = kConfigFolderPath + ".runtime_config.yaml"
 
     /// Short-circuits TerminalConfirmAction during self-relaunch so the old
@@ -951,19 +955,140 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func resetProxySettingOnWakeupFromSleep() {
+        Logger.log("Wake recovery: didWake received")
+
         if !ApiRequest.useDirectApi() {
             resetStreamApi()
         }
 
-        guard !ConfigManager.shared.isProxySetByOtherVariable.value,
-              ConfigManager.shared.proxyPortAutoSet else { return }
-        guard NetworkChangeNotifier.getPrimaryInterface() != nil else { return }
-        if !NetworkChangeNotifier.isCurrentSystemSetToClash() {
+        if ConfigManager.shared.isProxySetByOtherVariable.value {
+            Logger.log("Wake recovery: skip immediate system proxy restore because proxy is marked as changed by another process", level: .warning)
+        } else if !ConfigManager.shared.proxyPortAutoSet {
+            Logger.log("Wake recovery: skip immediate system proxy restore because System Proxy is off", level: .debug)
+        } else if NetworkChangeNotifier.getPrimaryInterface() == nil {
+            Logger.log("Wake recovery: primary interface is not ready yet", level: .warning)
+        } else if !NetworkChangeNotifier.isCurrentSystemSetToClash() {
             let rawProxy = NetworkChangeNotifier.getRawProxySetting()
-            Logger.log("Resting proxy setting, current:\(rawProxy)", level: .warning)
+            Logger.log("Wake recovery: restoring system proxy, current:\(rawProxy)", level: .warning)
+            SystemProxyManager.shared.disableProxy()
+            SystemProxyManager.shared.enableProxy()
+        } else {
+            Logger.log("Wake recovery: system proxy already points to ClashFX; scheduling core health check")
+        }
+
+        scheduleWakeRecovery()
+    }
+
+    private func scheduleWakeRecovery() {
+        pendingWakeRecoveryWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.recoverProxyAfterWake(attemptsLeft: Self.wakeRecoveryMaxAttempts)
+        }
+        pendingWakeRecoveryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeRecoveryDelay, execute: work)
+    }
+
+    private func recoverProxyAfterWake(attemptsLeft: Int) {
+        guard NetworkChangeNotifier.getPrimaryInterface() != nil else {
+            guard attemptsLeft > 1 else {
+                Logger.log("Wake recovery: primary interface never became ready", level: .error)
+                return
+            }
+            Logger.log("Wake recovery: waiting for primary interface (\(attemptsLeft - 1) retries left)", level: .warning)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeRecoveryRetryDelay) { [weak self] in
+                self?.recoverProxyAfterWake(attemptsLeft: attemptsLeft - 1)
+            }
+            return
+        }
+
+        checkCoreHealthAfterWake { [weak self] healthy in
+            guard let self = self else { return }
+            if healthy {
+                Logger.log("Wake recovery: core API is healthy")
+                self.finishHealthyWakeRecovery()
+                return
+            }
+
+            Logger.log("Wake recovery: core API is not responding; restoring active proxy mode", level: .error)
+            self.restoreCoreAfterWake()
+        }
+    }
+
+    private func finishHealthyWakeRecovery() {
+        if ConfigManager.shared.proxyPortAutoSet,
+           !ConfigManager.shared.proxyShouldPaused.value,
+           !ConfigManager.shared.isProxySetByOtherVariable.value,
+           !NetworkChangeNotifier.isCurrentSystemSetToClash() {
+            let rawProxy = NetworkChangeNotifier.getRawProxySetting()
+            Logger.log("Wake recovery: core healthy but system proxy missing, current:\(rawProxy)", level: .warning)
             SystemProxyManager.shared.disableProxy()
             SystemProxyManager.shared.enableProxy()
         }
+
+        if ConfigManager.shared.isEnhancedModeActive {
+            verifyTunStatus(port: ConfigManager.shared.apiPort, secret: ConfigManager.shared.apiSecret)
+            overrideDNSForTun()
+        }
+
+        if !ApiRequest.useDirectApi() {
+            resetStreamApi()
+        }
+    }
+
+    private func restoreCoreAfterWake() {
+        if Settings.enhancedMode {
+            Logger.log("Wake recovery: restoring Enhanced Mode")
+            restoreEnhancedMode(attemptsLeft: 3)
+            return
+        }
+
+        if ConfigManager.shared.isEnhancedModeActive {
+            Logger.log("Wake recovery: Enhanced Mode active without persisted setting; restarting Enhanced Mode", level: .warning)
+            enableEnhancedMode { [weak self] error in
+                if let error = error {
+                    Logger.log("Wake recovery: Enhanced Mode restart failed: \(error)", level: .error)
+                    return
+                }
+                self?.scheduleEnhancedModePostToggleRefresh()
+            }
+            return
+        }
+
+        Logger.log("Wake recovery: restarting built-in core")
+        ConfigManager.shared.isRunning = false
+        updateConfig(showNotification: false) { [weak self] error in
+            if let error = error {
+                Logger.log("Wake recovery: built-in core restore failed: \(error)", level: .error)
+                return
+            }
+            if ConfigManager.shared.proxyPortAutoSet,
+               !ConfigManager.shared.proxyShouldPaused.value,
+               !ConfigManager.shared.isProxySetByOtherVariable.value {
+                SystemProxyManager.shared.enableProxy()
+            }
+            self?.resetStreamApi()
+        }
+    }
+
+    private func checkCoreHealthAfterWake(complete: @escaping (Bool) -> Void) {
+        guard let url = URL(string: ConfigManager.apiUrl.appending("/configs")) else {
+            complete(false)
+            return
+        }
+        var request = URLRequest(url: url, timeoutInterval: 2)
+        for header in ApiRequest.authHeader() {
+            request.setValue(header.value, forHTTPHeaderField: header.name)
+        }
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let healthy = statusCode == 200
+            if !healthy {
+                Logger.log("Wake recovery: /configs health failed status=\(statusCode), error=\(error?.localizedDescription ?? "none")", level: .warning)
+            }
+            DispatchQueue.main.async {
+                complete(healthy)
+            }
+        }.resume()
     }
 
     @objc func healthCheckOnNetworkChange() {
