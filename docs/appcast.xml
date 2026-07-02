@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.5.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.5.3 (Lab)</h2><ul><li><strong>Profile Mixin Rule Directives Now Work</strong> — ClashFX now understands `profile.prepend-rules` and `profile.append-rules` in Profile Mixin files, translating them into real runtime `rules` before loading mihomo. Prepended rules are inserted before the existing rule list so DIRECT/process exclusions are not hidden behind `MATCH`.</li></ul>
+  ]]></description>
+  <pubDate>Thu, 02 Jul 2026 12:36:41 +0000</pubDate>
+  <sparkle:version>1001005003</sparkle:version>
+  <sparkle:shortVersionString>1.1.5.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5.3/ClashFX.dmg"
+    sparkle:version="1001005003"
+    sparkle:shortVersionString="1.1.5.3"
+    sparkle:edSignature="oh33n4S/rWq+HyZC7FwRJUr3+bEDQqpEPinbkr/OzHl/NT6wy1oaqAiwA5Kt7CRyJqta8Gm3hNk81KUxQlwRAQ=="
+    length="97837504"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.5.2 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.2 (Lab)</h2><ul><li><strong>Proxy Recovers After Wake From Sleep</strong> — After macOS wakes from lid-close sleep, ClashFX now delays recovery until the network interface is ready, checks whether the mihomo API is still healthy, and restarts the active proxy mode when needed. This should avoid the state where proxy traffic stays broken until the app is manually restarted. (#142)</li><li><strong>Menu Bar Speed Font Restored</strong> — The menu bar upload/download speed text now uses the original ClashFX menu font again, preserving the latest macOS 26 custom drawing optimization while reverting the visual font regression.</li></ul>
