@@ -1,5 +1,19 @@
 ### Bug Fixes
 
+- **Profile Mixin Rule Directives Now Work** — ClashFX now understands `profile.prepend-rules` and `profile.append-rules` in Profile Mixin files, translating them into real runtime `rules` before loading mihomo. Prepended rules are inserted before the existing rule list so DIRECT/process exclusions are not hidden behind `MATCH`.
+
+---
+
+### 修复
+
+- **Profile Mixin 规则指令现在会生效** — ClashFX 现在会识别 Profile Mixin 中的 `profile.prepend-rules` 和 `profile.append-rules`，并在加载 mihomo 前转换为真正的运行时 `rules`。其中 prepend 规则会插到现有规则列表前面，避免 DIRECT / 进程排除规则被 `MATCH` 吃掉。
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Proxy Recovers After Wake From Sleep** — After macOS wakes from lid-close sleep, ClashFX now delays recovery until the network interface is ready, checks whether the mihomo API is still healthy, and restarts the active proxy mode when needed. This should avoid the state where proxy traffic stays broken until the app is manually restarted. (#142)
 - **Menu Bar Speed Font Restored** — The menu bar upload/download speed text now uses the original ClashFX menu font again, preserving the latest macOS 26 custom drawing optimization while reverting the visual font regression.
 
