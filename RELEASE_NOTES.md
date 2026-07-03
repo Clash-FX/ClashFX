@@ -1,5 +1,19 @@
 ### Bug Fixes
 
+- **Profile Rule Buckets Show in the Visual Editor** — The Rules visual editor now lets you switch between top-level `rules`, `profile.prepend-rules`, and `profile.append-rules`, so Profile Mixin rule directives added in source view are visible and editable without falling back to raw YAML. ClashFX also expands config-embedded `profile.prepend-rules` into runtime rules before subscription rules, and warns when PROCESS rules need Enhanced Mode to match. (#129)
+
+---
+
+### 修复
+
+- **可视化编辑器现在会显示 Profile 规则项** — 规则可视化编辑器新增 `rules`、`profile.prepend-rules`、`profile.append-rules` 切换项；通过源码添加的 Profile Mixin 规则指令现在可以直接查看和编辑，不必退回纯 YAML。ClashFX 也会把配置内的 `profile.prepend-rules` 在运行时展开到订阅规则前面，并在 PROCESS 规则需要 Enhanced Mode 才能命中时写入提示日志。 (#129)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Profile Mixin Rule Directives Now Work** — ClashFX now understands `profile.prepend-rules` and `profile.append-rules` in Profile Mixin files, translating them into real runtime `rules` before loading mihomo. Prepended rules are inserted before the existing rule list so DIRECT/process exclusions are not hidden behind `MATCH`.
 
 ---
