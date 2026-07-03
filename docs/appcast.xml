@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.5.4 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.5.4 (Lab)</h2><ul><li><strong>Profile Rule Buckets Show in the Visual Editor</strong> — The Rules visual editor now lets you switch between top-level `rules`, `profile.prepend-rules`, and `profile.append-rules`, so Profile Mixin rule directives added in source view are visible and editable without falling back to raw YAML. ClashFX also expands config-embedded `profile.prepend-rules` into runtime rules before subscription rules, and warns when PROCESS rules need Enhanced Mode to match. (#129)</li></ul>
+  ]]></description>
+  <pubDate>Fri, 03 Jul 2026 02:42:41 +0000</pubDate>
+  <sparkle:version>1001005004</sparkle:version>
+  <sparkle:shortVersionString>1.1.5.4</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5.4/ClashFX.dmg"
+    sparkle:version="1001005004"
+    sparkle:shortVersionString="1.1.5.4"
+    sparkle:edSignature="kXDiPlgt/mfNTtpsliR6+5yR67/3jn6HchKBqtTxQ132FdpMF3S4AeiguMvj6pjC2Pr2cQ7qXTUWB7MKoqH+Ag=="
+    length="97834281"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.5.3 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.3 (Lab)</h2><ul><li><strong>Profile Mixin Rule Directives Now Work</strong> — ClashFX now understands `profile.prepend-rules` and `profile.append-rules` in Profile Mixin files, translating them into real runtime `rules` before loading mihomo. Prepended rules are inserted before the existing rule list so DIRECT/process exclusions are not hidden behind `MATCH`.</li></ul>
