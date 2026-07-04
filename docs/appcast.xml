@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.5.5 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.5.5 (Lab)</h2><ul><li><strong>Profile Mixin Visual Editor Opens the Right Rule Bucket</strong> — When a Profile Mixin only contains `profile.prepend-rules` or `profile.append-rules`, switching from source view to visual mode now automatically selects the non-empty Profile rule bucket instead of showing an empty top-level `rules` table. (#129)</li><li><strong>Profile Mixin and Config Editor Can Open Side by Side</strong> — Opening Config Editor while the Profile Mixin editor is already visible now opens or focuses the selected profile editor instead of silently reusing the existing Profile Mixin window. The config picker also includes a Profile Mixin entry for direct navigation. (#129)</li><li><strong>Profile Mixin Follows iCloud Config Storage</strong> — When iCloud config storage is enabled, the Profile Mixin file now resolves to the iCloud Documents container as well, so custom mixin rules stay with the rest of the synced configuration set. (#129)</li><li><strong>ClashFX Networking Is Direct in Enhanced Mode</strong> — Enhanced Mode now prepends a built-in `PROCESS-NAME,ClashFX Networking,DIRECT` rule before subscription rules so the networking helper is not accidentally routed by a provider rule. (#129)</li><li><strong>iCloud Settings Toggle Reflects the User Choice</strong> — The iCloud checkbox now stays responsive to the saved user preference even when iCloud availability temporarily prevents syncing, instead of immediately snapping back based on the effective runtime state.</li></ul>
+  ]]></description>
+  <pubDate>Sat, 04 Jul 2026 08:09:47 +0000</pubDate>
+  <sparkle:version>1001005005</sparkle:version>
+  <sparkle:shortVersionString>1.1.5.5</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5.5/ClashFX.dmg"
+    sparkle:version="1001005005"
+    sparkle:shortVersionString="1.1.5.5"
+    sparkle:edSignature="Avpg67Ap3hFMdvol+VCzQl5GYK7uu6a6bc9KT2zG4Bmahfm6NrRa6WBVe2egBj5ZOzaU3Bsyx+JYJ5gKmr78Aw=="
+    length="97843944"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.5.4 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.4 (Lab)</h2><ul><li><strong>Profile Rule Buckets Show in the Visual Editor</strong> — The Rules visual editor now lets you switch between top-level `rules`, `profile.prepend-rules`, and `profile.append-rules`, so Profile Mixin rule directives added in source view are visible and editable without falling back to raw YAML. ClashFX also expands config-embedded `profile.prepend-rules` into runtime rules before subscription rules, and warns when PROCESS rules need Enhanced Mode to match. (#129)</li></ul>
