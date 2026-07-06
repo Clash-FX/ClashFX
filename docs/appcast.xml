@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.5.6 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.5.6 (Lab)</h2><ul><li><strong>Dashboard Header No Longer Gets Covered in Full Screen</strong> — The native dashboard now uses an in-window header instead of a macOS toolbar, so the Recent/Active Connections switcher and search field stay visible when the dashboard enters full screen. (#129)</li><li><strong>Profile Mixin iCloud Sync Uses a Visible File and Reloads Cleanly</strong> — When iCloud config storage is enabled, ClashFX now migrates the local or legacy hidden mixin into a visible `Profile Mixin.yaml` file in iCloud Documents, filters it out of normal config lists, refreshes the config menu, watches the iCloud-selected config, and reloads it without requiring an app restart. (#129)</li><li><strong>Subscription Rules Editor Keeps Profile Buckets Out of Normal Configs</strong> — The visual Rules editor now keeps the rule bucket selector disabled on normal subscription configs and only exposes `profile.prepend-rules` / `profile.append-rules` when editing Profile Mixin, avoiding accidental edits to Profile-only rule buckets from the config editor. (#129)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 06 Jul 2026 08:51:23 +0000</pubDate>
+  <sparkle:version>1001005006</sparkle:version>
+  <sparkle:shortVersionString>1.1.5.6</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5.6/ClashFX.dmg"
+    sparkle:version="1001005006"
+    sparkle:shortVersionString="1.1.5.6"
+    sparkle:edSignature="HuborlYIdjRZMdQ0sLzBnqGOz9esAjQjc6HeHlDRSaNHXnqjohW59HCaX3b8GrYCtPQYWLcchM/BArwhmy1zCw=="
+    length="95955356"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.5.5 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.5 (Lab)</h2><ul><li><strong>Profile Mixin Visual Editor Opens the Right Rule Bucket</strong> — When a Profile Mixin only contains `profile.prepend-rules` or `profile.append-rules`, switching from source view to visual mode now automatically selects the non-empty Profile rule bucket instead of showing an empty top-level `rules` table. (#129)</li><li><strong>Profile Mixin and Config Editor Can Open Side by Side</strong> — Opening Config Editor while the Profile Mixin editor is already visible now opens or focuses the selected profile editor instead of silently reusing the existing Profile Mixin window. The config picker also includes a Profile Mixin entry for direct navigation. (#129)</li><li><strong>Profile Mixin Follows iCloud Config Storage</strong> — When iCloud config storage is enabled, the Profile Mixin file now resolves to the iCloud Documents container as well, so custom mixin rules stay with the rest of the synced configuration set. (#129)</li><li><strong>ClashFX Networking Is Direct in Enhanced Mode</strong> — Enhanced Mode now prepends a built-in `PROCESS-NAME,ClashFX Networking,DIRECT` rule before subscription rules so the networking helper is not accidentally routed by a provider rule. (#129)</li><li><strong>iCloud Settings Toggle Reflects the User Choice</strong> — The iCloud checkbox now stays responsive to the saved user preference even when iCloud availability temporarily prevents syncing, instead of immediately snapping back based on the effective runtime state.</li></ul>
