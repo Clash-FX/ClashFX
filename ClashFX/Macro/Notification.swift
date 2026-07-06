@@ -14,6 +14,7 @@ extension Notification.Name {
     static let systemNetworkStatusIPUpdate = Notification.Name("systemNetworkStatusIPUpdate")
     static let systemNetworkStatusDidChange = Notification.Name("kSystemNetworkStatusDidChange")
     static let proxyMeneViewShowLeftPadding = Notification.Name("kProxyMeneViewShowLeftPadding")
+    static let iCloudConfigStorageDidChange = Notification.Name("kICloudConfigStorageDidChange")
 
     static func proxyUpdate(for name: ClashProxyName) -> Notification.Name {
         return Notification.Name("kProxyUpdate_\(name)")

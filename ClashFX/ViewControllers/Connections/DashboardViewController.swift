@@ -24,9 +24,9 @@ enum DashboardContentType: Int, CaseIterable {
 
 @available(macOS 10.15, *)
 class DashboardViewController: NSViewController {
-    private let toolbar = NSToolbar()
     private var segmentControl: NSSegmentedControl!
     private let searchField = NSSearchField()
+    private let headerView = NSView()
 
     private let connectionVC = ConnectionsViewController()
 
@@ -40,6 +40,7 @@ class DashboardViewController: NSViewController {
                                             action: #selector(actionSwitchSegmentControl(sender:)))
         segmentControl.selectedSegment = 0
         searchField.delegate = self
+        setupHeader()
         setCurrentVC(connectionVC)
     }
 
@@ -49,13 +50,11 @@ class DashboardViewController: NSViewController {
 
     override func viewWillAppear() {
         super.viewWillAppear()
-        toolbar.delegate = self
-        view.window?.toolbar = toolbar
-        view.window?.backgroundColor = NSColor.clear
-        if #available(macOS 11.0, *) {
-            view.window?.toolbarStyle = .unifiedCompact
-        } else {
-            view.window?.toolbar?.sizeMode = .small
+        view.window?.toolbar = nil
+        view.window?.titleVisibility = .visible
+        view.window?.titlebarAppearsTransparent = false
+        if let window = view.window {
+            window.styleMask.remove(.fullSizeContentView)
         }
     }
 
@@ -64,8 +63,51 @@ class DashboardViewController: NSViewController {
         currentContentVC?.view.removeFromSuperview()
         addChild(vc)
         view.addSubview(vc.view)
-        vc.view.makeConstraintsToBindToSuperview()
+        vc.view.makeConstraints { [
+            $0.leftAnchor.constraint(equalTo: view.leftAnchor),
+            $0.rightAnchor.constraint(equalTo: view.rightAnchor),
+            $0.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            $0.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ] }
         currentContentVC = vc
+    }
+
+    private func setupHeader() {
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.wantsLayer = true
+        headerView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        view.addSubview(headerView)
+
+        let divider = NSBox()
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.boxType = .separator
+        headerView.addSubview(divider)
+
+        segmentControl.translatesAutoresizingMaskIntoConstraints = false
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        headerView.addSubview(segmentControl)
+        headerView.addSubview(searchField)
+
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: view.topAnchor),
+            headerView.leftAnchor.constraint(equalTo: view.leftAnchor),
+            headerView.rightAnchor.constraint(equalTo: view.rightAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: 44),
+
+            segmentControl.leftAnchor.constraint(equalTo: headerView.leftAnchor, constant: 16),
+            segmentControl.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            segmentControl.widthAnchor.constraint(greaterThanOrEqualToConstant: 300),
+
+            searchField.leftAnchor.constraint(greaterThanOrEqualTo: segmentControl.rightAnchor, constant: 16),
+            searchField.rightAnchor.constraint(equalTo: headerView.rightAnchor, constant: -16),
+            searchField.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 220),
+
+            divider.leftAnchor.constraint(equalTo: headerView.leftAnchor),
+            divider.rightAnchor.constraint(equalTo: headerView.rightAnchor),
+            divider.bottomAnchor.constraint(equalTo: headerView.bottomAnchor),
+            divider.heightAnchor.constraint(equalToConstant: 1)
+        ])
     }
 
     @objc func actionSwitchSegmentControl(sender: NSSegmentedControl) {
@@ -89,40 +131,5 @@ extension DashboardViewController: NSSearchFieldDelegate {
 
     func searchFieldDidEndSearching(_ sender: NSSearchField) {
         currentContentVC?.actionSearch(string: sender.stringValue)
-    }
-}
-
-extension NSToolbarItem.Identifier {
-    static let toolbarSearchItem = NSToolbarItem.Identifier("ToolbarSearchItem")
-    static let toolbarSegmentItem = NSToolbarItem.Identifier("toolbarSegmentItem")
-}
-
-@available(macOS 10.15, *)
-extension DashboardViewController: NSToolbarDelegate {
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return [.toolbarSegmentItem, .flexibleSpace, .toolbarSearchItem]
-    }
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return [.toolbarSegmentItem, .flexibleSpace, .toolbarSearchItem]
-    }
-
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-        if itemIdentifier == .toolbarSearchItem {
-            searchField.sizeToFit()
-            searchField.translatesAutoresizingMaskIntoConstraints = false
-            searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
-            item.view = searchField
-        } else if itemIdentifier == .toolbarSegmentItem {
-            if #available(macOS 11.0, *) {
-                item.isNavigational = true
-            }
-            segmentControl.translatesAutoresizingMaskIntoConstraints = false
-            segmentControl.widthAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
-            item.view = segmentControl
-        }
-
-        return item
     }
 }

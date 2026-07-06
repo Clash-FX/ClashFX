@@ -1,6 +1,14 @@
 import Cocoa
 
 class RulesEditorViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+    var allowsProfileRuleBuckets = false {
+        didSet {
+            configureRuleBucketPopup()
+            selectPreferredRuleBucket()
+            tableView.reloadData()
+        }
+    }
+
     var document: ConfigDocument? {
         didSet {
             selectPreferredRuleBucket()
@@ -74,10 +82,10 @@ class RulesEditorViewController: NSViewController, NSTableViewDataSource, NSTabl
         view.addSubview(buttonBar)
 
         ruleBucketPopup.translatesAutoresizingMaskIntoConstraints = false
-        ruleBucketPopup.addItems(withTitles: ["rules", "profile.prepend-rules", "profile.append-rules"])
         ruleBucketPopup.target = self
         ruleBucketPopup.action = #selector(ruleBucketChanged)
         buttonBar.addSubview(ruleBucketPopup)
+        configureRuleBucketPopup()
         selectPreferredRuleBucket()
 
         let addBtn = NSButton(title: "+", target: self, action: #selector(addRule))
@@ -251,9 +259,26 @@ class RulesEditorViewController: NSViewController, NSTableViewDataSource, NSTabl
         RuleBucket(rawValue: ruleBucketPopup.indexOfSelectedItem) ?? .rules
     }
 
+    private func configureRuleBucketPopup() {
+        guard isViewLoaded else { return }
+        let selectedIndex = max(0, ruleBucketPopup.indexOfSelectedItem)
+        ruleBucketPopup.removeAllItems()
+        if allowsProfileRuleBuckets {
+            ruleBucketPopup.addItems(withTitles: ["rules", "profile.prepend-rules", "profile.append-rules"])
+            ruleBucketPopup.selectItem(at: min(selectedIndex, ruleBucketPopup.numberOfItems - 1))
+            ruleBucketPopup.isEnabled = true
+        } else {
+            ruleBucketPopup.addItem(withTitle: "rules")
+            ruleBucketPopup.selectItem(at: RuleBucket.rules.rawValue)
+            ruleBucketPopup.isEnabled = false
+        }
+    }
+
     private func selectPreferredRuleBucket() {
         guard ruleBucketPopup.numberOfItems > 0, let document = document else { return }
-        if document.rules.isEmpty, !document.profilePrependRules.isEmpty {
+        if !allowsProfileRuleBuckets {
+            ruleBucketPopup.selectItem(at: RuleBucket.rules.rawValue)
+        } else if document.rules.isEmpty, !document.profilePrependRules.isEmpty {
             ruleBucketPopup.selectItem(at: RuleBucket.profilePrependRules.rawValue)
         } else if document.rules.isEmpty, !document.profileAppendRules.isEmpty {
             ruleBucketPopup.selectItem(at: RuleBucket.profileAppendRules.rawValue)

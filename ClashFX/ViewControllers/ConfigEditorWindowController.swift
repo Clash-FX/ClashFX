@@ -214,6 +214,7 @@ class ConfigEditorWindowController: NSWindowController {
     private func ensureVisualEditor() {
         guard visualEditorVC == nil else { return }
         let vc = VisualConfigEditorController()
+        vc.allowsProfileRuleBuckets = isProfileMixinPath(filePath)
         visualEditorVC = vc
         let vcView = vc.view
         vcView.translatesAutoresizingMaskIntoConstraints = false
@@ -241,6 +242,7 @@ class ConfigEditorWindowController: NSWindowController {
             let doc = try ConfigDocument.loadFromYAML(textView.string)
             configDocument = doc
             ensureVisualEditor()
+            visualEditorVC?.allowsProfileRuleBuckets = isProfileMixinPath(filePath)
             visualEditorVC?.loadDocument(doc)
             scrollView.isHidden = true
             visualContainer.isHidden = false
@@ -272,12 +274,34 @@ class ConfigEditorWindowController: NSWindowController {
     // MARK: - File Operations
 
     private func populateFileList() {
-        filePopup.removeAllItems()
-        let configs = ConfigManager.getConfigFilesList()
-        for name in configs {
-            filePopup.addItem(withTitle: name)
+        let applyConfigs: ([String]) -> Void = { [weak self] configs in
+            guard let self = self else { return }
+            self.filePopup.removeAllItems()
+            for name in configs {
+                self.filePopup.addItem(withTitle: name)
+            }
+            self.filePopup.addItem(withTitle: Self.profileMixinTitle)
+            self.selectFilePopupItemForCurrentFile()
         }
-        filePopup.addItem(withTitle: Self.profileMixinTitle)
+
+        if ICloudManager.shared.useiCloud.value {
+            ICloudManager.shared.getConfigFilesList(configs: applyConfigs)
+        } else {
+            applyConfigs(ConfigManager.getConfigFilesList())
+        }
+    }
+
+    private func selectFilePopupItemForCurrentFile() {
+        guard filePopup.numberOfItems > 0 else { return }
+        if isProfileMixinPath(filePath) {
+            filePopup.selectItem(withTitle: Self.profileMixinTitle)
+            return
+        }
+        if !filePath.isEmpty {
+            let fileName = (filePath as NSString).lastPathComponent
+            filePopup.selectItem(withTitle: (fileName as NSString).deletingPathExtension)
+            return
+        }
         filePopup.selectItem(withTitle: ConfigManager.selectConfigName)
     }
 
@@ -306,11 +330,7 @@ class ConfigEditorWindowController: NSWindowController {
 
             let fileName = (path as NSString).lastPathComponent
             window?.title = "ClashFX Config Editor — \(fileName)"
-            if isProfileMixinPath(path) {
-                filePopup.selectItem(withTitle: Self.profileMixinTitle)
-            } else {
-                filePopup.selectItem(withTitle: (fileName as NSString).deletingPathExtension)
-            }
+            selectFilePopupItemForCurrentFile()
             let lineCount = content.components(separatedBy: "\n").count
             statusLabel.stringValue = "\(lineCount) lines"
 
@@ -328,6 +348,7 @@ class ConfigEditorWindowController: NSWindowController {
                 if let doc = try? ConfigDocument.loadFromYAML(content) {
                     configDocument = doc
                     ensureVisualEditor()
+                    visualEditorVC?.allowsProfileRuleBuckets = isProfileMixinPath(path)
                     visualEditorVC?.loadDocument(doc)
                 }
             }
@@ -392,7 +413,8 @@ class ConfigEditorWindowController: NSWindowController {
         let standardizedPath = (path as NSString).standardizingPath
         let localPath = (kProfileMixinFilePath as NSString).standardizingPath
         let activePath = (Paths.profileMixinPath as NSString).standardizingPath
-        return standardizedPath == localPath || standardizedPath == activePath
+        let fileName = (path as NSString).lastPathComponent
+        return standardizedPath == localPath || standardizedPath == activePath || Paths.isProfileMixinFileName(fileName)
     }
 
     // MARK: - YAML Syntax Highlighting

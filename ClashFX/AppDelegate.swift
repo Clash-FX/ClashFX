@@ -176,6 +176,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         AppVersionUtil.showUpgradeAlert()
         ICloudManager.shared.setup()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onICloudConfigStorageDidChange),
+            name: .iCloudConfigStorageDidChange,
+            object: nil
+        )
 
         if WebPortalManager.hasWebProtal {
             WebPortalManager.shared.addWebProtalMenuItem(&statusMenu)
@@ -650,6 +656,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.applyConfigSwitcherVisibility(
                 showConfigSwitcher: Settings.trayMenuShowConfigs && Settings.trayMenuShowConfigSwitcher
             )
+        }
+    }
+
+    @objc private func onICloudConfigStorageDidChange() {
+        ConfigManager.watchCurrentConfigFile()
+        updateConfigFiles()
+
+        let selectedConfig = ConfigManager.selectConfigName
+        ConfigManager.getConfigPath(configName: selectedConfig) { [weak self] path in
+            guard let self = self else { return }
+            guard FileManager.default.fileExists(atPath: path) else {
+                Logger.log("[iCloud] Selected config \(selectedConfig) not found at \(path), skipping reload", level: .warning)
+                return
+            }
+            self.updateConfig(configName: selectedConfig, showNotification: false)
         }
     }
 

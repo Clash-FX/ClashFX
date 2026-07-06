@@ -12,6 +12,12 @@ class VisualConfigEditorController: NSViewController, NSTableViewDataSource, NST
     private lazy var proxyGroupsVC = ProxyGroupsEditorViewController()
     private lazy var rulesVC = RulesEditorViewController()
 
+    var allowsProfileRuleBuckets = false {
+        didSet {
+            rulesVC.allowsProfileRuleBuckets = allowsProfileRuleBuckets
+        }
+    }
+
     private var sidebarBackgroundColor: NSColor {
         if #available(macOS 10.14, *) {
             return .underPageBackgroundColor
@@ -35,6 +41,7 @@ class VisualConfigEditorController: NSViewController, NSTableViewDataSource, NST
         dnsVC.document = doc
         proxiesVC.document = doc
         proxyGroupsVC.document = doc
+        rulesVC.allowsProfileRuleBuckets = allowsProfileRuleBuckets
         rulesVC.document = doc
     }
 

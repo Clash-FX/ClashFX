@@ -168,6 +168,7 @@ extension ConfigManager {
             return fileURLs
                 .filter { String($0.split(separator: ".").last ?? "") == "yaml" }
                 .filter { !$0.hasPrefix(".") }
+                .filter { !Paths.isProfileMixinFileName($0) }
                 .map { $0.split(separator: ".").dropLast().joined(separator: ".") }
         } catch {
             return ["config"]
