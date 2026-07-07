@@ -6,25 +6,6 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
-  <title>Version 1.1.5.11 (Lab)</title>
-  <description><![CDATA[
-    <h2>ClashFX v1.1.5.11 (Lab)</h2><ul><li><strong>Settings Window Resizes Freely Again</strong> — Wrapped each Settings tab in a flexible container so fixed-height tab contents no longer block vertical resizing. The Settings window can now be resized from the bottom edges and corners across General, Appearance, Global Shortcuts, and Debug. (#129)</li></ul>
-  ]]></description>
-  <pubDate>Tue, 07 Jul 2026 04:49:56 +0000</pubDate>
-  <sparkle:version>1001005011</sparkle:version>
-  <sparkle:shortVersionString>1.1.5.11</sparkle:shortVersionString>
-            <sparkle:channel>lab</sparkle:channel>
-          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
-  <enclosure
-    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5.11/ClashFX.dmg"
-    sparkle:version="1001005011"
-    sparkle:shortVersionString="1.1.5.11"
-    sparkle:edSignature="jOhk7PnjItwyqsNjyZcEoebZwT7MUR/DhSeyubLE21Xv/v9dR0G3Oe6gRzlk6SgaXH5KXiwdjHz1UgVKAD7uCQ=="
-    length="95484439"
-    type="application/x-apple-diskimage"
-  />
-</item>
-    <item>
   <title>Version 1.1.5.10 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.10 (Lab)</h2><ul><li><strong>Appearance Settings Fills the Window on Open</strong> — Fixed an initial layout pass issue where the Appearance settings view could leave a dark strip at the bottom until the window was manually resized. (#129)</li></ul>

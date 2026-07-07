@@ -102,6 +102,30 @@ class ClashWebViewContoller: NSViewController {
     })();
     """
 
+    private static func metaCubeXDConfigJS(port: String, secret: String) -> String {
+        let backendURL = "http://127.0.0.1:\(port)"
+        let escapedBackendURL = backendURL.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+        let escapedSecret = secret.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+        return """
+        window.__METACUBEXD_CONFIG__ = {
+          defaultBackendURL: '\(escapedBackendURL)',
+          defaultBackendSecret: '\(escapedSecret)'
+        };
+        """
+    }
+
+    private static func metaCubeXDSetupURL(port: String, secret: String) -> URL? {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+")
+
+        var setupURL = "http://127.0.0.1:\(port)/ui/#/setup?hostname=127.0.0.1&port=\(port)&http=true"
+        if !secret.isEmpty {
+            let escapedSecret = secret.addingPercentEncoding(withAllowedCharacters: allowed) ?? secret
+            setupURL += "&secret=\(escapedSecret)"
+        }
+        return URL(string: setupURL)
+    }
+
     override func loadView() {
         view = NSView(frame: NSRect(origin: .zero, size: minSize))
     }
@@ -116,8 +140,12 @@ class ClashWebViewContoller: NSViewController {
         if #available(macOS 13.3, *) {
             webview.isInspectable = true
         }
+        let port = ConfigManager.shared.apiPort
+        let secret = ConfigManager.shared.overrideSecret ?? ConfigManager.shared.apiSecret
+        let metaCubeXDConfigScript = WKUserScript(source: Self.metaCubeXDConfigJS(port: port, secret: secret), injectionTime: .atDocumentStart, forMainFrameOnly: true)
         let guardScript = WKUserScript(source: Self.apiGuardJS, injectionTime: .atDocumentStart, forMainFrameOnly: true)
         let hideScript = WKUserScript(source: Self.hideUpgradeJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        webview.configuration.userContentController.addUserScript(metaCubeXDConfigScript)
         webview.configuration.userContentController.addUserScript(guardScript)
         webview.configuration.userContentController.addUserScript(hideScript)
 
@@ -169,7 +197,11 @@ class ClashWebViewContoller: NSViewController {
     }
 
     func loadWebRecourses() {
-        WKWebsiteDataStore.default().removeData(ofTypes: [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache], modifiedSince: Date(timeIntervalSince1970: 0), completionHandler: {})
+        WKWebsiteDataStore.default().removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+            modifiedSince: Date(timeIntervalSince1970: 0),
+            completionHandler: {}
+        )
         // defaults write com.clashfx.app webviewUrl "your url"
         if let userDefineUrl = UserDefaults.standard.string(forKey: "webviewUrl"), let url = URL(string: userDefineUrl) {
             Logger.log("get user define url: \(url)")
@@ -177,13 +209,9 @@ class ClashWebViewContoller: NSViewController {
             return
         }
         let port = ConfigManager.shared.apiPort
-        let secret = ConfigManager.shared.apiSecret
-        var defaultUrl = "http://127.0.0.1:\(port)/ui/#/setup?hostname=127.0.0.1&port=\(port)"
-        if !secret.isEmpty {
-            defaultUrl += "&secret=\(secret)"
-        }
-        if let url = URL(string: defaultUrl) {
-            Logger.log("dashboard url:\(defaultUrl)")
+        let secret = ConfigManager.shared.overrideSecret ?? ConfigManager.shared.apiSecret
+        if let url = Self.metaCubeXDSetupURL(port: port, secret: secret) {
+            Logger.log("dashboard url:http://127.0.0.1:\(port)/ui/#/setup")
             webview.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 0))
             return
         }

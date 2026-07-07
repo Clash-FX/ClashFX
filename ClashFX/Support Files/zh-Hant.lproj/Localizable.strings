@@ -566,3 +566,8 @@
 
 /* Requires Enhanced Mode (uses PROCESS-NAME rules) */
 "Requires Enhanced Mode (uses PROCESS-NAME rules)" = "需要先開啟增強模式（依賴 PROCESS-NAME 規則）";
+
+/* Settings sidebar */
+"Settings" = "設定";
+"Global Shortcut" = "全域快捷鍵";
+"Debug" = "偵錯";

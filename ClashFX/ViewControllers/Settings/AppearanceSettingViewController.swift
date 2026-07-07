@@ -9,12 +9,16 @@ import Cocoa
 
 class AppearanceSettingViewController: NSViewController {
     private let trayMenuSettingViewHeight: CGFloat = 300
-    private let preferredViewportHeight: CGFloat = 720
+    private let preferredViewportHeight: CGFloat = 520
 
     override func loadView() {
         let width: CGFloat = 400
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: preferredViewportHeight))
         contentView.autoresizingMask = [.width, .height]
+        contentView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        contentView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        contentView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        contentView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
 
         let scrollView = NSScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -23,6 +27,10 @@ class AppearanceSettingViewController: NSViewController {
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
+        scrollView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        scrollView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
 
         let documentView = NSView()
         documentView.translatesAutoresizingMaskIntoConstraints = false
@@ -110,6 +118,6 @@ class AppearanceSettingViewController: NSViewController {
 
         view = contentView
         title = NSLocalizedString("Appearance", comment: "")
-        preferredContentSize = NSSize(width: 420, height: preferredViewportHeight)
+        preferredContentSize = NSSize(width: 420, height: 520)
     }
 }

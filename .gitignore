@@ -3,7 +3,6 @@ Country.mmdb
 Carthage
 ClashFX.a
 ClashFX.h
-ClashFX/Resources/dashboard
 ClashFX.app
 *.dmg
 **/xcuserdata/

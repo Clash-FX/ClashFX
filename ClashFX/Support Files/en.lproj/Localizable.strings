@@ -573,3 +573,8 @@
 
 /* Requires Enhanced Mode (uses PROCESS-NAME rules) */
 "Requires Enhanced Mode (uses PROCESS-NAME rules)" = "Requires Enhanced Mode (uses PROCESS-NAME rules)";
+
+/* Settings sidebar */
+"Settings" = "Settings";
+"Global Shortcut" = "Shortcuts";
+"Debug" = "Debug";

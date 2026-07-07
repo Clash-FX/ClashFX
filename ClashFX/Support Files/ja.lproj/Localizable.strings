@@ -566,3 +566,8 @@
 
 /* Requires Enhanced Mode (uses PROCESS-NAME rules) */
 "Requires Enhanced Mode (uses PROCESS-NAME rules)" = "拡張モードが必要です（PROCESS-NAME ルールを使用）";
+
+/* Settings sidebar */
+"Settings" = "設定";
+"Global Shortcut" = "ショートカット";
+"Debug" = "デバッグ";

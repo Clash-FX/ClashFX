@@ -37,7 +37,7 @@
         <!--General-->
         <scene sceneID="XxM-Ti-kkw">
             <objects>
-                <viewController title="General" showSeguePresentationStyle="single" id="kma-mp-ncL" customClass="GeneralSettingViewController" customModule="ClashFX" customModuleProvider="target" sceneMemberID="viewController">
+                <viewController title="General" storyboardIdentifier="GeneralSettingViewController" showSeguePresentationStyle="single" id="kma-mp-ncL" customClass="GeneralSettingViewController" customModule="ClashFX" customModuleProvider="target" sceneMemberID="viewController">
                     <view key="view" misplaced="YES" id="dpe-v8-fF7">
                         <rect key="frame" x="0.0" y="0.0" width="400" height="674"/>
                         <autoresizingMask key="autoresizingMask"/>
@@ -1727,7 +1727,7 @@
         <!--Debug-->
         <scene sceneID="uyL-8z-i0d">
             <objects>
-                <viewController title="Debug" showSeguePresentationStyle="single" id="kdV-Em-qBi" customClass="DebugSettingViewController" customModule="ClashFX" customModuleProvider="target" sceneMemberID="viewController">
+                <viewController title="Debug" storyboardIdentifier="DebugSettingViewController" showSeguePresentationStyle="single" id="kdV-Em-qBi" customClass="DebugSettingViewController" customModule="ClashFX" customModuleProvider="target" sceneMemberID="viewController">
                     <view key="view" misplaced="YES" id="mud-rj-Isy">
                         <rect key="frame" x="0.0" y="0.0" width="416" height="412"/>
                         <autoresizingMask key="autoresizingMask"/>
@@ -2063,7 +2063,7 @@
         <!--Global ShortCut-->
         <scene sceneID="723-vr-5MK">
             <objects>
-                <viewController title="Global ShortCut" showSeguePresentationStyle="single" id="wKZ-TE-sf8" customClass="GlobalShortCutViewController" customModule="ClashFX" customModuleProvider="target" sceneMemberID="viewController">
+                <viewController title="Global ShortCut" storyboardIdentifier="GlobalShortCutViewController" showSeguePresentationStyle="single" id="wKZ-TE-sf8" customClass="GlobalShortCutViewController" customModule="ClashFX" customModuleProvider="target" sceneMemberID="viewController">
                     <view key="view" id="6Ss-22-m8j">
                         <rect key="frame" x="0.0" y="0.0" width="507" height="414"/>
                         <autoresizingMask key="autoresizingMask"/>

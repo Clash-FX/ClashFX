@@ -566,3 +566,8 @@
 
 /* Requires Enhanced Mode (uses PROCESS-NAME rules) */
 "Requires Enhanced Mode (uses PROCESS-NAME rules)" = "Требуется режим Enhanced (используются правила PROCESS-NAME)";
+
+/* Settings sidebar */
+"Settings" = "Настройки";
+"Global Shortcut" = "Сочетания";
+"Debug" = "Отладка";

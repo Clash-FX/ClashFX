@@ -287,10 +287,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        DispatchQueue.main.async { [weak self] in
-            self?.statusItem?.button?.performClick(nil)
+        if flag {
+            sender.windows
+                .filter(\.isVisible)
+                .forEach { $0.makeKeyAndOrderFront(nil) }
         }
-        return true
+        return false
     }
 
     func checkMenuIconVisable() {
@@ -1211,12 +1213,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate {
     @IBAction func actionDashboard(_ sender: NSMenuItem?) {
-        ClashWindowController<ClashWebViewContoller>.create().showWindow(sender)
+        DispatchQueue.main.async {
+            ClashWindowController<ClashWebViewContoller>.create().showWindow(sender)
+        }
     }
 
     @IBAction func actionConnections(_ sender: NSMenuItem?) {
         if #available(macOS 10.15, *) {
-            ClashWindowController<DashboardViewController>.create().showWindow(sender)
+            DispatchQueue.main.async {
+                ClashWindowController<DashboardViewController>.create().showWindow(sender)
+            }
         }
     }
 
@@ -2140,7 +2146,9 @@ extension AppDelegate {
     }
 
     @IBAction func actionMoreSetting(_ sender: Any) {
-        ClashWindowController<SettingTabViewController>.create().showWindow(sender)
+        DispatchQueue.main.async {
+            ClashWindowController<SettingsSidebarViewController>.create().showWindow(sender)
+        }
     }
 
     // MARK: - Language
