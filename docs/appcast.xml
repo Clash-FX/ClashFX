@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.5.10 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.5.10 (Lab)</h2><ul><li><strong>Appearance Settings Fills the Window on Open</strong> — Fixed an initial layout pass issue where the Appearance settings view could leave a dark strip at the bottom until the window was manually resized. (#129)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 07 Jul 2026 04:27:51 +0000</pubDate>
+  <sparkle:version>1001005010</sparkle:version>
+  <sparkle:shortVersionString>1.1.5.10</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5.10/ClashFX.dmg"
+    sparkle:version="1001005010"
+    sparkle:shortVersionString="1.1.5.10"
+    sparkle:edSignature="C8IJdZMU77Y/iUR54rHLHsJKYwXxLjJoL0TKI9FRy67BAeTE1D9gsSALFLx2LZTmEpgv/wj6+Tr7mnv968AlCA=="
+    length="95487348"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.5.9 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.9 (Lab)</h2><ul><li><strong>Settings Window Resizing Works Again</strong> — The Settings window now stays resizable while clamping only its maximum size and current frame to the visible screen area. It also reapplies the clamp after restoring a previously saved window size, so old oversized settings windows no longer slip behind the Dock. (#129)</li></ul>
