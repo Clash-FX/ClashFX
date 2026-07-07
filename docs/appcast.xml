@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.5.12 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.5.12 (Lab)</h2><ul><li><strong>Settings Uses Sidebar Layout</strong> — Reworked More Settings into a macOS-style sidebar layout, avoiding the top tab sizing issues that could leave the first page blank or block resizing. (#129)</li><li><strong>Settings Sidebar Shows the Current App Icon</strong> — Added a ClashFX brand header to the Settings sidebar and keeps it in sync when the app icon is changed from Appearance settings. (#129)</li><li><strong>Settings Resizes Normally Again</strong> — Removed the experimental tab wrapper and hard maximum content size so Settings can resize vertically and horizontally across General, Appearance, Global Shortcuts, and Debug. (#129)</li><li><strong>Dashboard Opens MetaCubeXD With the Active Secret</strong> — Replaced the bundled web dashboard with MetaCubeXD and opens it through ClashFX's local `/ui/` setup route with the current API port and secret, so it no longer stops at the setup screen with `secret rejected`. (#129)</li><li><strong>Dock Reopen No Longer Pops the Tray Menu</strong> — Clicking the Dock icon now only brings existing ClashFX windows forward and does not simulate a tray icon click. (#129)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 07 Jul 2026 13:20:18 +0000</pubDate>
+  <sparkle:version>1001005012</sparkle:version>
+  <sparkle:shortVersionString>1.1.5.12</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5.12/ClashFX.dmg"
+    sparkle:version="1001005012"
+    sparkle:shortVersionString="1.1.5.12"
+    sparkle:edSignature="ey9yvKc51pb5T6G0NxqD6cx5443B1ZfuClKHnybK/nTUrw61G8MOl3BnyOCy/icDc/Gf7Srr//Sihr7jpnW3BQ=="
+    length="95984267"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.5.10 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.10 (Lab)</h2><ul><li><strong>Appearance Settings Fills the Window on Open</strong> — Fixed an initial layout pass issue where the Appearance settings view could leave a dark strip at the bottom until the window was manually resized. (#129)</li></ul>
