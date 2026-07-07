@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.5.9 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.5.9 (Lab)</h2><ul><li><strong>Settings Window Resizing Works Again</strong> — The Settings window now stays resizable while clamping only its maximum size and current frame to the visible screen area. It also reapplies the clamp after restoring a previously saved window size, so old oversized settings windows no longer slip behind the Dock. (#129)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 07 Jul 2026 03:57:06 +0000</pubDate>
+  <sparkle:version>1001005009</sparkle:version>
+  <sparkle:shortVersionString>1.1.5.9</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5.9/ClashFX.dmg"
+    sparkle:version="1001005009"
+    sparkle:shortVersionString="1.1.5.9"
+    sparkle:edSignature="EtZb4S/YgZjpaHltB2/I4Eg5VOq+Qp+kSlPcQYO9Mh6/VSxOhhMTWTgophQBWisc5GTn6WJOWxT6wMIbgH9xAg=="
+    length="95956401"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.5.8 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.8 (Lab)</h2><ul><li><strong>Settings Window Stays Above the Dock</strong> — Settings now clamps its window frame to the current screen's visible area when opening or switching tabs, accounting for the titlebar/tab chrome so the Appearance tray-menu options remain reachable without entering full screen. (#129)</li></ul>
