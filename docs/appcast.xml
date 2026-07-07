@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.5.7 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.5.7 (Lab)</h2><ul><li><strong>Web Dashboard No Longer Shows a White Top Bar in Full Screen</strong> — The Dashboard menu window now uses a standard content layout instead of a transparent full-size titlebar with an empty macOS toolbar, and removes the old 28px dashboard padding patch. This keeps the Web dashboard navigation visible when the window enters full screen. (#129)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 07 Jul 2026 03:04:30 +0000</pubDate>
+  <sparkle:version>1001005007</sparkle:version>
+  <sparkle:shortVersionString>1.1.5.7</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5.7/ClashFX.dmg"
+    sparkle:version="1001005007"
+    sparkle:shortVersionString="1.1.5.7"
+    sparkle:edSignature="ri6VuA0XTfr6ese57pIPW+PfRsgFn1Tm88voZBJms7Ch8i7mXAUwu58+aeiBOiX6kkdQakbrPURLsaVdY7KGCg=="
+    length="95486196"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.5.6 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.6 (Lab)</h2><ul><li><strong>Dashboard Header No Longer Gets Covered in Full Screen</strong> — The native dashboard now uses an in-window header instead of a macOS toolbar, so the Recent/Active Connections switcher and search field stay visible when the dashboard enters full screen. (#129)</li><li><strong>Profile Mixin iCloud Sync Uses a Visible File and Reloads Cleanly</strong> — When iCloud config storage is enabled, ClashFX now migrates the local or legacy hidden mixin into a visible `Profile Mixin.yaml` file in iCloud Documents, filters it out of normal config lists, refreshes the config menu, watches the iCloud-selected config, and reloads it without requiring an app restart. (#129)</li><li><strong>Subscription Rules Editor Keeps Profile Buckets Out of Normal Configs</strong> — The visual Rules editor now keeps the rule bucket selector disabled on normal subscription configs and only exposes `profile.prepend-rules` / `profile.append-rules` when editing Profile Mixin, avoiding accidental edits to Profile-only rule buckets from the config editor. (#129)</li></ul>
