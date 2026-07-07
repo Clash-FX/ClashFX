@@ -1,5 +1,27 @@
 ### Bug Fixes
 
+- **Web Dashboard No Longer Shows a White Top Bar in Full Screen** — The Dashboard menu window now uses a standard content layout instead of a transparent full-size titlebar with an empty macOS toolbar, and removes the old 28px dashboard padding patch. This keeps the Web dashboard navigation visible when the window enters full screen. (#129)
+
+### Contributors
+
+- @a51095 — Continued verification of the Web dashboard full-screen header issue. (#129)
+
+---
+
+### 修复
+
+- **Web 控制台全屏时不再出现白色顶栏遮挡导航** — “控制台”菜单窗口现在改用标准内容布局，不再使用透明全尺寸标题栏和空 macOS toolbar，并移除了旧的 28px 顶部避让 CSS；进入全屏后 Web dashboard 顶部导航会正常显示在内容区内。 (#129)
+
+### 贡献者
+
+- @a51095 — 持续验证 Web 控制台全屏顶部遮挡问题。 (#129)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Dashboard Header No Longer Gets Covered in Full Screen** — The native dashboard now uses an in-window header instead of a macOS toolbar, so the Recent/Active Connections switcher and search field stay visible when the dashboard enters full screen. (#129)
 - **Profile Mixin iCloud Sync Uses a Visible File and Reloads Cleanly** — When iCloud config storage is enabled, ClashFX now migrates the local or legacy hidden mixin into a visible `Profile Mixin.yaml` file in iCloud Documents, filters it out of normal config lists, refreshes the config menu, watches the iCloud-selected config, and reloads it without requiring an app restart. (#129)
 - **Subscription Rules Editor Keeps Profile Buckets Out of Normal Configs** — The visual Rules editor now keeps the rule bucket selector disabled on normal subscription configs and only exposes `profile.prepend-rules` / `profile.append-rules` when editing Profile Mixin, avoiding accidental edits to Profile-only rule buckets from the config editor. (#129)
