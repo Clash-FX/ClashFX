@@ -1,5 +1,27 @@
 ### Bug Fixes
 
+- **Settings Window Resizes Freely Again** — Wrapped each Settings tab in a flexible container so fixed-height tab contents no longer block vertical resizing. The Settings window can now be resized from the bottom edges and corners across General, Appearance, Global Shortcuts, and Debug. (#129)
+
+### Contributors
+
+- @a51095 — Verified that v1.1.5.10 still allowed only partial resizing in Settings tabs. (#129)
+
+---
+
+### 修复
+
+- **设置窗口恢复完整缩放** — 设置页各 tab 现在会包在可随窗口伸缩的容器中，固定高度的页面内容不再锁住窗口高度；通用、外观、全局快捷键、调试页都可以通过底部边缘和角落调整宽高。 (#129)
+
+### 贡献者
+
+- @a51095 — 验证 v1.1.5.10 设置页仍只能部分缩放的问题。 (#129)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Appearance Settings Fills the Window on Open** — Fixed an initial layout pass issue where the Appearance settings view could leave a dark strip at the bottom until the window was manually resized. (#129)
 
 ### Contributors
