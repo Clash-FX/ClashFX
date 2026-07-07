@@ -69,7 +69,7 @@ class SettingTabViewController: NSTabViewController, NibLoadable {
         super.viewDidAppear()
         constrainWindowToVisibleScreen()
         DispatchQueue.main.async { [weak self] in
-            self?.constrainWindowToVisibleScreen()
+            self?.refreshWindowLayout()
         }
     }
 
@@ -84,6 +84,13 @@ class SettingTabViewController: NSTabViewController, NibLoadable {
         if frame != window.frame {
             window.setFrame(frame, display: true, animate: false)
         }
+        view.layoutSubtreeIfNeeded()
+    }
+
+    private func refreshWindowLayout() {
+        constrainWindowToVisibleScreen()
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
     }
 
     private func maximumContentSize(for window: NSWindow) -> NSSize {

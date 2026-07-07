@@ -14,7 +14,7 @@ class AppearanceSettingViewController: NSViewController {
     override func loadView() {
         let width: CGFloat = 400
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: preferredViewportHeight))
-        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.autoresizingMask = [.width, .height]
 
         let scrollView = NSScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
