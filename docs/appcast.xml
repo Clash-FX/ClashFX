@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.5.8 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.5.8 (Lab)</h2><ul><li><strong>Settings Window Stays Above the Dock</strong> — Settings now clamps its window frame to the current screen's visible area when opening or switching tabs, accounting for the titlebar/tab chrome so the Appearance tray-menu options remain reachable without entering full screen. (#129)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 07 Jul 2026 03:35:01 +0000</pubDate>
+  <sparkle:version>1001005008</sparkle:version>
+  <sparkle:shortVersionString>1.1.5.8</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.5.8/ClashFX.dmg"
+    sparkle:version="1001005008"
+    sparkle:shortVersionString="1.1.5.8"
+    sparkle:edSignature="VI15doUVgDfLyxAiKE+oDrRd2FrvUZd+BAxHN67X3uG3ksOCnRuqdyth6CcNkthQF2d/PsIKKMP1OXi0LynpCw=="
+    length="95482551"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.5.7 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.7 (Lab)</h2><ul><li><strong>Web Dashboard No Longer Shows a White Top Bar in Full Screen</strong> — The Dashboard menu window now uses a standard content layout instead of a transparent full-size titlebar with an empty macOS toolbar, and removes the old 28px dashboard padding patch. This keeps the Web dashboard navigation visible when the window enters full screen. (#129)</li></ul>
