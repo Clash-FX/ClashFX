@@ -9,7 +9,7 @@
 import Cocoa
 
 class SettingTabViewController: NSTabViewController, NibLoadable {
-    private let windowScreenPadding: CGFloat = 80
+    private let visibleFrameMargin: CGFloat = 12
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -61,26 +61,64 @@ class SettingTabViewController: NSTabViewController, NibLoadable {
 
     override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         super.tabView(tabView, didSelect: tabViewItem)
+        resizeWindowForSelectedTab(tabViewItem)
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        resizeWindowForSelectedTab(tabView.selectedTabViewItem)
+    }
+
+    private func resizeWindowForSelectedTab(_ tabViewItem: NSTabViewItem?) {
         guard let window = view.window,
+              !window.styleMask.contains(.fullScreen),
               let vc = tabViewItem?.viewController else { return }
         var contentSize = vc.preferredContentSize.height > 0
             ? vc.preferredContentSize
             : vc.view.frame.size
         guard contentSize.height > 0 else { return }
-        contentSize.height = min(contentSize.height, maximumContentHeight(for: window))
+        contentSize.height = min(contentSize.height, maximumContentHeight(for: window, contentWidth: contentSize.width))
         let newFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
         var frame = window.frame
         frame.origin.y += frame.height - newFrame.height
         frame.size.height = newFrame.height
-        if let visibleFrame = window.screen?.visibleFrame, frame.minY < visibleFrame.minY + 12 {
-            frame.origin.y = visibleFrame.minY + 12
-        }
+        frame = frameConstrainedToVisibleScreen(frame, window: window)
         window.setFrame(frame, display: true, animate: false)
     }
 
-    private func maximumContentHeight(for window: NSWindow) -> CGFloat {
+    private func maximumContentHeight(for window: NSWindow, contentWidth: CGFloat) -> CGFloat {
         guard let visibleFrame = window.screen?.visibleFrame else { return 620 }
-        return max(360, visibleFrame.height - windowScreenPadding)
+        let sampleContentHeight: CGFloat = 400
+        let sampleFrame = window.frameRect(
+            forContentRect: NSRect(
+                origin: .zero,
+                size: NSSize(width: contentWidth, height: sampleContentHeight)
+            )
+        )
+        let windowChromeHeight = sampleFrame.height - sampleContentHeight
+        return max(360, visibleFrame.height - (visibleFrameMargin * 2) - windowChromeHeight)
+    }
+
+    private func frameConstrainedToVisibleScreen(_ frame: NSRect, window: NSWindow) -> NSRect {
+        guard let visibleFrame = window.screen?.visibleFrame else { return frame }
+        var adjustedFrame = frame
+        let maximumFrameHeight = max(360, visibleFrame.height - (visibleFrameMargin * 2))
+        if adjustedFrame.height > maximumFrameHeight {
+            adjustedFrame.size.height = maximumFrameHeight
+        }
+        if adjustedFrame.maxY > visibleFrame.maxY - visibleFrameMargin {
+            adjustedFrame.origin.y = visibleFrame.maxY - visibleFrameMargin - adjustedFrame.height
+        }
+        if adjustedFrame.minY < visibleFrame.minY + visibleFrameMargin {
+            adjustedFrame.origin.y = visibleFrame.minY + visibleFrameMargin
+        }
+        if adjustedFrame.maxX > visibleFrame.maxX - visibleFrameMargin {
+            adjustedFrame.origin.x = visibleFrame.maxX - visibleFrameMargin - adjustedFrame.width
+        }
+        if adjustedFrame.minX < visibleFrame.minX + visibleFrameMargin {
+            adjustedFrame.origin.x = visibleFrame.minX + visibleFrameMargin
+        }
+        return adjustedFrame
     }
 
     private func insertAppearanceTab() {
