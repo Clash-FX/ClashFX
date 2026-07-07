@@ -1,5 +1,27 @@
 ### Bug Fixes
 
+- **Appearance Settings Fills the Window on Open** — Fixed an initial layout pass issue where the Appearance settings view could leave a dark strip at the bottom until the window was manually resized. (#129)
+
+### Contributors
+
+- @a51095 — Reported that v1.1.5.9 could still show a partially covered bottom area until resizing the Settings window. (#129)
+
+---
+
+### 修复
+
+- **外观设置打开后立即填满窗口** — 修复外观设置页首次打开时底部可能出现黑色遮挡区域、手动调整窗口大小后才恢复的问题。 (#129)
+
+### 贡献者
+
+- @a51095 — 反馈 v1.1.5.9 设置窗口打开后底部仍有局部遮挡，手动放大后才消失。 (#129)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Settings Window Resizing Works Again** — The Settings window now stays resizable while clamping only its maximum size and current frame to the visible screen area. It also reapplies the clamp after restoring a previously saved window size, so old oversized settings windows no longer slip behind the Dock. (#129)
 
 ### Contributors
