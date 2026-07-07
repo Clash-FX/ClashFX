@@ -10,6 +10,7 @@ import Cocoa
 
 class SettingTabViewController: NSTabViewController, NibLoadable {
     private let visibleFrameMargin: CGFloat = 12
+    private let minimumContentSize = NSSize(width: 400, height: 360)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -61,42 +62,48 @@ class SettingTabViewController: NSTabViewController, NibLoadable {
 
     override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         super.tabView(tabView, didSelect: tabViewItem)
-        resizeWindowForSelectedTab(tabViewItem)
+        constrainWindowToVisibleScreen()
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        resizeWindowForSelectedTab(tabView.selectedTabViewItem)
+        constrainWindowToVisibleScreen()
+        DispatchQueue.main.async { [weak self] in
+            self?.constrainWindowToVisibleScreen()
+        }
     }
 
-    private func resizeWindowForSelectedTab(_ tabViewItem: NSTabViewItem?) {
+    private func constrainWindowToVisibleScreen() {
         guard let window = view.window,
-              !window.styleMask.contains(.fullScreen),
-              let vc = tabViewItem?.viewController else { return }
-        var contentSize = vc.preferredContentSize.height > 0
-            ? vc.preferredContentSize
-            : vc.view.frame.size
-        guard contentSize.height > 0 else { return }
-        contentSize.height = min(contentSize.height, maximumContentHeight(for: window, contentWidth: contentSize.width))
-        let newFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
-        var frame = window.frame
-        frame.origin.y += frame.height - newFrame.height
-        frame.size.height = newFrame.height
-        frame = frameConstrainedToVisibleScreen(frame, window: window)
-        window.setFrame(frame, display: true, animate: false)
+              !window.styleMask.contains(.fullScreen) else { return }
+        window.styleMask.insert(.resizable)
+        window.contentMinSize = minimumContentSize
+        window.contentMaxSize = maximumContentSize(for: window)
+
+        let frame = frameConstrainedToVisibleScreen(window.frame, window: window)
+        if frame != window.frame {
+            window.setFrame(frame, display: true, animate: false)
+        }
     }
 
-    private func maximumContentHeight(for window: NSWindow, contentWidth: CGFloat) -> CGFloat {
-        guard let visibleFrame = window.screen?.visibleFrame else { return 620 }
+    private func maximumContentSize(for window: NSWindow) -> NSSize {
+        guard let visibleFrame = window.screen?.visibleFrame else {
+            return NSSize(width: 900, height: 620)
+        }
         let sampleContentHeight: CGFloat = 400
+        let sampleContentWidth: CGFloat = minimumContentSize.width
         let sampleFrame = window.frameRect(
             forContentRect: NSRect(
                 origin: .zero,
-                size: NSSize(width: contentWidth, height: sampleContentHeight)
+                size: NSSize(width: sampleContentWidth, height: sampleContentHeight)
             )
         )
         let windowChromeHeight = sampleFrame.height - sampleContentHeight
-        return max(360, visibleFrame.height - (visibleFrameMargin * 2) - windowChromeHeight)
+        let windowChromeWidth = sampleFrame.width - sampleContentWidth
+        return NSSize(
+            width: max(minimumContentSize.width, visibleFrame.width - (visibleFrameMargin * 2) - windowChromeWidth),
+            height: max(minimumContentSize.height, visibleFrame.height - (visibleFrameMargin * 2) - windowChromeHeight)
+        )
     }
 
     private func frameConstrainedToVisibleScreen(_ frame: NSRect, window: NSWindow) -> NSRect {
