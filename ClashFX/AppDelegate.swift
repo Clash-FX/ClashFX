@@ -12,6 +12,7 @@ import AppCenterAnalytics
 import AppCenterCrashes
 import Cocoa
 import CocoaLumberjack
+import KeyboardShortcuts
 import LetsMove
 import RxCocoa
 import RxSwift
@@ -348,8 +349,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         refreshStatusItemViewStatus()
         enhancedModeMenuItem.state = Settings.enhancedMode ? .on : .off
         bypassChineseAppsMenuItem?.state = Settings.bypassChineseApps ? .on : .off
+        setupMenuShortcutDisplay()
         installSubscriptionStatusMenuItemIfNeeded()
         refreshSubscriptionStatusMenuItem()
+    }
+
+    private func setupMenuShortcutDisplay() {
+        proxySettingMenuItem.setShortcut(for: .toggleSystemProxyMode)
+        copyExportCommandMenuItem.setShortcut(for: .copyShellCommand)
+        copyExportCommandExternalMenuItem.setShortcut(for: .copyExternalShellCommand)
+        proxyModeDirectMenuItem.setShortcut(for: .modeDirect)
+        proxyModeRuleMenuItem.setShortcut(for: .modeRule)
+        proxyModeGlobalMenuItem.setShortcut(for: .modeGlobal)
+        showLogMenuItem.setShortcut(for: .log)
+        dashboardMenuItem.setShortcut(for: .dashboard)
+        connectionsMenuItem.setShortcut(for: .nativeDashboard)
     }
 
     private func refreshStatusItemViewStatus(systemProxyActive: Bool? = nil) {
@@ -1674,7 +1688,9 @@ extension AppDelegate {
                         }
                         self.verifyTunStatus(port: port, secret: secret)
                         self.overrideDNSForTun()
-                        completion(nil)
+                        self.restoreSelectedOutboundModeAfterCoreChange {
+                            completion(nil)
+                        }
                     } else if attemptsLeft > 0, !Settings.enhancedModeUseCustomConfig {
                         Logger.log("External core not ready, regenerating config and retrying (\(attemptsLeft) left)", level: .warning)
                         ConfigManager.shared.isEnhancedModeActive = false
@@ -2474,10 +2490,20 @@ extension AppDelegate {
     }
 
     func selectOutBoundModeWithMenory() {
-        ApiRequest.updateOutBoundMode(mode: ConfigManager.selectOutBoundMode) {
-            [weak self] _ in
-            ConnectionManager.closeAllConnection()
-            self?.syncConfig()
+        restoreSelectedOutboundModeAfterCoreChange()
+    }
+
+    private func restoreSelectedOutboundModeAfterCoreChange(completion: (() -> Void)? = nil) {
+        let mode = ConfigManager.selectOutBoundMode
+        ApiRequest.updateOutBoundMode(mode: mode) { [weak self] success in
+            if success {
+                Logger.log("Restored outbound mode after core change: \(mode.rawValue)")
+                ConnectionManager.closeAllConnection()
+                self?.syncConfig()
+            } else {
+                Logger.log("Failed to restore outbound mode after core change: \(mode.rawValue)", level: .warning)
+            }
+            completion?()
         }
     }
 

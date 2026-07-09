@@ -25,6 +25,10 @@ private class ClashWindowsRecorder {
 class ClashWindowController<T: NSViewController>: NSWindowController, NSWindowDelegate {
     var onWindowClose: (() -> Void)?
     private var fromCache = false
+    private var shouldPersistWindowSize: Bool {
+        !(T.self == SettingsSidebarViewController.self)
+    }
+
     private var lastSize: CGSize? {
         get {
             if let str = UserDefaults.standard.value(forKey: "lastSize.\(T.className())") as? String {
@@ -65,7 +69,7 @@ class ClashWindowController<T: NSViewController>: NSWindowController, NSWindowDe
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
         NSApp.activate(ignoringOtherApps: true)
-        if !fromCache, let lastSize = lastSize, lastSize != .zero {
+        if shouldPersistWindowSize, !fromCache, let lastSize = lastSize, lastSize != .zero {
             window?.setContentSize(lastSize)
             window?.center()
         }
@@ -79,7 +83,7 @@ class ClashWindowController<T: NSViewController>: NSWindowController, NSWindowDe
         ClashWindowsRecorder.shared.windowControllers.removeAll(where: { $0 == self })
         onWindowClose?()
         if let win = window {
-            if !win.styleMask.contains(.fullScreen) {
+            if shouldPersistWindowSize, !win.styleMask.contains(.fullScreen) {
                 lastSize = win.frame.size
             }
         }

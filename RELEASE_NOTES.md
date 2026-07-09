@@ -1,28 +1,32 @@
 ### Bug Fixes
 
-- **Settings Uses Sidebar Layout** — Reworked More Settings into a macOS-style sidebar layout, avoiding the top tab sizing issues that could leave the first page blank or block resizing. (#129)
+- **Enhanced Mode Keeps the Selected Outbound Mode** — Reapplies the saved Direct/Rule/Global mode after the external core starts, so enabling TUN/Enhanced Mode no longer falls back to rule mode while the menu still shows Global. (#155)
+- **Settings Uses a Fixed Sidebar Layout** — Reworked More Settings into a macOS-style sidebar layout with a fixed safe window size and scrollable pages, avoiding the top tab sizing issues that could leave the first page blank or put controls behind the Dock. (#129)
 - **Settings Sidebar Shows the Current App Icon** — Added a ClashFX brand header to the Settings sidebar and keeps it in sync when the app icon is changed from Appearance settings. (#129)
-- **Settings Resizes Normally Again** — Removed the experimental tab wrapper and hard maximum content size so Settings can resize vertically and horizontally across General, Appearance, Global Shortcuts, and Debug. (#129)
 - **Dashboard Opens MetaCubeXD With the Active Secret** — Replaced the bundled web dashboard with MetaCubeXD and opens it through ClashFX's local `/ui/` setup route with the current API port and secret, so it no longer stops at the setup screen with `secret rejected`. (#129)
 - **Dock Reopen No Longer Pops the Tray Menu** — Clicking the Dock icon now only brings existing ClashFX windows forward and does not simulate a tray icon click. (#129)
+- **Shortcut Menus Reflect Custom Hotkeys** — Proxy mode and utility menu items now show the currently configured global shortcut instead of always showing the default key equivalent. (#129)
 
 ### Contributors
 
 - @a51095 — Reported the blank Settings window, resize limits, dashboard setup screen, and tray menu/window overlap issues. (#129)
+- @dringer123 — Reported that Global mode could stop taking effect after enabling TUN/Enhanced Mode. (#155)
 
 ---
 
 ### 修复
 
-- **设置改为侧边栏布局** — “更多设置”改成类似 macOS 设置的左侧导航布局，避开顶部 tab 导致的首次空白和缩放异常。 (#129)
+- **Enhanced Mode 会保持当前出站模式** — 外部核心启动后会重新应用已保存的 Direct/Rule/Global 模式，避免开启 TUN/Enhanced Mode 后界面显示 Global、实际却回到规则模式。 (#155)
+- **设置改为固定侧边栏布局** — “更多设置”改成类似 macOS 设置的左侧导航布局，窗口使用固定安全尺寸，页面内部滚动，避免顶部 tab 导致首次空白或底部控件被 Dock 遮挡。 (#129)
 - **设置侧边栏显示当前 APP 图标** — 设置左侧新增 ClashFX 品牌区，并在“外观”里更换 APP 图标后同步刷新。 (#129)
-- **设置窗口恢复正常缩放** — 移除实验性的设置页 tab 包装层和最大内容尺寸硬限制，通用、外观、全局快捷键和调试页都可正常调整宽高。 (#129)
 - **控制台会带当前密钥进入 MetaCubeXD** — Web 控制台的 bundled 资源已替换为 MetaCubeXD，并通过 ClashFX 本地 `/ui/` setup 路由带入当前 API 端口和密钥，避免停在 setup 页提示 `secret 被拒绝`。 (#129)
 - **点击 Dock 不再弹出菜单栏菜单** — Dock 重新激活 App 时只把已有窗口提到前台，不再模拟点击状态栏图标。 (#129)
+- **快捷键菜单显示跟随自定义配置** — 代理模式和常用功能菜单现在会显示用户当前配置的全局快捷键，不再固定显示默认快捷键。 (#129)
 
 ### 贡献者
 
 - @a51095 — 反馈设置窗口空白、缩放受限、控制台停在 setup 页面以及菜单和窗口重叠的问题。 (#129)
+- @dringer123 — 反馈开启 TUN/Enhanced Mode 后 Global 模式可能不生效的问题。 (#155)
 
 <!-- Previous release notes -->
 

@@ -10,18 +10,45 @@ import AppKit
 import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
-    static let toggleSystemProxyMode = Self("shortCut.toggleSystemProxyMode")
-    static let copyShellCommand = Self("shortCut.copyShellCommand")
-    static let copyExternalShellCommand = Self("shortCut.copyExternalShellCommand")
+    static let toggleSystemProxyMode = Self(
+        "shortCut.toggleSystemProxyMode",
+        default: .init(.s, modifiers: .command)
+    )
+    static let copyShellCommand = Self(
+        "shortCut.copyShellCommand",
+        default: .init(.c, modifiers: .command)
+    )
+    static let copyExternalShellCommand = Self(
+        "shortCut.copyExternalShellCommand",
+        default: .init(.c, modifiers: [.command, .option])
+    )
 
-    static let modeDirect = Self("shortCut.modeDirect")
-    static let modeRule = Self("shortCut.modeRule")
-    static let modeGlobal = Self("shortCut.modeGlobal")
+    static let modeDirect = Self(
+        "shortCut.modeDirect",
+        default: .init(.d, modifiers: .option)
+    )
+    static let modeRule = Self(
+        "shortCut.modeRule",
+        default: .init(.r, modifiers: .option)
+    )
+    static let modeGlobal = Self(
+        "shortCut.modeGlobal",
+        default: .init(.g, modifiers: .option)
+    )
 
-    static let log = Self("shortCut.log")
-    static let dashboard = Self("shortCut.dashboard")
+    static let log = Self(
+        "shortCut.log",
+        default: .init(.l, modifiers: .command)
+    )
+    static let dashboard = Self(
+        "shortCut.dashboard",
+        default: .init(.d, modifiers: .command)
+    )
     static let openMenu = Self("shortCut.openMenu")
-    static let nativeDashboard = Self("shortCut.nativeDashboard")
+    static let nativeDashboard = Self(
+        "shortCut.nativeDashboard",
+        default: .init(.d, modifiers: [.command, .shift])
+    )
 }
 
 enum KeyboardShortCutManager {

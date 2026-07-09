@@ -9,8 +9,9 @@
 import Cocoa
 
 class SettingsSidebarViewController: NSViewController {
-    private let minimumContentSize = NSSize(width: 560, height: 360)
+    private let minimumContentSize = NSSize(width: 900, height: 500)
     private let preferredContent = NSSize(width: 900, height: 620)
+    private let visibleFrameMargin: CGFloat = 16
     private let sidebarWidth: CGFloat = 176
     private var pageRows: [SettingsSidebarRowView] = []
     private var pages: [SettingsPage] = []
@@ -53,13 +54,39 @@ class SettingsSidebarViewController: NSViewController {
     private func configureWindow() {
         guard let window = view.window else { return }
         window.title = NSLocalizedString("Settings", comment: "")
-        window.styleMask.formUnion([.titled, .closable, .resizable, .miniaturizable])
-        window.contentMinSize = minimumContentSize
-        window.contentMaxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        window.minSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: minimumContentSize)).size
-        window.maxSize = NSSize(width: 100_000, height: 100_000)
-        window.contentResizeIncrements = NSSize(width: 1, height: 1)
-        window.resizeIncrements = NSSize(width: 1, height: 1)
+        window.styleMask.formUnion([.titled, .closable, .miniaturizable])
+        window.styleMask.remove(.resizable)
+
+        let visibleFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        let maxVisibleHeight = visibleFrame.map { max(minimumContentSize.height, $0.height - visibleFrameMargin * 2) }
+            ?? preferredContent.height
+        let fixedContentSize = NSSize(
+            width: preferredContent.width,
+            height: min(preferredContent.height, maxVisibleHeight)
+        )
+
+        preferredContentSize = fixedContentSize
+        window.contentMinSize = fixedContentSize
+        window.contentMaxSize = fixedContentSize
+        window.setContentSize(fixedContentSize)
+
+        if let visibleFrame {
+            var frame = window.frame
+            if frame.maxY > visibleFrame.maxY - visibleFrameMargin {
+                frame.origin.y = visibleFrame.maxY - visibleFrameMargin - frame.height
+            }
+            if frame.minY < visibleFrame.minY + visibleFrameMargin {
+                frame.origin.y = visibleFrame.minY + visibleFrameMargin
+            }
+            if frame.maxX > visibleFrame.maxX - visibleFrameMargin {
+                frame.origin.x = visibleFrame.maxX - visibleFrameMargin - frame.width
+            }
+            if frame.minX < visibleFrame.minX + visibleFrameMargin {
+                frame.origin.x = visibleFrame.minX + visibleFrameMargin
+            }
+            window.setFrame(frame, display: true, animate: false)
+        }
+
         view.setContentHuggingPriority(.defaultLow, for: .horizontal)
         view.setContentHuggingPriority(.defaultLow, for: .vertical)
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -318,6 +345,7 @@ private final class SettingsSidebarRowView: NSControl {
 
 private final class SettingsPageHostViewController: NSViewController {
     private let contentViewController: NSViewController
+    private let pageInsets = NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
 
     init(contentViewController: NSViewController) {
         self.contentViewController = contentViewController
@@ -330,30 +358,52 @@ private final class SettingsPageHostViewController: NSViewController {
     }
 
     override func loadView() {
-        let container = NSView(frame: NSRect(origin: .zero, size: NSSize(width: 700, height: 560)))
-        container.autoresizingMask = [.width, .height]
-        container.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        container.setContentHuggingPriority(.defaultLow, for: .vertical)
-        container.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        container.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        let scrollView = NSScrollView(frame: NSRect(origin: .zero, size: NSSize(width: 724, height: 620)))
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        scrollView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+
+        let documentView = NSView()
+        documentView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = documentView
 
         addChild(contentViewController)
         let childView = contentViewController.view
-        childView.frame = container.bounds.insetBy(dx: 24, dy: 24)
-        childView.autoresizingMask = [.width, .height]
-        childView.translatesAutoresizingMaskIntoConstraints = true
+        let originalHeight = max(childView.frame.height, contentViewController.preferredContentSize.height)
+        childView.translatesAutoresizingMaskIntoConstraints = false
         childView.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        childView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        childView.setContentHuggingPriority(.defaultHigh, for: .vertical)
         childView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        childView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        container.addSubview(childView)
+        childView.setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
+        documentView.addSubview(childView)
 
-        view = container
+        NSLayoutConstraint.activate([
+            documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            documentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            documentView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+
+            childView.topAnchor.constraint(equalTo: documentView.topAnchor, constant: pageInsets.top),
+            childView.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: pageInsets.left),
+            childView.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -pageInsets.right),
+            childView.bottomAnchor.constraint(equalTo: documentView.bottomAnchor, constant: -pageInsets.bottom),
+            childView.heightAnchor.constraint(greaterThanOrEqualToConstant: originalHeight),
+            childView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.heightAnchor, constant: -(pageInsets.top + pageInsets.bottom))
+        ])
+
+        view = scrollView
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        contentViewController.view.frame = view.bounds.insetBy(dx: 24, dy: 24)
+        view.layoutSubtreeIfNeeded()
     }
 }
 
