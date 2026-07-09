@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.6</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.6</h2><ul><li><strong>Enhanced Mode Keeps the Selected Outbound Mode</strong> — Reapplies the saved Direct/Rule/Global mode after the external core starts, so enabling TUN/Enhanced Mode no longer falls back to rule mode while the menu still shows Global. (#155)</li><li><strong>Settings Uses a Fixed Sidebar Layout</strong> — Reworked More Settings into a macOS-style sidebar layout with a fixed safe window size and scrollable pages, avoiding the top tab sizing issues that could leave the first page blank or put controls behind the Dock. (#129)</li><li><strong>Settings Sidebar Shows the Current App Icon</strong> — Added a ClashFX brand header to the Settings sidebar and keeps it in sync when the app icon is changed from Appearance settings. (#129)</li><li><strong>Dashboard Opens MetaCubeXD With the Active Secret</strong> — Replaced the bundled web dashboard with MetaCubeXD and opens it through ClashFX's local `/ui/` setup route with the current API port and secret, so it no longer stops at the setup screen with `secret rejected`. (#129)</li><li><strong>Dock Reopen No Longer Pops the Tray Menu</strong> — Clicking the Dock icon now only brings existing ClashFX windows forward and does not simulate a tray icon click. (#129)</li><li><strong>Shortcut Menus Reflect Custom Hotkeys</strong> — Proxy mode and utility menu items now show the currently configured global shortcut instead of always showing the default key equivalent. (#129)</li></ul>
+  ]]></description>
+  <pubDate>Thu, 09 Jul 2026 10:55:04 +0000</pubDate>
+  <sparkle:version>1001006000</sparkle:version>
+  <sparkle:shortVersionString>1.1.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.6/ClashFX.dmg"
+    sparkle:version="1001006000"
+    sparkle:shortVersionString="1.1.6"
+    sparkle:edSignature="TnTg1wvZ+vj4LzoGf9Wiy5XUn9vWNsxxqImp15LZr0oRqLCLeeR0fGLsIkX76HHqgCgAaeytgWe6Cpm+RacAAA=="
+    length="95558650"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.5.12 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.5.12 (Lab)</h2><ul><li><strong>Settings Uses Sidebar Layout</strong> — Reworked More Settings into a macOS-style sidebar layout, avoiding the top tab sizing issues that could leave the first page blank or block resizing. (#129)</li><li><strong>Settings Sidebar Shows the Current App Icon</strong> — Added a ClashFX brand header to the Settings sidebar and keeps it in sync when the app icon is changed from Appearance settings. (#129)</li><li><strong>Settings Resizes Normally Again</strong> — Removed the experimental tab wrapper and hard maximum content size so Settings can resize vertically and horizontally across General, Appearance, Global Shortcuts, and Debug. (#129)</li><li><strong>Dashboard Opens MetaCubeXD With the Active Secret</strong> — Replaced the bundled web dashboard with MetaCubeXD and opens it through ClashFX's local `/ui/` setup route with the current API port and secret, so it no longer stops at the setup screen with `secret rejected`. (#129)</li><li><strong>Dock Reopen No Longer Pops the Tray Menu</strong> — Clicking the Dock icon now only brings existing ClashFX windows forward and does not simulate a tray icon click. (#129)</li></ul>
