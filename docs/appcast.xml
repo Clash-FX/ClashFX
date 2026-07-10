@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.6.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.6.2 (Lab)</h2><ul><li><strong>Settings Section Headers Are Clearer</strong> — Section headers now sit above their cards with consistent spacing, use a distinct secondary style, and no longer clip or run into the preceding section. General settings also adds meaningful headers for application, network automation, connectivity test, and bypass-rule sections. (#129)</li><li><strong>Copy Shortcuts No Longer Intercept Command-C</strong> — The two copy-command shortcuts now default to Control-Option-C and Control-Option-Shift-C. Existing Command-C and Option-Command-C bindings are migrated automatically once so normal system copy works again. (#129)</li></ul>
+  ]]></description>
+  <pubDate>Fri, 10 Jul 2026 03:09:19 +0000</pubDate>
+  <sparkle:version>1001006002</sparkle:version>
+  <sparkle:shortVersionString>1.1.6.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.6.2/ClashFX.dmg"
+    sparkle:version="1001006002"
+    sparkle:shortVersionString="1.1.6.2"
+    sparkle:edSignature="agv2/vZzfYPITx1h6hwteB0YQ8L02oFgeJu+LvReUtJs/YjQftgYpDXCXhFAA1RUFwkL2LWUtKGqOw4jlHmwBA=="
+    length="95992731"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.6.1 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.6.1 (Lab)</h2><ul><li><strong>Settings Stays Inside the Active Screen</strong> — The fixed Settings window now derives its size from the active display's visible work area, including the title bar, so it remains above the Dock on smaller or third-party displays. Extra page-bottom space also keeps the final section fully reachable. (#129)</li><li><strong>Enhanced Mode Has a Real Global Shortcut</strong> — Enhanced Mode is now registered as a configurable global shortcut instead of a ClashFX-only menu shortcut. Its new default is Control-Option-E, avoiding the former Command-Shift-E conflict with Xcode. (#129)</li></ul>
