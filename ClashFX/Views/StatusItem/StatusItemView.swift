@@ -115,6 +115,13 @@ class StatusItemView: NSView, StatusItemViewProtocol {
         updateStatusItemWidthIfNeeded()
     }
 
+    func updateSpeedToolTip(_ toolTip: String) {
+        self.toolTip = toolTip
+        imageView.toolTip = toolTip
+        speedContainerView.toolTip = toolTip
+        speedTextView.toolTip = toolTip
+    }
+
     private func updateStatusItemWidthIfNeeded() {
         let width = preferredWidth
         guard statusItem?.length != width else { return }

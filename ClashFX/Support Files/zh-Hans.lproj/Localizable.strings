@@ -518,6 +518,11 @@
 /* No comment provided by engineer. */
 "Show Net Speed" = "显示实时速率";
 
+"Show Proxy Speed" = "显示 ClashFX 代理速率";
+"Shows traffic that passes through ClashFX's local proxy or Enhanced Mode, not total system traffic." = "仅显示经过 ClashFX 本地代理或增强模式的流量，不代表电脑整体网速。";
+"Hide Dock Icon" = "隐藏 Dock 图标";
+"When enabled, ClashFX is available only from the menu bar." = "开启后，只能通过状态栏图标访问应用。";
+
 /* No comment provided by engineer. */
 "Allow from LAN" = "允许局域网连接";
 

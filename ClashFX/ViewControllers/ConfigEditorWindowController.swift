@@ -48,10 +48,9 @@ class ConfigEditorWindowController: NSWindowController {
         window.center()
         window.minSize = NSSize(width: 750, height: 450)
         super.init(window: window)
-        // Show app in Dock when editor is open so user can find it easily
         window.delegate = self
         setupUI()
-        NSApp.setActivationPolicy(.regular)
+        DockIconVisibility.refresh(windowWillBeVisible: true)
     }
 
     @available(*, unavailable)
@@ -559,15 +558,9 @@ extension ConfigEditorWindowController: NSTextViewDelegate {
 extension ConfigEditorWindowController: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         ConfigEditorWindowController.openWindows[windowKey] = nil
-        // Hide from Dock when no editor windows are open
-        // (check if other key windows exist first)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            let hasVisibleWindows = NSApp.windows.contains {
-                $0.isVisible && !$0.isKind(of: NSPanel.self) && $0.styleMask.contains(.titled)
-            }
-            if !hasVisibleWindows {
-                NSApp.setActivationPolicy(.accessory)
-            }
+        DockIconVisibility.refresh()
+        DispatchQueue.main.async {
+            DockIconVisibility.refresh()
         }
     }
 }

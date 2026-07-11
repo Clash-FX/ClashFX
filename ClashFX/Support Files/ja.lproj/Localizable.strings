@@ -484,6 +484,11 @@
 /* No comment provided by engineer. */
 "Show Net Speed" = "ネット速度を表示";
 
+"Show Proxy Speed" = "ClashFX プロキシ速度を表示";
+"Shows traffic that passes through ClashFX's local proxy or Enhanced Mode, not total system traffic." = "ClashFX のローカルプロキシまたは拡張モードを経由した通信量のみを表示します。システム全体の通信速度ではありません。";
+"Hide Dock Icon" = "Dock アイコンを隠す";
+"When enabled, ClashFX is available only from the menu bar." = "有効にすると、ClashFX にはメニューバーアイコンからのみアクセスできます。";
+
 /* No comment provided by engineer. */
 "Allow from LAN" = "LAN からの接続を許可";
 

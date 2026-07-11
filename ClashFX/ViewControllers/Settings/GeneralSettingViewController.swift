@@ -16,6 +16,7 @@ class GeneralSettingViewController: NSViewController {
 
     @IBOutlet var reduceNotificationsButton: NSButton!
     @IBOutlet var useiCloudButton: NSButton!
+    @IBOutlet var applicationSettingsStack: NSStackView!
 
     @IBOutlet var allowApiLanUsageSwitcher: NSButton!
     @IBOutlet var proxyPortTextField: NSTextField!
@@ -32,6 +33,7 @@ class GeneralSettingViewController: NSViewController {
     var disposeBag = DisposeBag()
     override func viewDidLoad() {
         super.viewDidLoad()
+        installDockIconToggle()
         speedTestUrlField.stringValue = Settings.benchMarkUrl
         speedTestUrlField.placeholderString = Settings.defaultBenchmarkUrl
         ignoreListTextView.string = Settings.proxyIgnoreList.joined(separator: ",")
@@ -134,6 +136,57 @@ class GeneralSettingViewController: NSViewController {
         allowApiLanUsageSwitcher.rx.state.bind { state in
             Settings.apiPortAllowLan = state == .on
         }.disposed(by: disposeBag)
+    }
+
+    private func installDockIconToggle() {
+        let title = NSTextField(labelWithString: NSLocalizedString("Hide Dock Icon", comment: ""))
+        title.font = .systemFont(ofSize: 13)
+
+        let toggle: NSView
+        if #available(macOS 10.15, *) {
+            let dockSwitch = NSSwitch()
+            dockSwitch.controlSize = .small
+            dockSwitch.state = Settings.hideDockIcon ? .on : .off
+            dockSwitch.target = self
+            dockSwitch.action = #selector(toggleDockIconVisibility(_:))
+            toggle = dockSwitch
+        } else {
+            let dockCheckbox = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggleDockIconVisibility(_:)))
+            dockCheckbox.state = Settings.hideDockIcon ? .on : .off
+            toggle = dockCheckbox
+        }
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let row = NSStackView(views: [title, spacer, toggle])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.distribution = .fill
+        row.spacing = 8
+
+        let hint = NSTextField(labelWithString: NSLocalizedString("When enabled, ClashFX is available only from the menu bar.", comment: ""))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+
+        let container = NSStackView(views: [row, hint])
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 4
+        applicationSettingsStack.addArrangedSubview(container)
+    }
+
+    @objc private func toggleDockIconVisibility(_ sender: Any) {
+        let isEnabled: Bool
+        if #available(macOS 10.15, *), let dockSwitch = sender as? NSSwitch {
+            isEnabled = dockSwitch.state == .on
+        } else if let dockCheckbox = sender as? NSButton {
+            isEnabled = dockCheckbox.state == .on
+        } else {
+            return
+        }
+        Settings.hideDockIcon = isEnabled
+        DockIconVisibility.refresh()
     }
 
     override func viewDidAppear() {

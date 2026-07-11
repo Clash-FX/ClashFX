@@ -13,6 +13,8 @@ import RxSwift
 
 class ConfigManager {
     static let shared = ConfigManager()
+    private static let selectedLocalConfigNameKey = "selectedLocalConfigName"
+    private static let selectedICloudConfigNameKey = "selectedICloudConfigName"
     private let disposeBag = DisposeBag()
     var apiPort = "8080"
     var allowExternalControl = false
@@ -49,8 +51,21 @@ class ConfigManager {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "selectConfigName")
+            rememberConfigName(newValue, forICloudStorage: ICloudManager.shared.useiCloud.value)
             watchCurrentConfigFile()
         }
+    }
+
+    static func rememberedConfigName(forICloudStorage usesICloud: Bool) -> String? {
+        UserDefaults.standard.string(forKey: selectedConfigNameKey(forICloudStorage: usesICloud))
+    }
+
+    static func rememberConfigName(_ configName: String, forICloudStorage usesICloud: Bool) {
+        UserDefaults.standard.set(configName, forKey: selectedConfigNameKey(forICloudStorage: usesICloud))
+    }
+
+    private static func selectedConfigNameKey(forICloudStorage usesICloud: Bool) -> String {
+        usesICloud ? selectedICloudConfigNameKey : selectedLocalConfigNameKey
     }
 
     static func watchCurrentConfigFile() {
@@ -124,6 +139,10 @@ class ConfigManager {
 
         if selectConfigName == oldName {
             UserDefaults.standard.set(newName, forKey: "selectConfigName")
+        }
+
+        for usesICloud in [false, true] where rememberedConfigName(forICloudStorage: usesICloud) == oldName {
+            rememberConfigName(newName, forICloudStorage: usesICloud)
         }
 
         let renamedRecords = selectedProxyRecords.map { record in

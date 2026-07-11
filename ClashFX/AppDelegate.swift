@@ -101,6 +101,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var runAfterConfigReload: (() -> Void)?
     var isConfigUpdating = false
 
+    private var didRestoreLastSpeedTest = false
+    private static let automaticSpeedTestDelay: TimeInterval = 1
+
     private var lastStreamResetTime: Date = .distantPast
     private var pendingStreamResetWork: DispatchWorkItem?
     private var pendingEnhancedModeRefreshWork: DispatchWorkItem?
@@ -237,6 +240,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if !Settings.builtInApiMode {
                 self?.selectAllowLanWithMenory()
             }
+            self?.restoreLastSpeedTestIfNeeded()
         }
         updateConfig(showNotification: false)
         updateLoggingLevel()
@@ -335,6 +339,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func setupStatusMenuItemData() {
+        showNetSpeedIndicatorMenuItem.title = NSLocalizedString("Show Proxy Speed", comment: "")
         ConfigManager.shared
             .showNetSpeedIndicatorObservable
             .bind { [weak self] show in
@@ -345,6 +350,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.statusItem.length = statusItemLength
                 self.statusItemView.updateSize(width: statusItemLength)
             }.disposed(by: disposeBag)
+
+        let speedToolTip = NSLocalizedString(
+            "Shows traffic that passes through ClashFX's local proxy or Enhanced Mode, not total system traffic.",
+            comment: ""
+        )
+        statusItem.button?.toolTip = speedToolTip
+        statusItemView.updateSpeedToolTip(speedToolTip)
 
         refreshStatusItemViewStatus()
         enhancedModeMenuItem.state = Settings.enhancedMode ? .on : .off
@@ -687,14 +699,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
+            let usesICloud = ICloudManager.shared.useiCloud.value
             let selectedConfig = ConfigManager.selectConfigName
+            let rememberedConfig = ConfigManager.rememberedConfigName(forICloudStorage: usesICloud)
             let configToLoad: String
-            if configNames.contains(selectedConfig) {
-                configToLoad = selectedConfig
-            } else if configNames.contains("config") {
-                configToLoad = "config"
+            if let rememberedConfig, configNames.contains(rememberedConfig) {
+                configToLoad = rememberedConfig
+            } else if let firstUserConfig = configNames.first(where: { $0 != "config" }) {
+                configToLoad = firstUserConfig
             } else {
-                configToLoad = configNames.sorted().first!
+                configToLoad = configNames[0]
             }
 
             if configToLoad != selectedConfig {
@@ -2136,34 +2150,91 @@ extension AppDelegate {
     }
 
     @IBAction func actionSpeedTest(_ sender: Any) {
-        if isSpeedTesting {
-            NSUserNotificationCenter.default.postSpeedTestingNotice()
+        runSpeedTest(
+            benchmarkURL: Settings.benchMarkUrl,
+            timeout: 5000,
+            showNotifications: true,
+            rememberForNextLaunch: true
+        )
+    }
+
+    private func restoreLastSpeedTestIfNeeded() {
+        guard !didRestoreLastSpeedTest else { return }
+        didRestoreLastSpeedTest = true
+
+        guard Settings.lastDelayBenchmarkConfig == ConfigManager.selectConfigName,
+              !Settings.lastDelayBenchmarkURL.isEmpty else {
             return
         }
-        NSUserNotificationCenter.default.postSpeedTestBeginNotice()
+
+        let benchmarkURL = Settings.lastDelayBenchmarkURL
+        let timeout = max(Settings.lastDelayBenchmarkTimeout, 1000)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.automaticSpeedTestDelay) { [weak self] in
+            guard Settings.lastDelayBenchmarkConfig == ConfigManager.selectConfigName else { return }
+            self?.runSpeedTest(
+                benchmarkURL: benchmarkURL,
+                timeout: timeout,
+                showNotifications: false,
+                rememberForNextLaunch: false
+            )
+        }
+    }
+
+    private func runSpeedTest(benchmarkURL: String,
+                              timeout: Int,
+                              showNotifications: Bool,
+                              rememberForNextLaunch: Bool) {
+        if isSpeedTesting {
+            if showNotifications {
+                NSUserNotificationCenter.default.postSpeedTestingNotice()
+            }
+            return
+        }
+        if showNotifications {
+            NSUserNotificationCenter.default.postSpeedTestBeginNotice()
+        }
+
+        if rememberForNextLaunch {
+            Settings.lastDelayBenchmarkConfig = ConfigManager.selectConfigName
+            Settings.lastDelayBenchmarkURL = benchmarkURL
+            Settings.lastDelayBenchmarkTimeout = timeout
+        }
 
         isSpeedTesting = true
 
         ApiRequest.getMergedProxyData { [weak self] resp in
+            guard let self = self else { return }
+            guard let resp = resp else {
+                self.finishSpeedTest(showNotifications: showNotifications)
+                return
+            }
+
             let group = DispatchGroup()
 
-            for (name, _) in resp?.enclosingProviderResp?.providers ?? [:] {
+            for (name, _) in resp.enclosingProviderResp?.providers ?? [:] {
                 group.enter()
                 ApiRequest.healthCheck(proxy: name) {
                     group.leave()
                 }
             }
 
-            for p in resp?.proxiesMap["GLOBAL"]?.all ?? [] {
+            for p in resp.proxiesMap["GLOBAL"]?.all ?? [] {
                 group.enter()
-                ApiRequest.getProxyDelay(proxyName: p) { _ in
+                ApiRequest.getProxyDelay(proxyName: p, benchmarkURL: benchmarkURL, timeout: timeout) { _ in
                     group.leave()
                 }
             }
             group.notify(queue: DispatchQueue.main) {
-                NSUserNotificationCenter.default.postSpeedTestFinishNotice()
-                self?.isSpeedTesting = false
+                self.finishSpeedTest(showNotifications: showNotifications)
             }
+        }
+    }
+
+    private func finishSpeedTest(showNotifications: Bool) {
+        isSpeedTesting = false
+        MenuItemFactory.refreshExistingMenuItems()
+        if showNotifications {
+            NSUserNotificationCenter.default.postSpeedTestFinishNotice()
         }
     }
 

@@ -7,17 +7,37 @@
 //
 import AppKit
 
+enum DockIconVisibility {
+    private static var hasManagedWindows = false
+
+    static func updateManagedWindowPresence(_ hasWindows: Bool) {
+        hasManagedWindows = hasWindows
+        refresh()
+        if !hasWindows {
+            DispatchQueue.main.async {
+                refresh()
+            }
+        }
+    }
+
+    static func refresh(windowWillBeVisible: Bool = false) {
+        guard !Settings.hideDockIcon else {
+            NSApp.setActivationPolicy(.accessory)
+            return
+        }
+
+        let hasVisibleWindow = windowWillBeVisible || hasManagedWindows || NSApp.windows.contains {
+            $0.isVisible && !$0.isKind(of: NSPanel.self) && $0.styleMask.contains(.titled)
+        }
+        NSApp.setActivationPolicy(hasVisibleWindow ? .regular : .accessory)
+    }
+}
+
 private class ClashWindowsRecorder {
     static let shared = ClashWindowsRecorder()
     var windowControllers = [NSWindowController]() {
         didSet {
-            if windowControllers.isEmpty {
-                NSApp.setActivationPolicy(.accessory)
-            } else {
-                if NSApp.activationPolicy() == .accessory {
-                    NSApp.setActivationPolicy(.regular)
-                }
-            }
+            DockIconVisibility.updateManagedWindowPresence(!windowControllers.isEmpty)
         }
     }
 }

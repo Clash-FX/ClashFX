@@ -569,6 +569,7 @@
                     </view>
                     <connections>
                         <outlet property="allowApiLanUsageSwitcher" destination="uj5-FG-2x5" id="QKh-ZT-Iie"/>
+                        <outlet property="applicationSettingsStack" destination="j6Y-mY-tCG" id="dock-ic-on01"/>
                         <outlet property="apiPortTextField" destination="xJH-gA-vcL" id="L8f-GZ-BYW"/>
                         <outlet property="apiSecretOverrideButton" destination="N0V-ac-Acm" id="n9x-y4-XsR"/>
                         <outlet property="apiSecretTextField" destination="CE4-Aa-FiI" id="po3-LI-T3l"/>

@@ -1,5 +1,33 @@
 ### Bug Fixes
 
+- **Config Selection Follows Local and iCloud Storage** — Local and iCloud storage now remember their selected configurations independently. Switching storage restores the target location's previous selection, or chooses a non-default configuration when no selection has been saved yet. (#129)
+- **Delay Results Return After Restart** — After a manual delay benchmark, ClashFX remembers the active configuration and test parameters, then silently repeats the benchmark once after the next matching startup. (#147)
+- **Proxy Speed Is Clearly Labeled** — The menu-bar indicator now identifies itself as ClashFX proxy traffic and explains that it does not represent total system network speed. (#147)
+- **Optional Dock Icon Hiding** — General settings now includes a disabled-by-default "Hide Dock Icon" switch. When enabled, ClashFX remains available from the menu bar without appearing in the Dock. (#147)
+
+### Contributors
+
+- @a51095 — Verified storage switching, startup delay results, proxy speed semantics, and the optional Dock icon behavior. (#129, #147)
+
+---
+
+### 修复
+
+- **配置选择跟随本地与 iCloud 存储** — 本地与 iCloud 现在会分别记住各自选中的配置；切换存储位置后会恢复目标位置上次的选择，尚未保存选择时则优先加载非默认配置。 (#129)
+- **重启后恢复延迟测速结果** — 手动延迟测速后，ClashFX 会记住当前配置和测速参数，并在下次启动且配置相同时静默自动测速一次。 (#147)
+- **代理速率语义更明确** — 菜单栏指标现明确标识为 ClashFX 代理流量，并说明它不代表电脑整体网络速率。 (#147)
+- **可选隐藏 Dock 图标** — 通用设置新增默认关闭的“隐藏 Dock 图标”开关；开启后，ClashFX 可仅通过菜单栏访问而不显示在 Dock 中。 (#147)
+
+### 贡献者
+
+- @a51095 — 验证配置存储切换、启动后延迟测速、代理速率语义及可选 Dock 图标行为。 (#129, #147)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **iCloud Config Switching Refreshes Immediately** — Switching the iCloud config-storage option now refreshes the configuration list and reloads a valid configuration from the newly selected storage location without requiring an app restart. (#129)
 - **Remote Config Renames Keep Working** — When a subscription replaces its placeholder filename with the server-provided name, ClashFX now updates the active-config and remembered proxy references and removes the obsolete file. (#129)
 - **Settings Section Headers Are Clearer** — Section headers now sit above their cards with consistent spacing, use a distinct secondary style, and no longer clip or run into the preceding section. General settings also adds meaningful headers for application, network automation, connectivity test, and bypass-rule sections. (#129)

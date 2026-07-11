@@ -333,12 +333,14 @@ class ApiRequest {
         }
     }
 
-    static func getProxyDelay(proxyName: String, callback: @escaping ((Int) -> Void)) {
-        let benchmarkURL = Settings.benchMarkUrl
+    static func getProxyDelay(proxyName: String,
+                              benchmarkURL: String = Settings.benchMarkUrl,
+                              timeout: Int = 5000,
+                              callback: @escaping ((Int) -> Void)) {
         Logger.log("[Proxy Delay] Testing proxy '\(proxyName)' with url: \(benchmarkURL)")
         req("/proxies/\(proxyName.encoded)/delay",
             method: .get,
-            parameters: ["timeout": 5000, "url": benchmarkURL])
+            parameters: ["timeout": timeout, "url": benchmarkURL])
             .responseData { res in
                 let statusCode = res.response?.statusCode ?? -1
                 switch res.result {

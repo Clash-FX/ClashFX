@@ -481,6 +481,11 @@
 /* No comment provided by engineer. */
 "Show Net Speed" = "Show Net Speed";
 
+"Show Proxy Speed" = "Show ClashFX Proxy Speed";
+"Shows traffic that passes through ClashFX's local proxy or Enhanced Mode, not total system traffic." = "Shows traffic that passes through ClashFX's local proxy or Enhanced Mode, not total system traffic.";
+"Hide Dock Icon" = "Hide Dock Icon";
+"When enabled, ClashFX is available only from the menu bar." = "When enabled, ClashFX is available only from the menu bar.";
+
 /* No comment provided by engineer. */
 "Allow from LAN" = "Allow from LAN";
 

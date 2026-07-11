@@ -76,7 +76,7 @@ class TrayMenuSettingView: NSView {
                 setter: { Settings.trayMenuShowGeneralSettings = $0 },
                 children: [
                     ItemRow(title: NSLocalizedString("Start at Login", comment: ""), getter: { Settings.trayMenuShowStartAtLogin }, setter: { Settings.trayMenuShowStartAtLogin = $0 }),
-                    ItemRow(title: NSLocalizedString("Show Net Speed", comment: ""), getter: { Settings.trayMenuShowNetSpeed }, setter: { Settings.trayMenuShowNetSpeed = $0 }),
+                    ItemRow(title: NSLocalizedString("Show Proxy Speed", comment: ""), getter: { Settings.trayMenuShowNetSpeed }, setter: { Settings.trayMenuShowNetSpeed = $0 }),
                     ItemRow(title: NSLocalizedString("Allow from LAN", comment: ""), getter: { Settings.trayMenuShowAllowLan }, setter: { Settings.trayMenuShowAllowLan = $0 }),
                 ]
             )),

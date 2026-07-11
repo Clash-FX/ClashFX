@@ -484,6 +484,11 @@
 /* No comment provided by engineer. */
 "Show Net Speed" = "Показать скорость сети";
 
+"Show Proxy Speed" = "Показывать скорость прокси ClashFX";
+"Shows traffic that passes through ClashFX's local proxy or Enhanced Mode, not total system traffic." = "Показывает только трафик через локальный прокси ClashFX или расширенный режим, а не общую скорость сети системы.";
+"Hide Dock Icon" = "Скрывать значок в Dock";
+"When enabled, ClashFX is available only from the menu bar." = "После включения ClashFX будет доступен только через значок в строке меню.";
+
 /* No comment provided by engineer. */
 "Allow from LAN" = "Разрешить из локальной сети";
 

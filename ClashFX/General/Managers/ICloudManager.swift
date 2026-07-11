@@ -27,6 +27,10 @@ class ICloudManager {
 
     var userEnableiCloud: Bool = UserDefaults.standard.bool(forKey: "kUserEnableiCloud") {
         didSet {
+            ConfigManager.rememberConfigName(
+                ConfigManager.selectConfigName,
+                forICloudStorage: useiCloud.value
+            )
             UserDefaults.standard.set(userEnableiCloud, forKey: "kUserEnableiCloud")
             userEnableiCloudRelay.accept(userEnableiCloud)
             useiCloud.accept(userEnableiCloud && icloudAvailable)
