@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.7</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.7</h2><ul><li><strong>iCloud Config Switching Refreshes Immediately</strong> — Switching the iCloud config-storage option now refreshes the configuration list and reloads a valid configuration from the newly selected storage location without requiring an app restart. (#129)</li><li><strong>Remote Config Renames Keep Working</strong> — When a subscription replaces its placeholder filename with the server-provided name, ClashFX now updates the active-config and remembered proxy references and removes the obsolete file. (#129)</li><li><strong>Settings Section Headers Are Clearer</strong> — Section headers now sit above their cards with consistent spacing, use a distinct secondary style, and no longer clip or run into the preceding section. General settings also adds meaningful headers for application, network automation, connectivity test, and bypass-rule sections. (#129)</li><li><strong>Copy Shortcuts No Longer Intercept Command-C</strong> — The two copy-command shortcuts now default to Control-Option-C and Control-Option-Shift-C. Existing Command-C and Option-Command-C bindings are migrated automatically once so normal system copy works again. (#129)</li><li><strong>Enhanced Mode Has a Real Global Shortcut</strong> — Enhanced Mode now uses a configurable global shortcut with the default Control-Option-E, avoiding the earlier Command-Shift-E conflict with Xcode. (#129)</li></ul>
+  ]]></description>
+  <pubDate>Sat, 11 Jul 2026 02:52:52 +0000</pubDate>
+  <sparkle:version>1001007000</sparkle:version>
+  <sparkle:shortVersionString>1.1.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.7/ClashFX.dmg"
+    sparkle:version="1001007000"
+    sparkle:shortVersionString="1.1.7"
+    sparkle:edSignature="uqjEzt+puNyGXNt4opY5e0ciUlbUwbcK6Y2/JnxaR4p2gsosTsigKmzOh85YTzGamg5w5OQ5U9U7Rj5jJRgXBQ=="
+    length="95566221"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.6.2 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.6.2 (Lab)</h2><ul><li><strong>Settings Section Headers Are Clearer</strong> — Section headers now sit above their cards with consistent spacing, use a distinct secondary style, and no longer clip or run into the preceding section. General settings also adds meaningful headers for application, network automation, connectivity test, and bypass-rule sections. (#129)</li><li><strong>Copy Shortcuts No Longer Intercept Command-C</strong> — The two copy-command shortcuts now default to Control-Option-C and Control-Option-Shift-C. Existing Command-C and Option-Command-C bindings are migrated automatically once so normal system copy works again. (#129)</li></ul>
