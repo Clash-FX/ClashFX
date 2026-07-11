@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.7.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.7.2 (Lab)</h2><ul><li><strong>Delay Tests Stay Manual</strong> — Removed the startup retry for delay tests. Benchmarks now run only when explicitly started by the user, avoiding extra network requests while ClashFX and its configuration are still starting. (#147)</li><li><strong>Config Menu Is Clearer</strong> — Renamed Profile Mixin to Config Patch (Profile Mixin), grouped it with Config Editor and current-config actions, and renamed external-resource updates to clarify that they refresh rule and proxy providers rather than managed configurations. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Sat, 11 Jul 2026 08:30:22 +0000</pubDate>
+  <sparkle:version>1001007002</sparkle:version>
+  <sparkle:shortVersionString>1.1.7.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.7.2/ClashFX.dmg"
+    sparkle:version="1001007002"
+    sparkle:shortVersionString="1.1.7.2"
+    sparkle:edSignature="xRb8pTNF/8g8hSNyp5+eE8IFaoOq/LeaEOu5OpGBrMl/c4uAZgGPE9d4aQrnf5e2dih4kTupLIRbKjbi062mDA=="
+    length="95601355"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.7.1 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.7.1 (Lab)</h2><ul><li><strong>Config Selection Follows Local and iCloud Storage</strong> — Local and iCloud storage now remember their selected configurations independently. Switching storage restores the target location's previous selection, or chooses a non-default configuration when no selection has been saved yet. (#129)</li><li><strong>Delay Results Return After Restart</strong> — After a manual delay benchmark, ClashFX remembers the active configuration and test parameters, then silently repeats the benchmark once after the next matching startup. (#147)</li><li><strong>Proxy Speed Is Clearly Labeled</strong> — The menu-bar indicator now identifies itself as ClashFX proxy traffic and explains that it does not represent total system network speed. (#147)</li><li><strong>Optional Dock Icon Hiding</strong> — General settings now includes a disabled-by-default "Hide Dock Icon" switch. When enabled, ClashFX remains available from the menu bar without appearing in the Dock. (#147)</li></ul>
