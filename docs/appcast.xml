@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.7.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.7.3 (Lab)</h2><ul><li><strong>Managed Config Table Fits Its Contents</strong> — The managed-config window now reserves enough room for the update-time column on its first display, without requiring a manual window resize. (#147)</li><li><strong>Configurable Delay-Test Shortcut</strong> — Delay tests can now be assigned a global shortcut in Settings. It has no default binding, so it will not conflict with existing shortcuts. (#147)</li><li><strong>iCloud Storage Fails Safely</strong> — Enabling iCloud-backed config storage now warns and restores the local-storage setting when iCloud is unavailable. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 13 Jul 2026 08:15:56 +0000</pubDate>
+  <sparkle:version>1001007003</sparkle:version>
+  <sparkle:shortVersionString>1.1.7.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.7.3/ClashFX.dmg"
+    sparkle:version="1001007003"
+    sparkle:shortVersionString="1.1.7.3"
+    sparkle:edSignature="AYaPM5zAo14x1AJ1ikeRVpJfjJanrP5jrl0RtrMcqHT+Xz9e2MrPoKHoPFsXUN3O2vrgDiAcieqlBYLBwDh1Dw=="
+    length="95435307"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.7.2 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.7.2 (Lab)</h2><ul><li><strong>Delay Tests Stay Manual</strong> — Removed the startup retry for delay tests. Benchmarks now run only when explicitly started by the user, avoiding extra network requests while ClashFX and its configuration are still starting. (#147)</li><li><strong>Config Menu Is Clearer</strong> — Renamed Profile Mixin to Config Patch (Profile Mixin), grouped it with Config Editor and current-config actions, and renamed external-resource updates to clarify that they refresh rule and proxy providers rather than managed configurations. (#147)</li></ul>
