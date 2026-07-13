@@ -1,5 +1,31 @@
 ### Bug Fixes
 
+- **Managed Config Table Fits Its Contents** — The managed-config window now reserves enough room for the update-time column on its first display, without requiring a manual window resize. (#147)
+- **Configurable Delay-Test Shortcut** — Delay tests can now be assigned a global shortcut in Settings. It has no default binding, so it will not conflict with existing shortcuts. (#147)
+- **iCloud Storage Fails Safely** — Enabling iCloud-backed config storage now warns and restores the local-storage setting when iCloud is unavailable. (#147)
+
+### Contributors
+
+- @a51095 — Reported the managed-config layout, delay-test shortcut, and unavailable-iCloud behaviors. (#147)
+
+---
+
+### 修复
+
+- **托管配置表格初始显示正常** — 托管配置窗口首次打开时会为“更新时间”列保留足够空间，无需手动缩放窗口。 (#147)
+- **可配置的延迟测速快捷键** — 现在可在设置中为延迟测速设置全局快捷键；默认不绑定组合键，避免与现有快捷键冲突。 (#147)
+- **iCloud 不可用时安全回退** — 启用 iCloud 配置存储时，若 iCloud 不可用会弹出提示并恢复本地存储设置。 (#147)
+
+### 贡献者
+
+- @a51095 — 反馈托管配置布局、延迟测速快捷键和 iCloud 不可用时的行为。 (#147)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Delay Tests Stay Manual** — Removed the startup retry for delay tests. Benchmarks now run only when explicitly started by the user, avoiding extra network requests while ClashFX and its configuration are still starting. (#147)
 - **Config Menu Is Clearer** — Renamed Profile Mixin to Config Patch (Profile Mixin), grouped it with Config Editor and current-config actions, and renamed external-resource updates to clarify that they refresh rule and proxy providers rather than managed configurations. (#147)
 

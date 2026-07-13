@@ -1272,7 +1272,7 @@
                                             <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
                                             <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
                                             <tableColumns>
-                                                <tableColumn identifier="url" editable="NO" width="176" minWidth="40" maxWidth="1000" id="C79-J5-30z">
+                                                <tableColumn identifier="url" editable="NO" width="145" minWidth="120" maxWidth="1000" id="C79-J5-30z">
                                                     <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Url">
                                                         <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                                         <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
@@ -1311,7 +1311,7 @@
                                                         </tableCellView>
                                                     </prototypeCellViews>
                                                 </tableColumn>
-                                                <tableColumn identifier="configName" width="86" minWidth="40" maxWidth="1000" id="lRE-Xa-euB">
+                                                <tableColumn identifier="configName" width="86" minWidth="70" maxWidth="1000" id="lRE-Xa-euB">
                                                     <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Config Name">
                                                         <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                                         <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
@@ -1350,7 +1350,7 @@
                                                         </tableCellView>
                                                     </prototypeCellViews>
                                                 </tableColumn>
-                                                <tableColumn identifier="updateTime" width="52" minWidth="40" maxWidth="1000" id="xoc-hs-9qa">
+                                                <tableColumn identifier="updateTime" width="120" minWidth="110" maxWidth="1000" id="xoc-hs-9qa">
                                                     <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Update Time">
                                                         <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                                         <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>

@@ -49,6 +49,7 @@ extension KeyboardShortcuts.Name {
         "shortCut.dashboard",
         default: .init(.d, modifiers: .command)
     )
+    static let benchmark = Self("shortCut.benchmark")
     static let openMenu = Self("shortCut.openMenu")
     static let nativeDashboard = Self(
         "shortCut.nativeDashboard",
@@ -96,6 +97,10 @@ enum KeyboardShortCutManager {
 
         KeyboardShortcuts.onKeyUp(for: .dashboard) {
             AppDelegate.shared.actionDashboard(nil)
+        }
+
+        KeyboardShortcuts.onKeyUp(for: .benchmark) {
+            AppDelegate.shared.actionSpeedTest(AppDelegate.shared)
         }
 
         KeyboardShortcuts.onKeyUp(for: .openMenu) {
@@ -166,6 +171,7 @@ class GlobalShortCutViewController: NSViewController {
         ])
 
         var otherItems: [[NSView]] = [
+            [NSTextField(labelWithString: NSLocalizedString("Benchmark", comment: "")), getRecoder(for: .benchmark)],
             [NSTextField(labelWithString: NSLocalizedString("Open Menu", comment: "")), getRecoder(for: .openMenu)],
             [NSTextField(labelWithString: NSLocalizedString("Open Log", comment: "")), getRecoder(for: .log)],
             [NSTextField(labelWithString: NSLocalizedString("Open Dashboard", comment: "")), getRecoder(for: .dashboard)]

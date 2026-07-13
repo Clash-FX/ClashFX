@@ -84,8 +84,11 @@ class GeneralSettingViewController: NSViewController {
             .map { $0 ? .on : .off }
             .bind(to: useiCloudButton.rx.state)
             .disposed(by: disposeBag)
-        useiCloudButton.rx.state.map { $0 == .on }.subscribe {
-            ICloudManager.shared.userEnableiCloud = $0
+        useiCloudButton.rx.state.map { $0 == .on }.subscribe { enabled in
+            guard ICloudManager.shared.setUserEnableiCloud(enabled) || !enabled else {
+                NSAlert.alert(with: NSLocalizedString("iCloud not available", comment: ""))
+                return
+            }
         }.disposed(by: disposeBag)
         reduceNotificationsButton.toolTip = NSLocalizedString("Reduce alerts if notification permission is disabled", comment: "")
         reduceNotificationsButton.state = Settings.disableNoti ? .on : .off

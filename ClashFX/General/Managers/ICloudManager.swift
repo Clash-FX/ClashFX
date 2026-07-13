@@ -37,6 +37,17 @@ class ICloudManager {
         }
     }
 
+    @discardableResult
+    func setUserEnableiCloud(_ enabled: Bool) -> Bool {
+        guard !enabled || icloudAvailable else {
+            userEnableiCloud = false
+            return false
+        }
+
+        userEnableiCloud = enabled
+        return true
+    }
+
     func setup() {
         addNotification()
         useiCloud.distinctUntilChanged().subscribe(onNext: {
