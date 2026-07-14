@@ -6,21 +6,20 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
-  <title>Version 1.1.7.4 (Lab)</title>
+  <title>Version 1.1.8</title>
   <description><![CDATA[
-    <h2>ClashFX v1.1.7.4 (Lab)</h2><ul><li><strong>Global Shortcuts No Longer Override Standard macOS Commands</strong> — Removed the default global bindings for Command-S, Command-D, Command-L, and Shift-Command-D. Existing bindings that still match those former defaults are cleared once during upgrade, while other custom shortcuts remain unchanged. (#169)</li></ul>
+    <h2>ClashFX v1.1.8</h2><ul><li><strong>Global Shortcuts No Longer Override Standard macOS Commands</strong> — Removed the default global bindings for Command-S, Command-D, Command-L, and Shift-Command-D. Existing bindings that still match those former defaults are cleared once during upgrade, while other custom shortcuts remain unchanged. (#169)</li></ul>
   ]]></description>
-  <pubDate>Tue, 14 Jul 2026 03:43:25 +0000</pubDate>
-  <sparkle:version>1001007004</sparkle:version>
-  <sparkle:shortVersionString>1.1.7.4</sparkle:shortVersionString>
-            <sparkle:channel>lab</sparkle:channel>
-          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <pubDate>Tue, 14 Jul 2026 04:45:29 +0000</pubDate>
+  <sparkle:version>1001008000</sparkle:version>
+  <sparkle:shortVersionString>1.1.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
   <enclosure
-    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.7.4/ClashFX.dmg"
-    sparkle:version="1001007004"
-    sparkle:shortVersionString="1.1.7.4"
-    sparkle:edSignature="5ePPmEoRfTpnzJO5Pl+rIE3qoUIkm35zz2Irn1QmimyUdEjWgams5XDrlnKPKhYOkhKs0cOjm5XLBUKEWgLnCQ=="
-    length="95453266"
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.8/ClashFX.dmg"
+    sparkle:version="1001008000"
+    sparkle:shortVersionString="1.1.8"
+    sparkle:edSignature="BLMG547ptZsISlb4ArrRCyQ7d8wThkzNA1hp0vaKGpq4DPu+AJGCPnXw5WSIwAspJuXPPfGOtrDqWsBUZkrYAg=="
+    length="95454291"
     type="application/x-apple-diskimage"
   />
 </item>
