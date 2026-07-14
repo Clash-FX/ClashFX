@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.7.4 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.7.4 (Lab)</h2><ul><li><strong>Global Shortcuts No Longer Override Standard macOS Commands</strong> — Removed the default global bindings for Command-S, Command-D, Command-L, and Shift-Command-D. Existing bindings that still match those former defaults are cleared once during upgrade, while other custom shortcuts remain unchanged. (#169)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 14 Jul 2026 03:43:25 +0000</pubDate>
+  <sparkle:version>1001007004</sparkle:version>
+  <sparkle:shortVersionString>1.1.7.4</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.7.4/ClashFX.dmg"
+    sparkle:version="1001007004"
+    sparkle:shortVersionString="1.1.7.4"
+    sparkle:edSignature="5ePPmEoRfTpnzJO5Pl+rIE3qoUIkm35zz2Irn1QmimyUdEjWgams5XDrlnKPKhYOkhKs0cOjm5XLBUKEWgLnCQ=="
+    length="95453266"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.7.3 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.7.3 (Lab)</h2><ul><li><strong>Managed Config Table Fits Its Contents</strong> — The managed-config window now reserves enough room for the update-time column on its first display, without requiring a manual window resize. (#147)</li><li><strong>Configurable Delay-Test Shortcut</strong> — Delay tests can now be assigned a global shortcut in Settings. It has no default binding, so it will not conflict with existing shortcuts. (#147)</li><li><strong>iCloud Storage Fails Safely</strong> — Enabling iCloud-backed config storage now warns and restores the local-storage setting when iCloud is unavailable. (#147)</li></ul>
