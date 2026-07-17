@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.8.1 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.8.1 (Lab)</h2><ul><li><strong>Enhanced Mode Recovers Its TUN Data Path After Wake</strong> — Wake and network-change recovery now validates both the mihomo API and the active TUN interface. If the control API is alive but TUN has disappeared or reports disabled, ClashFX stops the stale external core and rebuilds Enhanced Mode instead of leaving the menu in a false-on state. (#142, #147)</li><li><strong>A Stuck Core No Longer Blocks Restart</strong> — The privileged helper now gives mihomo a short graceful-shutdown window, then force-terminates it when necessary so Enhanced Mode recovery and ClashFX restart cannot wait forever on an unresponsive process. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Fri, 17 Jul 2026 09:13:27 +0000</pubDate>
+  <sparkle:version>1001008001</sparkle:version>
+  <sparkle:shortVersionString>1.1.8.1</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.8.1/ClashFX.dmg"
+    sparkle:version="1001008001"
+    sparkle:shortVersionString="1.1.8.1"
+    sparkle:edSignature="QkBBpdQhTM5E6/4vzf8jM6Uoqr40Asyi6jw2IovPRiNyZQWVPOe6P/r10FOXwzR6/qDeuEwq+5opsVHsEWg7CA=="
+    length="95480068"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.8</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.8</h2><ul><li><strong>Global Shortcuts No Longer Override Standard macOS Commands</strong> — Removed the default global bindings for Command-S, Command-D, Command-L, and Shift-Command-D. Existing bindings that still match those former defaults are cleared once during upgrade, while other custom shortcuts remain unchanged. (#169)</li></ul>
