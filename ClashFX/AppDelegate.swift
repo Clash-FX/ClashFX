@@ -27,6 +27,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case failure(String)
     }
 
+    private enum WakeCoreHealth {
+        case healthy
+        case unhealthy(String)
+    }
+
+    private struct TunInterfaceState {
+        let name: String
+        let ipv4: String?
+        let isUp: Bool
+    }
+
     private(set) var statusItem: NSStatusItem!
     @IBOutlet var checkForUpdateMenuItem: NSMenuItem!
 
@@ -106,11 +117,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingStreamResetWork: DispatchWorkItem?
     private var pendingEnhancedModeRefreshWork: DispatchWorkItem?
     private var pendingWakeRecoveryWork: DispatchWorkItem?
+    private var isWakeEnhancedModeRestarting = false
     private static let enhancedModeRestoreMaxAttempts = 12
     private static let enhancedModeRestoreRetryDelay: TimeInterval = 5
     private static let wakeRecoveryDelay: TimeInterval = 3
     private static let wakeRecoveryRetryDelay: TimeInterval = 2
     private static let wakeRecoveryMaxAttempts = 3
+    private static let wakeEnhancedModeRestartMaxAttempts = 3
     private static let runtimePatchedConfigPath = kConfigFolderPath + ".runtime_config.yaml"
 
     /// Short-circuits TerminalConfirmAction during self-relaunch so the old
@@ -627,6 +640,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .observe(on: MainScheduler.instance)
             .debounce(.seconds(5), scheduler: MainScheduler.instance).bind { [weak self] _ in
                 self?.healthCheckOnNetworkChange()
+                if Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive {
+                    Logger.log("Network change: scheduling Enhanced Mode recovery check")
+                    self?.scheduleWakeRecovery()
+                }
             }.disposed(by: disposeBag)
 
         ConfigManager.shared
@@ -1122,6 +1139,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func recoverProxyAfterWake(attemptsLeft: Int) {
+        guard !isWakeEnhancedModeRestarting else {
+            Logger.log("Wake recovery: Enhanced Mode rebuild already in progress", level: .debug)
+            return
+        }
+
         guard NetworkChangeNotifier.getPrimaryInterface() != nil else {
             guard attemptsLeft > 1 else {
                 Logger.log("Wake recovery: primary interface never became ready", level: .error)
@@ -1134,16 +1156,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        checkCoreHealthAfterWake { [weak self] healthy in
+        checkCoreHealthAfterWake { [weak self] health in
             guard let self = self else { return }
-            if healthy {
+            switch health {
+            case .healthy:
                 Logger.log("Wake recovery: core API is healthy")
                 self.finishHealthyWakeRecovery()
-                return
-            }
+            case let .unhealthy(reason):
+                guard attemptsLeft > 1 else {
+                    Logger.log("Wake recovery: \(reason); restoring active proxy mode", level: .error)
+                    self.restoreCoreAfterWake()
+                    return
+                }
 
-            Logger.log("Wake recovery: core API is not responding; restoring active proxy mode", level: .error)
-            self.restoreCoreAfterWake()
+                Logger.log(
+                    "Wake recovery: \(reason); retrying in \(Self.wakeRecoveryRetryDelay)s " +
+                        "(\(attemptsLeft - 1) retries left)",
+                    level: .warning
+                )
+                let work = DispatchWorkItem { [weak self] in
+                    self?.recoverProxyAfterWake(attemptsLeft: attemptsLeft - 1)
+                }
+                self.pendingWakeRecoveryWork = work
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + Self.wakeRecoveryRetryDelay,
+                    execute: work
+                )
+            }
         }
     }
 
@@ -1169,21 +1208,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func restoreCoreAfterWake() {
-        if Settings.enhancedMode {
-            Logger.log("Wake recovery: restoring Enhanced Mode")
-            restoreEnhancedMode(attemptsLeft: 3)
-            return
-        }
-
-        if ConfigManager.shared.isEnhancedModeActive {
-            Logger.log("Wake recovery: Enhanced Mode active without persisted setting; restarting Enhanced Mode", level: .warning)
-            enableEnhancedMode { [weak self] error in
-                if let error = error {
-                    Logger.log("Wake recovery: Enhanced Mode restart failed: \(error)", level: .error)
-                    return
-                }
-                self?.scheduleEnhancedModePostToggleRefresh()
-            }
+        if Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive {
+            Logger.log("Wake recovery: stopping and rebuilding Enhanced Mode")
+            restartEnhancedModeAfterWake(attemptsLeft: Self.wakeEnhancedModeRestartMaxAttempts)
             return
         }
 
@@ -1203,25 +1230,159 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func checkCoreHealthAfterWake(complete: @escaping (Bool) -> Void) {
+    private func checkCoreHealthAfterWake(complete: @escaping (WakeCoreHealth) -> Void) {
         guard let url = URL(string: ConfigManager.apiUrl.appending("/configs")) else {
-            complete(false)
+            complete(.unhealthy("invalid core API URL"))
             return
         }
         var request = URLRequest(url: url, timeoutInterval: 2)
         for header in ApiRequest.authHeader() {
             request.setValue(header.value, forHTTPHeaderField: header.name)
         }
-        URLSession.shared.dataTask(with: request) { _, response, error in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            let healthy = statusCode == 200
-            if !healthy {
+            guard statusCode == 200 else {
                 Logger.log("Wake recovery: /configs health failed status=\(statusCode), error=\(error?.localizedDescription ?? "none")", level: .warning)
+                DispatchQueue.main.async {
+                    complete(.unhealthy("core API is not responding"))
+                }
+                return
             }
+
+            let enhancedModeExpected = Settings.enhancedMode ||
+                ConfigManager.shared.isEnhancedModeActive
+            guard enhancedModeExpected else {
+                DispatchQueue.main.async {
+                    complete(.healthy)
+                }
+                return
+            }
+
+            guard let data,
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tun = root["tun"] as? [String: Any] else {
+                DispatchQueue.main.async {
+                    complete(.unhealthy("core API returned no TUN state"))
+                }
+                return
+            }
+
+            guard tun["enable"] as? Bool == true else {
+                DispatchQueue.main.async {
+                    complete(.unhealthy("core API reports TUN disabled"))
+                }
+                return
+            }
+
+            let device = tun["device"] as? String
+            guard self.hasUsableEnhancedTunInterface(expectedDevice: device) else {
+                let summary = self.tunInterfaceSummaryForLog()
+                DispatchQueue.main.async {
+                    complete(.unhealthy("TUN interface is unavailable (\(summary))"))
+                }
+                return
+            }
+
             DispatchQueue.main.async {
-                complete(healthy)
+                complete(.healthy)
             }
         }.resume()
+    }
+
+    private func restartEnhancedModeAfterWake(attemptsLeft: Int) {
+        if attemptsLeft == Self.wakeEnhancedModeRestartMaxAttempts {
+            guard !isWakeEnhancedModeRestarting else { return }
+            isWakeEnhancedModeRestarting = true
+        }
+
+        let wasActive = ConfigManager.shared.isEnhancedModeActive
+        var attemptCompleted = false
+
+        let retryOrFail: (String) -> Void = { [weak self] error in
+            guard let self = self else { return }
+            guard !attemptCompleted else { return }
+            attemptCompleted = true
+            if attemptsLeft > 1, Settings.enhancedMode {
+                Logger.log(
+                    "Wake recovery: Enhanced Mode rebuild failed: \(error). " +
+                        "Retrying in \(Self.enhancedModeRestoreRetryDelay)s " +
+                        "(\(attemptsLeft - 1) retries left)",
+                    level: .warning
+                )
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + Self.enhancedModeRestoreRetryDelay
+                ) { [weak self] in
+                    self?.restartEnhancedModeAfterWake(attemptsLeft: attemptsLeft - 1)
+                }
+                return
+            }
+
+            self.isWakeEnhancedModeRestarting = false
+            self.finishFailedEnhancedModeRestore(error: error)
+        }
+
+        guard let helper = PrivilegedHelperManager.shared.helper(failture: {
+            DispatchQueue.main.async {
+                if wasActive {
+                    ConfigManager.shared.isEnhancedModeActive = false
+                    clashResumeCallbacks()
+                    _ = clashResumeCore()
+                }
+                retryOrFail(NSLocalizedString("Helper not available", comment: ""))
+            }
+        }) else {
+            if wasActive {
+                ConfigManager.shared.isEnhancedModeActive = false
+                clashResumeCallbacks()
+                _ = clashResumeCore()
+            }
+            retryOrFail(NSLocalizedString("Helper not available", comment: ""))
+            return
+        }
+
+        enhancedModeMenuItem.isEnabled = false
+        helper.stopMihomoCore { [weak self] stopError in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                guard !attemptCompleted else { return }
+                if let stopError {
+                    Logger.log(
+                        "Wake recovery: failed to stop stale Enhanced Mode core: \(stopError)",
+                        level: .warning
+                    )
+                }
+
+                ConfigManager.shared.isEnhancedModeActive = false
+                self.refreshStatusItemViewStatus()
+
+                let completion: (String?) -> Void = { [weak self] error in
+                    guard let self = self else { return }
+                    guard !attemptCompleted else { return }
+                    if let error {
+                        retryOrFail(error)
+                        return
+                    }
+
+                    attemptCompleted = true
+                    self.isWakeEnhancedModeRestarting = false
+                    self.enhancedModeMenuItem.isEnabled = true
+                    self.enhancedModeMenuItem.state = .on
+                    Logger.log("Wake recovery: Enhanced Mode rebuilt successfully")
+                    self.scheduleEnhancedModePostToggleRefresh()
+                }
+
+                if wasActive {
+                    self.attemptEnableEnhancedMode(
+                        attemptsLeft: 1,
+                        alreadySuspended: true,
+                        completion: completion
+                    )
+                } else {
+                    self.enableEnhancedMode(completion: completion)
+                }
+            }
+        }
     }
 
     @objc func healthCheckOnNetworkChange() {
@@ -1830,44 +1991,88 @@ extension AppDelegate {
         }
     }
 
-    private func checkTunInterface() {
+    private func tunInterfaceStates() -> [TunInterfaceState] {
         var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddrPtr) == 0, let firstAddr = ifaddrPtr else { return }
+        guard getifaddrs(&ifaddrPtr) == 0, let firstAddr = ifaddrPtr else { return [] }
         defer { freeifaddrs(ifaddrPtr) }
 
-        var tunInterfaces: [(name: String, hasIPv4: Bool, ipv4: String)] = []
+        var statesByName: [String: TunInterfaceState] = [:]
         var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
         while let addr = ptr {
+            defer { ptr = addr.pointee.ifa_next }
             let name = String(cString: addr.pointee.ifa_name)
-            if name.hasPrefix("utun") {
-                let family = addr.pointee.ifa_addr.pointee.sa_family
-                if family == UInt8(AF_INET) {
-                    var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    getnameinfo(addr.pointee.ifa_addr, socklen_t(addr.pointee.ifa_addr.pointee.sa_len),
-                                &hostname, socklen_t(hostname.count), nil, 0, NI_NUMERICHOST)
-                    let ip = String(cString: hostname)
-                    if let existing = tunInterfaces.firstIndex(where: { $0.name == name }) {
-                        tunInterfaces[existing] = (name, true, ip)
-                    } else {
-                        tunInterfaces.append((name, true, ip))
-                    }
-                } else if !tunInterfaces.contains(where: { $0.name == name }) {
-                    tunInterfaces.append((name, false, ""))
-                }
+            guard name.hasPrefix("utun") else { continue }
+
+            let isUp = (addr.pointee.ifa_flags & UInt32(IFF_UP)) != 0
+            guard let socketAddress = addr.pointee.ifa_addr else {
+                statesByName[name] = TunInterfaceState(name: name, ipv4: nil, isUp: isUp)
+                continue
             }
-            ptr = addr.pointee.ifa_next
+
+            var ipv4 = statesByName[name]?.ipv4
+            if socketAddress.pointee.sa_family == UInt8(AF_INET) {
+                var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                getnameinfo(
+                    socketAddress,
+                    socklen_t(socketAddress.pointee.sa_len),
+                    &hostname,
+                    socklen_t(hostname.count),
+                    nil,
+                    0,
+                    NI_NUMERICHOST
+                )
+                ipv4 = String(cString: hostname)
+            }
+            statesByName[name] = TunInterfaceState(name: name, ipv4: ipv4, isUp: isUp)
         }
 
-        for iface in tunInterfaces {
-            if iface.hasIPv4 {
-                Logger.log("TUN interface \(iface.name) has IPv4: \(iface.ipv4)")
+        return statesByName.values.sorted { $0.name < $1.name }
+    }
+
+    private func hasUsableEnhancedTunInterface(expectedDevice: String?) -> Bool {
+        let activeInterfaces = tunInterfaceStates().filter { $0.isUp && $0.ipv4 != nil }
+        let device = expectedDevice?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+
+        if device.hasPrefix("utun") {
+            return activeInterfaces.contains { $0.name.lowercased() == device }
+        }
+
+        if Settings.enhancedModeUseCustomConfig {
+            return !activeInterfaces.isEmpty
+        }
+
+        return activeInterfaces.contains { $0.ipv4?.hasPrefix("198.18.") == true }
+    }
+
+    private func tunInterfaceSummaryForLog() -> String {
+        let states = tunInterfaceStates()
+        guard !states.isEmpty else { return "none" }
+        return states.map { state in
+            let address = state.ipv4 ?? "no IPv4"
+            return "\(state.name)=\(address),\(state.isUp ? "up" : "down")"
+        }.joined(separator: "; ")
+    }
+
+    private func checkTunInterface() {
+        let states = tunInterfaceStates()
+        for state in states {
+            if let ipv4 = state.ipv4 {
+                Logger.log(
+                    "TUN interface \(state.name) has IPv4: \(ipv4), " +
+                        "state=\(state.isUp ? "up" : "down")"
+                )
             } else {
-                Logger.log("TUN interface \(iface.name) has NO IPv4", level: .warning)
+                Logger.log(
+                    "TUN interface \(state.name) has NO IPv4, " +
+                        "state=\(state.isUp ? "up" : "down")",
+                    level: .warning
+                )
             }
         }
 
-        let mihomoTun = tunInterfaces.first(where: { $0.hasIPv4 && $0.ipv4.hasPrefix("198.18.") })
-        if mihomoTun == nil {
+        if !hasUsableEnhancedTunInterface(expectedDevice: nil) {
             let logPath = kConfigFolderPath + ".mihomo_core.log"
             let coreLog = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
             let tunError = coreLog.components(separatedBy: "\n")
@@ -1878,7 +2083,7 @@ extension AppDelegate {
                 .post(title: NSLocalizedString("Enhanced Mode", comment: ""),
                       info: "TUN: \(tunError)")
         } else {
-            Logger.log("TUN verified: \(mihomoTun!.name) @ \(mihomoTun!.ipv4)")
+            Logger.log("TUN verified: \(tunInterfaceSummaryForLog())")
         }
     }
 
@@ -2063,9 +2268,13 @@ extension AppDelegate {
 
     private func finishFailedEnhancedModeRestore(error: String) {
         Settings.enhancedMode = false
+        ConfigManager.shared.isEnhancedModeActive = false
+        enhancedModeMenuItem.isEnabled = true
         enhancedModeMenuItem.state = .off
         Logger.log("Failed to restore Enhanced Mode: \(error)", level: .error)
-        scheduleEnhancedModePostToggleRefresh()
+        restoreDNSAfterTun { [weak self] in
+            self?.scheduleEnhancedModePostToggleRefresh()
+        }
     }
 
     @IBAction func actionAllowFromLan(_ sender: NSMenuItem) {

@@ -1,5 +1,29 @@
 ### Bug Fixes
 
+- **Enhanced Mode Recovers Its TUN Data Path After Wake** — Wake and network-change recovery now validates both the mihomo API and the active TUN interface. If the control API is alive but TUN has disappeared or reports disabled, ClashFX stops the stale external core and rebuilds Enhanced Mode instead of leaving the menu in a false-on state. (#142, #147)
+- **A Stuck Core No Longer Blocks Restart** — The privileged helper now gives mihomo a short graceful-shutdown window, then force-terminates it when necessary so Enhanced Mode recovery and ClashFX restart cannot wait forever on an unresponsive process. (#147)
+
+### Contributors
+
+- @a51095 — Reported the long-running Enhanced Mode failure and the restart behavior that required force-quitting ClashFX. (#147)
+
+---
+
+### 修复
+
+- **睡眠唤醒后会恢复增强模式的 TUN 数据链路** — 唤醒及网络变化后的恢复现在会同时检查 Mihomo API 与实际 TUN 接口；如果控制接口仍有响应，但 TUN 已消失或已关闭，ClashFX 会停止失活的外部核心并重建增强模式，不再让菜单停留在“已开启”的假状态。 (#142, #147)
+- **核心卡死不再阻塞重启** — 特权 Helper 会先给 Mihomo 短暂的正常退出时间，超时后强制终止，避免增强模式恢复或 ClashFX 重启一直等待无响应的进程。 (#147)
+
+### 贡献者
+
+- @a51095 — 反馈增强模式长时间运行后失效，以及必须强退 ClashFX 才能恢复的问题。 (#147)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Global Shortcuts No Longer Override Standard macOS Commands** — Removed the default global bindings for Command-S, Command-D, Command-L, and Shift-Command-D. Existing bindings that still match those former defaults are cleared once during upgrade, while other custom shortcuts remain unchanged. (#169)
 
 ### Contributors

@@ -10,6 +10,7 @@
 #import <AppKit/AppKit.h>
 #import <Security/Security.h>
 #import <signal.h>
+#import <unistd.h>
 #import "ProxyConfigRemoteProcessProtocol.h"
 #import "ProxySettingTool.h"
 
@@ -25,9 +26,18 @@ ProxyConfigRemoteProcessProtocol
 @property (nonatomic, assign) BOOL shouldQuit;
 @property (nonatomic, strong) NSTask *mihomoTask;
 
+- (void)terminateMihomoTask:(NSTask *)task completion:(dispatch_block_t)completion;
+- (void)launchMihomoCoreWithBinaryPath:(NSString *)binaryPath
+                            configPath:(NSString *)configPath
+                               homeDir:(NSString *)homeDir
+                                 reply:(stringReplyBlock)reply;
+
 @end
 
 @implementation ProxyConfigHelper
+
+static const NSTimeInterval kMihomoGracefulStopTimeout = 2.0;
+
 - (instancetype)init {
     
     if (self = [super init]) {
@@ -88,6 +98,31 @@ ProxyConfigRemoteProcessProtocol
 
 - (BOOL)isProcessRunning:(pid_t)pid {
     return kill(pid, 0) == 0;
+}
+
+- (void)terminateMihomoTask:(NSTask *)task completion:(dispatch_block_t)completion {
+    if (!(task && task.isRunning)) {
+        dispatch_async(dispatch_get_main_queue(), completion);
+        return;
+    }
+
+    pid_t pid = task.processIdentifier;
+    [task terminate];
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:kMihomoGracefulStopTimeout];
+        while (task.isRunning && [deadline timeIntervalSinceNow] > 0) {
+            usleep(100 * 1000);
+        }
+
+        if (task.isRunning) {
+            NSLog(@"[mihomo_core] Graceful stop timed out; force killing pid %d", pid);
+            kill(pid, SIGKILL);
+        }
+        [task waitUntilExit];
+
+        dispatch_async(dispatch_get_main_queue(), completion);
+    });
 }
 
 - (void)cleanupMihomoCoreWithBinaryPath:(NSString *)binaryPath
@@ -308,72 +343,82 @@ ProxyConfigRemoteProcessProtocol
                                 reply:(stringReplyBlock)reply {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (self.mihomoTask && self.mihomoTask.isRunning) {
-            [self.mihomoTask terminate];
-            [self.mihomoTask waitUntilExit];
+            NSTask *staleTask = self.mihomoTask;
             self.mihomoTask = nil;
-        }
-
-        if (![[NSFileManager defaultManager] fileExistsAtPath:binaryPath]) {
-            reply([NSString stringWithFormat:@"Binary not found: %@", binaryPath]);
+            [self terminateMihomoTask:staleTask completion:^{
+                [self launchMihomoCoreWithBinaryPath:binaryPath
+                                          configPath:configPath
+                                             homeDir:homeDir
+                                               reply:reply];
+            }];
             return;
         }
 
-        NSTask *task = [[NSTask alloc] init];
-        task.executableURL = [NSURL fileURLWithPath:binaryPath];
-        task.arguments = @[@"-f", configPath, @"-d", homeDir];
-
-        NSString *logPath = [homeDir stringByAppendingPathComponent:@".mihomo_core.log"];
-        [@"" writeToFile:logPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        [[NSFileManager defaultManager] setAttributes:@{NSFilePosixPermissions: @(0644)}
-                                         ofItemAtPath:logPath error:nil];
-
-        NSPipe *pipe = [NSPipe pipe];
-        task.standardOutput = pipe;
-        task.standardError = pipe;
-
-        pipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *handle) {
-            NSData *data = [handle availableData];
-            if (data.length > 0) {
-                NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-                NSLog(@"[mihomo_core] %@", output);
-                NSFileHandle *logHandle = [NSFileHandle fileHandleForWritingAtPath:logPath];
-                [logHandle seekToEndOfFile];
-                [logHandle writeData:data];
-                [logHandle closeFile];
-            }
-        };
-
-        NSError *error = nil;
-        [task launchAndReturnError:&error];
-        if (error) {
-            reply([NSString stringWithFormat:@"Launch failed: %@", error.localizedDescription]);
-            return;
-        }
-
-        self.mihomoTask = task;
-
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            if (!task.isRunning) {
-                NSLog(@"[mihomo_core] Process exited early with status: %d", task.terminationStatus);
-            }
-        });
-
-        reply(nil);
+        [self launchMihomoCoreWithBinaryPath:binaryPath
+                                  configPath:configPath
+                                     homeDir:homeDir
+                                       reply:reply];
     });
+}
+
+- (void)launchMihomoCoreWithBinaryPath:(NSString *)binaryPath
+                            configPath:(NSString *)configPath
+                               homeDir:(NSString *)homeDir
+                                 reply:(stringReplyBlock)reply {
+    if (![[NSFileManager defaultManager] fileExistsAtPath:binaryPath]) {
+        reply([NSString stringWithFormat:@"Binary not found: %@", binaryPath]);
+        return;
+    }
+
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:binaryPath];
+    task.arguments = @[@"-f", configPath, @"-d", homeDir];
+
+    NSString *logPath = [homeDir stringByAppendingPathComponent:@".mihomo_core.log"];
+    [@"" writeToFile:logPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    [[NSFileManager defaultManager] setAttributes:@{NSFilePosixPermissions: @(0644)}
+                                     ofItemAtPath:logPath error:nil];
+
+    NSPipe *pipe = [NSPipe pipe];
+    task.standardOutput = pipe;
+    task.standardError = pipe;
+
+    pipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *handle) {
+        NSData *data = [handle availableData];
+        if (data.length > 0) {
+            NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            NSLog(@"[mihomo_core] %@", output);
+            NSFileHandle *logHandle = [NSFileHandle fileHandleForWritingAtPath:logPath];
+            [logHandle seekToEndOfFile];
+            [logHandle writeData:data];
+            [logHandle closeFile];
+        }
+    };
+
+    NSError *error = nil;
+    [task launchAndReturnError:&error];
+    if (error) {
+        reply([NSString stringWithFormat:@"Launch failed: %@", error.localizedDescription]);
+        return;
+    }
+
+    self.mihomoTask = task;
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (!task.isRunning) {
+            NSLog(@"[mihomo_core] Process exited early with status: %d", task.terminationStatus);
+        }
+    });
+
+    reply(nil);
 }
 
 - (void)stopMihomoCoreWithReply:(stringReplyBlock)reply {
     NSTask *task = self.mihomoTask;
     self.mihomoTask = nil;
-    if (task && task.isRunning) {
-        [task terminate];
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            [task waitUntilExit];
-            reply(nil);
-        });
-    } else {
+    [self terminateMihomoTask:task completion:^{
         reply(nil);
-    }
+    }];
 }
 
 // MARK: - DNS
