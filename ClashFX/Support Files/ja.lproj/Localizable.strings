@@ -582,6 +582,7 @@
 "Network Automation" = "ネットワーク自動化";
 "Connectivity Test" = "接続テスト";
 "Bypass Rules" = "バイパスルール";
+"Copy Host or IP" = "ホスト名または IP をコピー";
 "Global Shortcut Updated" = "グローバルショートカットを更新しました";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "Command-C を横取りしないよう、コピーのショートカットを変更しました。設定 > グローバルショートカットで変更できます。";
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "macOS の標準ショートカットを復元するため、安全でない Command キーのグローバルショートカットを削除しました。設定 > グローバルショートカットで任意の組み合わせを設定できます。";

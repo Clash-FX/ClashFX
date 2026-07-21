@@ -30,6 +30,7 @@ class ConnectionDetailViewModel {
     @Published var applicationPath: String? = ""
     @Published var otherText = ""
     @Published var showCloseButton = false
+    private(set) var remoteHostForCopy = ""
 
     private var uuid = ""
     var cancellable = Set<AnyCancellable>()
@@ -49,8 +50,10 @@ class ConnectionDetailViewModel {
         let area = clash_getCountryForIp(connection.metadata.destinationIP.goStringBuffer()).toString()
         let areaString = "\(flag(from: area))\(area)"
         if connection.metadata.host.isEmpty {
+            remoteHostForCopy = connection.metadata.destinationIP
             remoteHost = "\(connection.metadata.destinationIP):\(connection.metadata.destinationPort) \(areaString)"
         } else {
+            remoteHostForCopy = connection.metadata.host
             remoteHost = "\(connection.metadata.host):\(connection.metadata.destinationPort) \(areaString)"
         }
 

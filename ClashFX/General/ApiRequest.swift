@@ -18,6 +18,51 @@ protocol ApiRequestStreamDelegate: AnyObject {
 
 typealias ErrorString = String
 
+private final class LimitedAsyncTaskRunner {
+    typealias Task = (@escaping () -> Void) -> Void
+
+    private let tasks: [Task]
+    private let maxConcurrent: Int
+    private let stateQueue = DispatchQueue(label: "com.clashfx.proxyDelayTaskRunner")
+    private var nextTaskIndex = 0
+    private var activeTaskCount = 0
+    private var completion: (() -> Void)?
+
+    init(tasks: [Task], maxConcurrent: Int) {
+        self.tasks = tasks
+        self.maxConcurrent = max(1, maxConcurrent)
+    }
+
+    func start(completion: @escaping () -> Void) {
+        stateQueue.async {
+            self.completion = completion
+            self.scheduleAvailableTasks()
+        }
+    }
+
+    private func scheduleAvailableTasks() {
+        while activeTaskCount < maxConcurrent, nextTaskIndex < tasks.count {
+            let task = tasks[nextTaskIndex]
+            nextTaskIndex += 1
+            activeTaskCount += 1
+
+            task {
+                self.stateQueue.async {
+                    self.activeTaskCount -= 1
+                    self.scheduleAvailableTasks()
+                }
+            }
+        }
+
+        guard nextTaskIndex == tasks.count, activeTaskCount == 0 else { return }
+        let completion = completion
+        self.completion = nil
+        DispatchQueue.main.async {
+            completion?()
+        }
+    }
+}
+
 class ApiRequest {
     static let shared = ApiRequest()
 
@@ -337,8 +382,106 @@ class ApiRequest {
                               benchmarkURL: String = Settings.benchMarkUrl,
                               timeout: Int = 5000,
                               callback: @escaping ((Int) -> Void)) {
-        Logger.log("[Proxy Delay] Testing proxy '\(proxyName)' with url: \(benchmarkURL)")
-        req("/proxies/\(proxyName.encoded)/delay",
+        requestProxyDelay(
+            path: "/proxies/\(proxyName.encoded)/delay",
+            description: "proxy '\(proxyName)'",
+            benchmarkURL: benchmarkURL,
+            timeout: timeout,
+            callback: callback
+        )
+    }
+
+    static func getProviderProxyDelay(providerName: ClashProviderName,
+                                      proxyName: ClashProxyName,
+                                      benchmarkURL: String = Settings.benchMarkUrl,
+                                      timeout: Int = 5000,
+                                      callback: @escaping ((Int) -> Void)) {
+        requestProxyDelay(
+            path: "/providers/proxies/\(providerName.encoded)/\(proxyName.encoded)/healthcheck",
+            description: "provider '\(providerName)' proxy '\(proxyName)'",
+            benchmarkURL: benchmarkURL,
+            timeout: timeout,
+            callback: callback
+        )
+    }
+
+    static func benchmarkLeafProxies(in response: ClashProxyResp,
+                                     benchmarkURL: String,
+                                     timeout: Int,
+                                     maxConcurrent: Int = 10,
+                                     completion: @escaping () -> Void) {
+        typealias DelayTask = LimitedAsyncTaskRunner.Task
+        var tasks = [DelayTask]()
+
+        // GLOBAL.all also contains policy groups. Testing a group recursively
+        // tests its members, often more than once when providers are shared.
+        // Build one task per actual leaf proxy instead.
+        let builtInNames: Set = [
+            "GLOBAL", "DIRECT", "REJECT", "REJECT-DROP",
+            "PASS", "PASS-RULE", "COMPATIBLE"
+        ]
+        var inlineProxyNames = Set<String>()
+        let inlineProxies = response.proxies
+            .filter { proxy in
+                proxy.enclosingProvider == nil
+                    && proxy.all == nil
+                    && proxy.type != .direct
+                    && proxy.type != .reject
+                    && !builtInNames.contains(proxy.name)
+            }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+
+        for proxy in inlineProxies where inlineProxyNames.insert(proxy.name).inserted {
+            tasks.append { done in
+                getProxyDelay(
+                    proxyName: proxy.name,
+                    benchmarkURL: benchmarkURL,
+                    timeout: timeout
+                ) { _ in
+                    done()
+                }
+            }
+        }
+
+        var providerProxyKeys = Set<String>()
+        let providers = response.enclosingProviderResp?.providers.values.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        } ?? []
+        for provider in providers {
+            let proxies = provider.proxies.sorted {
+                $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
+            for proxy in proxies {
+                let key = provider.name + "\u{0}" + proxy.name
+                guard providerProxyKeys.insert(key).inserted else { continue }
+                tasks.append { done in
+                    getProviderProxyDelay(
+                        providerName: provider.name,
+                        proxyName: proxy.name,
+                        benchmarkURL: benchmarkURL,
+                        timeout: timeout
+                    ) { _ in
+                        done()
+                    }
+                }
+            }
+        }
+
+        Logger.log(
+            "[Proxy Delay] Starting leaf-only benchmark: "
+                + "\(inlineProxyNames.count) inline, \(providerProxyKeys.count) provider, "
+                + "max concurrency \(max(1, maxConcurrent))"
+        )
+        LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: maxConcurrent).start(completion: completion)
+    }
+
+    private static func requestProxyDelay(path: String,
+                                          description: String,
+                                          benchmarkURL: String,
+                                          timeout: Int,
+                                          callback: @escaping ((Int) -> Void)) {
+        Logger.log("[Proxy Delay] Testing \(description) with url: \(benchmarkURL)")
+        req(path,
             method: .get,
             parameters: ["timeout": timeout, "url": benchmarkURL])
             .responseData { res in
@@ -348,15 +491,15 @@ class ApiRequest {
                     let json = JSON(value)
                     let delay = json["delay"].intValue
                     if delay > 0 {
-                        Logger.log("[Proxy Delay] Proxy '\(proxyName)' succeeded: \(delay) ms, status: \(statusCode)")
+                        Logger.log("[Proxy Delay] \(description) succeeded: \(delay) ms, status: \(statusCode)")
                     } else {
                         let body = String(data: value, encoding: .utf8) ?? "<non-utf8 body>"
-                        Logger.log("[Proxy Delay] Proxy '\(proxyName)' returned no delay, status: \(statusCode), body: \(body)", level: .warning)
+                        Logger.log("[Proxy Delay] \(description) returned no delay, status: \(statusCode), body: \(body)", level: .warning)
                     }
                     callback(delay)
                 case .failure:
                     let body = res.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
-                    Logger.log("[Proxy Delay] Proxy '\(proxyName)' failed, status: \(statusCode), error: \(res.error?.localizedDescription ?? "unknown error"), body: \(body)", level: .error)
+                    Logger.log("[Proxy Delay] \(description) failed, status: \(statusCode), error: \(res.error?.localizedDescription ?? "unknown error"), body: \(body)", level: .error)
                     callback(0)
                 }
             }

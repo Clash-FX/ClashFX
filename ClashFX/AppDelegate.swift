@@ -2386,22 +2386,11 @@ extension AppDelegate {
                 return
             }
 
-            let group = DispatchGroup()
-
-            for (name, _) in resp.enclosingProviderResp?.providers ?? [:] {
-                group.enter()
-                ApiRequest.healthCheck(proxy: name) {
-                    group.leave()
-                }
-            }
-
-            for p in resp.proxiesMap["GLOBAL"]?.all ?? [] {
-                group.enter()
-                ApiRequest.getProxyDelay(proxyName: p, benchmarkURL: benchmarkURL, timeout: timeout) { _ in
-                    group.leave()
-                }
-            }
-            group.notify(queue: DispatchQueue.main) {
+            ApiRequest.benchmarkLeafProxies(
+                in: resp,
+                benchmarkURL: benchmarkURL,
+                timeout: timeout
+            ) {
                 self.finishSpeedTest(showNotifications: showNotifications)
             }
         }

@@ -589,6 +589,7 @@
 "Network Automation" = "Network Automation";
 "Connectivity Test" = "Connectivity Test";
 "Bypass Rules" = "Bypass Rules";
+"Copy Host or IP" = "Copy Host or IP";
 "Global Shortcut Updated" = "Global Shortcut Updated";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut.";
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut.";

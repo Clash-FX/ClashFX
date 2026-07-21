@@ -1,3 +1,27 @@
+### Improvements
+
+- **Delay Benchmarks Avoid Duplicate Work** — Manual delay tests now benchmark each actual leaf proxy once, use provider-specific checks for provider nodes, and cap concurrency to avoid nested policy groups producing duplicate requests and unstable first-run results. (#147)
+- **Connection Details Can Copy the Destination Directly** — A new copy button beside the destination copies the hostname when available, or the destination IP otherwise, without the port number so it can be pasted directly into custom rules. (#147)
+
+### Contributors
+
+- @a51095 — Reported the repeated first-run delay spike and suggested copying the destination without its port from connection details. (#147)
+
+---
+
+### 改进
+
+- **延迟测速不再重复测试节点** — 手动延迟测速现在只测试一次每个实际叶子节点，对代理提供者节点使用对应测速接口，并限制并发数量，避免嵌套策略组产生重复请求及首次结果不稳定。 (#147)
+- **连接详情可直接复制目标地址** — 目标地址旁新增复制按钮：有域名时复制域名，否则复制目标 IP；复制结果不含端口号，可直接用于自定义规则。 (#147)
+
+### 贡献者
+
+- @a51095 — 反馈首次延迟测速反复偏高的问题，并建议在连接详情中复制不含端口的目标地址。 (#147)
+
+<!-- Previous release notes -->
+
+---
+
 ### Bug Fixes
 
 - **Enhanced Mode Recovers Its TUN Data Path After Wake** — Wake and network-change recovery now validates both the mihomo API and the active TUN interface. If the control API is alive but TUN has disappeared or reports disabled, ClashFX stops the stale external core and rebuilds Enhanced Mode instead of leaving the menu in a false-on state. (#142, #147)

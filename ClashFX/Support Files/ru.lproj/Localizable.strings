@@ -582,6 +582,7 @@
 "Network Automation" = "Автоматизация сети";
 "Connectivity Test" = "Проверка подключения";
 "Bypass Rules" = "Правила обхода";
+"Copy Host or IP" = "Копировать имя хоста или IP";
 "Global Shortcut Updated" = "Глобальные сочетания обновлены";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "Сочетания для копирования изменены, чтобы не перехватывать Command-C. Их можно настроить в «Настройки > Глобальные сочетания».";
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "Небезопасные глобальные сочетания с Command удалены, чтобы восстановить стандартные сочетания macOS. Свои сочетания можно назначить в разделе «Настройки > Глобальные сочетания».";

@@ -622,6 +622,7 @@
 "Network Automation" = "网络自动化";
 "Connectivity Test" = "连通性测试";
 "Bypass Rules" = "绕过规则";
+"Copy Host or IP" = "复制域名或 IP";
 "Global Shortcut Updated" = "全局快捷键已更新";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "复制快捷键已调整，避免拦截 Command-C。可在“设置 > 全局快捷键”中自定义。";
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "已移除会拦截 macOS 常用命令的全局快捷键。可在“设置 > 全局快捷键”中重新指定自定义组合。";

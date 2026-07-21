@@ -14,6 +14,7 @@ class ConnectionDetailInfoView: NSView {
     private let logoView = NSImageView()
     private let processNameLabel = NSTextField(labelWithString: "")
     private let hostLabel = NSTextField(labelWithString: "")
+    private let copyHostButton = NSButton()
     private let generalView = ConnectionDetailInfoGeneralView.createFromNib()
     private let containerView = NSView()
     private var cancelable = Set<AnyCancellable>()
@@ -60,7 +61,12 @@ class ConnectionDetailInfoView: NSView {
         let nameStackView = NSStackView()
         nameStackView.orientation = .vertical
         nameStackView.addArrangedSubview(processNameLabel)
-        nameStackView.addArrangedSubview(hostLabel)
+
+        let hostStackView = NSStackView(views: [hostLabel, copyHostButton])
+        hostStackView.orientation = .horizontal
+        hostStackView.alignment = .centerY
+        hostStackView.spacing = 4
+        nameStackView.addArrangedSubview(hostStackView)
         nameStackView.alignment = .left
         nameStackView.spacing = 2
         addSubview(nameStackView)
@@ -71,6 +77,30 @@ class ConnectionDetailInfoView: NSView {
 
         processNameLabel.font = NSFont.systemFont(ofSize: 17, weight: .bold)
         hostLabel.font = NSFont.systemFont(ofSize: 12)
+        hostLabel.lineBreakMode = .byTruncatingMiddle
+        hostLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        copyHostButton.isBordered = false
+        copyHostButton.bezelStyle = .inline
+        copyHostButton.target = self
+        copyHostButton.action = #selector(actionCopyHost)
+        copyHostButton.toolTip = NSLocalizedString("Copy Host or IP", comment: "")
+        copyHostButton.setAccessibilityLabel(NSLocalizedString("Copy Host or IP", comment: ""))
+        copyHostButton.translatesAutoresizingMaskIntoConstraints = false
+        copyHostButton.widthAnchor.constraint(equalToConstant: 20).isActive = true
+        copyHostButton.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        if #available(macOS 11.0, *),
+           let image = NSImage(
+               systemSymbolName: "doc.on.doc",
+               accessibilityDescription: NSLocalizedString("Copy Host or IP", comment: "")
+           ) {
+            image.isTemplate = true
+            copyHostButton.image = image
+            copyHostButton.contentTintColor = .secondaryLabelColor
+        } else {
+            copyHostButton.title = "⧉"
+            copyHostButton.font = NSFont.systemFont(ofSize: 13)
+        }
         /*
          let segmentControl = NSSegmentedControl(labels: ["General", "Event"], trackingMode: .selectOne, target: self, action: #selector(actionSelectSegment(sender: )))
          addSubview(segmentControl)
@@ -89,6 +119,10 @@ class ConnectionDetailInfoView: NSView {
             $0.centerYAnchor.constraint(equalTo: nameStackView.centerYAnchor),
             $0.rightAnchor.constraint(equalTo: rightAnchor, constant: -12)
         ] }
+        nameStackView.trailingAnchor.constraint(
+            lessThanOrEqualTo: closeButton.leadingAnchor,
+            constant: -12
+        ).isActive = true
 
         let separator = NSView()
         separator.wantsLayer = true
@@ -143,6 +177,13 @@ class ConnectionDetailInfoView: NSView {
     }
 
     @objc func actionSelectSegment(sender: NSSegmentedControl?) {}
+    @objc func actionCopyHost() {
+        guard let host = viewModel?.remoteHostForCopy, !host.isEmpty else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(host, forType: .string)
+    }
+
     @objc func actionCloseConn() {
         viewModel?.closeConnection()
     }
