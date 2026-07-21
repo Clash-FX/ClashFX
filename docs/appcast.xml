@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.8.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.8.2 (Lab)</h2><ul><li><strong>Delay Benchmarks Avoid Duplicate Work</strong> — Manual delay tests now benchmark each actual leaf proxy once, use provider-specific checks for provider nodes, and cap concurrency to avoid nested policy groups producing duplicate requests and unstable first-run results. (#147)</li><li><strong>Connection Details Can Copy the Destination Directly</strong> — A new copy button beside the destination copies the hostname when available, or the destination IP otherwise, without the port number so it can be pasted directly into custom rules. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 21 Jul 2026 14:26:54 +0000</pubDate>
+  <sparkle:version>1001008002</sparkle:version>
+  <sparkle:shortVersionString>1.1.8.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.8.2/ClashFX.dmg"
+    sparkle:version="1001008002"
+    sparkle:shortVersionString="1.1.8.2"
+    sparkle:edSignature="g87egQzXKnaHMNaTFUZWc3NgfITHqDs8xKeGYbRBmMwohRSKDo7yYQQrO10vv7qPy66tBHJBQLZzWnchZAqEAA=="
+    length="95523953"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.8.1 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.8.1 (Lab)</h2><ul><li><strong>Enhanced Mode Recovers Its TUN Data Path After Wake</strong> — Wake and network-change recovery now validates both the mihomo API and the active TUN interface. If the control API is alive but TUN has disappeared or reports disabled, ClashFX stops the stale external core and rebuilds Enhanced Mode instead of leaving the menu in a false-on state. (#142, #147)</li><li><strong>A Stuck Core No Longer Blocks Restart</strong> — The privileged helper now gives mihomo a short graceful-shutdown window, then force-terminates it when necessary so Enhanced Mode recovery and ClashFX restart cannot wait forever on an unresponsive process. (#147)</li></ul>
