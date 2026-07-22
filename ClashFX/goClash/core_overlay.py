@@ -44,6 +44,12 @@ def _remove_tree(path: pathlib.Path) -> None:
 
 @contextmanager
 def core_modfile() -> Iterator[str]:
+    # A fresh CI runner has the version in go.sum but no extracted module
+    # directory yet. Download the pinned module before asking Go for its path.
+    subprocess.check_call(
+        ["go", "mod", "download", SING_MODULE],
+        cwd=MODULE_ROOT,
+    )
     module_info = subprocess.check_output(
         ["go", "list", "-m", "-f", "{{.Version}}\n{{.Dir}}", SING_MODULE],
         text=True,
