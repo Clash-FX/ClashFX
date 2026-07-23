@@ -586,3 +586,5 @@
 "Global Shortcut Updated" = "Глобальные сочетания обновлены";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "Сочетания для копирования изменены, чтобы не перехватывать Command-C. Их можно настроить в «Настройки > Глобальные сочетания».";
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "Небезопасные глобальные сочетания с Command удалены, чтобы восстановить стандартные сочетания macOS. Свои сочетания можно назначить в разделе «Настройки > Глобальные сочетания».";
+"Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "Сочетания клавиш режима прокси по умолчанию удалены, чтобы предотвратить случайное переключение в фоне. Назначить свои сочетания можно в разделе «Настройки > Глобальные сочетания».";
+"Could not switch to %@. ClashFX kept the core's current proxy mode." = "Не удалось переключиться на %@. ClashFX сохранил текущий режим прокси ядра.";

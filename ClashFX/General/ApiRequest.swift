@@ -268,11 +268,19 @@ class ApiRequest {
 
     static func updateOutBoundMode(mode: ClashProxyMode, callback: ((Bool) -> Void)? = nil) {
         req("/configs", method: .patch, parameters: ["mode": mode.rawValue], encoding: JSONEncoding.default)
+            .validate(statusCode: 200 ..< 300)
             .responseData { response in
                 switch response.result {
                 case .success:
                     callback?(true)
-                case .failure:
+                case let .failure(error):
+                    let status = response.response
+                        .map { String($0.statusCode) } ?? "none"
+                    Logger.log(
+                        "Failed to update outbound mode to \(mode.rawValue): " +
+                            "status=\(status) error=\(error.localizedDescription)",
+                        level: .error
+                    )
                     callback?(false)
                 }
             }

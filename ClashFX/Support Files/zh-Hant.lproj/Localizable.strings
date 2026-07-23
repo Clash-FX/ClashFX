@@ -586,3 +586,5 @@
 "Global Shortcut Updated" = "全域快速鍵已更新";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "複製快速鍵已調整，避免攔截 Command-C。可在「設定 > 全域快速鍵」中自訂。";
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "已移除會攔截 macOS 常用指令的全域快速鍵。可在「設定 > 全域快速鍵」中重新指定自訂組合。";
+"Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "已移除預設的出站模式快速鍵，避免在背景誤切換模式。可在「設定 > 全域快速鍵」中重新指定自訂組合。";
+"Could not switch to %@. ClashFX kept the core's current proxy mode." = "無法切換到 %@。ClashFX 已保留核心目前的代理模式。";

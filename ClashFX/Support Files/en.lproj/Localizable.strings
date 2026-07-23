@@ -593,3 +593,5 @@
 "Global Shortcut Updated" = "Global Shortcut Updated";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut.";
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut.";
+"Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut.";
+"Could not switch to %@. ClashFX kept the core's current proxy mode." = "Could not switch to %@. ClashFX kept the core's current proxy mode.";

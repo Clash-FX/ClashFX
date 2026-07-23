@@ -20,6 +20,12 @@ import Yams
 
 let statusItemLengthWithSpeed: CGFloat = 65
 
+enum OutboundModeChangeSource: String {
+    case menu
+    case globalShortcut = "global-shortcut"
+    case configReload = "config-reload"
+}
+
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
     private enum EnhancedModeLaunchPreparation {
@@ -36,6 +42,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let name: String
         let ipv4: String?
         let isUp: Bool
+    }
+
+    private struct OutboundModeChangeRequest {
+        let id: Int
+        let mode: ClashProxyMode
+        let source: OutboundModeChangeSource
+        let closeConnections: Bool
+        let completion: ((Bool) -> Void)?
     }
 
     private(set) var statusItem: NSStatusItem!
@@ -123,6 +137,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var consecutiveEnhancedModeHealthFailures = 0
     private var lastFatalTunRecoveryTime = Date.distantPast
     private var didCompleteStaleEnhancedCoreCleanup = false
+    private var outboundModeRequestSequence = 0
+    private var latestOutboundModeRequestID = 0
+    private var outboundModeChangeQueue: [OutboundModeChangeRequest] = []
+    private var isOutboundModeChangeInFlight = false
+    private var desiredOutboundMode: ClashProxyMode?
+    private var pendingOutboundModeVerification:
+        (requestID: Int, mode: ClashProxyMode, source: OutboundModeChangeSource)?
+    private var deferredConfigSyncHandlers: [() -> Void] = []
+    private var configSyncRetryWork: DispatchWorkItem?
     private static let enhancedModeRestoreMaxAttempts = 12
     private static let enhancedModeRestoreRetryDelay: TimeInterval = 5
     private static let wakeRecoveryDelay: TimeInterval = 3
@@ -848,10 +871,77 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func syncConfig(completeHandler: (() -> Void)? = nil) {
-        ApiRequest.requestConfig { config in
+        let modeRequestSequence = outboundModeRequestSequence
+        guard !isOutboundModeChangeInFlight, outboundModeChangeQueue.isEmpty else {
+            scheduleConfigSyncRetry(completeHandler: completeHandler)
+            return
+        }
+
+        ApiRequest.requestConfig { [weak self] config in
+            guard let self = self else { return }
+            guard modeRequestSequence == self.outboundModeRequestSequence,
+                  !self.isOutboundModeChangeInFlight,
+                  self.outboundModeChangeQueue.isEmpty
+            else {
+                Logger.log(
+                    "Discarded stale config sync while outbound mode was changing",
+                    level: .debug
+                )
+                self.scheduleConfigSyncRetry(completeHandler: completeHandler)
+                return
+            }
+
             ConfigManager.shared.currentConfig = config
+            self.verifyPendingOutboundMode(using: config, requestSequence: modeRequestSequence)
             completeHandler?()
         }
+    }
+
+    private func scheduleConfigSyncRetry(completeHandler: (() -> Void)?) {
+        if let completeHandler {
+            deferredConfigSyncHandlers.append(completeHandler)
+        }
+        guard configSyncRetryWork == nil else { return }
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.configSyncRetryWork = nil
+            let handlers = self.deferredConfigSyncHandlers
+            self.deferredConfigSyncHandlers.removeAll()
+            self.syncConfig {
+                handlers.forEach { $0() }
+            }
+        }
+        configSyncRetryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
+    }
+
+    private func verifyPendingOutboundMode(
+        using config: ClashConfig,
+        requestSequence: Int
+    ) {
+        guard let verification = pendingOutboundModeVerification,
+              verification.requestID == requestSequence
+        else {
+            return
+        }
+        pendingOutboundModeVerification = nil
+
+        guard config.mode == verification.mode else {
+            Logger.log(
+                "Outbound mode verification failed: source=\(verification.source.rawValue) " +
+                    "requested=\(verification.mode.rawValue) actual=\(config.mode.rawValue)",
+                level: .error
+            )
+            ConfigManager.selectOutBoundMode = config.mode
+            notifyOutboundModeChangeFailure(mode: verification.mode)
+            return
+        }
+
+        Logger.log(
+            "Verified outbound mode: source=\(verification.source.rawValue) " +
+                "mode=\(verification.mode.rawValue)"
+        )
     }
 
     func resetStreamApi() {
@@ -904,7 +994,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let err {
                 UpdateConfigAction.showError(text: err, configName: config)
             } else {
-                self.syncConfig()
                 self.resetStreamApi()
                 self.runAfterConfigReload?()
                 self.runAfterConfigReload = nil
@@ -2433,17 +2522,132 @@ extension AppDelegate {
         default:
             return
         }
-        switchProxyMode(mode: mode)
+        switchProxyMode(mode: mode, source: .menu)
     }
 
-    func switchProxyMode(mode: ClashProxyMode) {
-        let config = ConfigManager.shared.currentConfig?.copy()
-        config?.mode = mode
-        ApiRequest.updateOutBoundMode(mode: mode) { _ in
-            ConfigManager.shared.currentConfig = config
-            ConfigManager.selectOutBoundMode = mode
-            MenuItemFactory.recreateProxyMenuItems()
+    func switchProxyMode(
+        mode: ClashProxyMode,
+        source: OutboundModeChangeSource = .menu
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.switchProxyMode(mode: mode, source: source)
+            }
+            return
         }
+
+        desiredOutboundMode = mode
+        enqueueOutboundModeChange(
+            mode: mode,
+            source: source,
+            closeConnections: false
+        )
+    }
+
+    private func enqueueOutboundModeChange(
+        mode: ClashProxyMode,
+        source: OutboundModeChangeSource,
+        closeConnections: Bool,
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        outboundModeRequestSequence &+= 1
+        let request = OutboundModeChangeRequest(
+            id: outboundModeRequestSequence,
+            mode: mode,
+            source: source,
+            closeConnections: closeConnections,
+            completion: completion
+        )
+        latestOutboundModeRequestID = request.id
+        outboundModeChangeQueue.append(request)
+        Logger.log(
+            "Queued outbound mode change #\(request.id): " +
+                "source=\(source.rawValue) mode=\(mode.rawValue)"
+        )
+        processNextOutboundModeChange()
+    }
+
+    private func processNextOutboundModeChange() {
+        guard !isOutboundModeChangeInFlight,
+              !outboundModeChangeQueue.isEmpty
+        else {
+            return
+        }
+
+        let request = outboundModeChangeQueue.removeFirst()
+        isOutboundModeChangeInFlight = true
+        ApiRequest.updateOutBoundMode(mode: request.mode) { [weak self] success in
+            DispatchQueue.main.async {
+                self?.finishOutboundModeChange(request, success: success)
+            }
+        }
+    }
+
+    private func finishOutboundModeChange(
+        _ request: OutboundModeChangeRequest,
+        success: Bool
+    ) {
+        isOutboundModeChangeInFlight = false
+
+        guard request.id == latestOutboundModeRequestID,
+              outboundModeChangeQueue.isEmpty
+        else {
+            Logger.log(
+                "Finished superseded outbound mode change #\(request.id): " +
+                    "source=\(request.source.rawValue) mode=\(request.mode.rawValue) " +
+                    "success=\(success)",
+                level: success ? .debug : .warning
+            )
+            request.completion?(success)
+            processNextOutboundModeChange()
+            return
+        }
+
+        if success {
+            ConfigManager.selectOutBoundMode = request.mode
+            let config = ConfigManager.shared.currentConfig?.copy()
+            config?.mode = request.mode
+            ConfigManager.shared.currentConfig = config
+            desiredOutboundMode = nil
+            pendingOutboundModeVerification = (
+                requestID: request.id,
+                mode: request.mode,
+                source: request.source
+            )
+            if request.closeConnections {
+                ConnectionManager.closeAllConnection()
+            }
+            Logger.log(
+                "Core accepted outbound mode change #\(request.id): " +
+                    "source=\(request.source.rawValue) mode=\(request.mode.rawValue)"
+            )
+            MenuItemFactory.recreateProxyMenuItems()
+        } else {
+            desiredOutboundMode = nil
+            pendingOutboundModeVerification = nil
+            Logger.log(
+                "Outbound mode change failed #\(request.id): " +
+                    "source=\(request.source.rawValue) mode=\(request.mode.rawValue)",
+                level: .error
+            )
+            notifyOutboundModeChangeFailure(mode: request.mode)
+        }
+
+        request.completion?(success)
+        syncConfig()
+    }
+
+    private func notifyOutboundModeChangeFailure(mode: ClashProxyMode) {
+        let format = NSLocalizedString(
+            "Could not switch to %@. ClashFX kept the core's current proxy mode.",
+            comment: ""
+        )
+        NSUserNotificationCenter.default.post(
+            title: NSLocalizedString("Proxy Mode", comment: ""),
+            info: String(format: format, mode.name),
+            identifier: "outboundModeChangeFailure",
+            notiOnly: false
+        )
     }
 
     @IBAction func actionShowNetSpeedIndicator(_ sender: NSMenuItem) {
@@ -2883,15 +3087,12 @@ extension AppDelegate {
     }
 
     private func restoreSelectedOutboundModeAfterCoreChange(completion: (() -> Void)? = nil) {
-        let mode = ConfigManager.selectOutBoundMode
-        ApiRequest.updateOutBoundMode(mode: mode) { [weak self] success in
-            if success {
-                Logger.log("Restored outbound mode after core change: \(mode.rawValue)")
-                ConnectionManager.closeAllConnection()
-                self?.syncConfig()
-            } else {
-                Logger.log("Failed to restore outbound mode after core change: \(mode.rawValue)", level: .warning)
-            }
+        let mode = desiredOutboundMode ?? ConfigManager.selectOutBoundMode
+        enqueueOutboundModeChange(
+            mode: mode,
+            source: .configReload,
+            closeConnections: true
+        ) { _ in
             completion?()
         }
     }

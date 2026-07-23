@@ -20,18 +20,9 @@ extension KeyboardShortcuts.Name {
         default: .init(.c, modifiers: [.control, .option, .shift])
     )
 
-    static let modeDirect = Self(
-        "shortCut.modeDirect",
-        default: .init(.d, modifiers: .option)
-    )
-    static let modeRule = Self(
-        "shortCut.modeRule",
-        default: .init(.r, modifiers: .option)
-    )
-    static let modeGlobal = Self(
-        "shortCut.modeGlobal",
-        default: .init(.g, modifiers: .option)
-    )
+    static let modeDirect = Self("shortCut.modeDirect")
+    static let modeRule = Self("shortCut.modeRule")
+    static let modeGlobal = Self("shortCut.modeGlobal")
 
     static let toggleEnhancedMode = Self(
         "shortCut.toggleEnhancedMode",
@@ -48,10 +39,13 @@ extension KeyboardShortcuts.Name {
 enum KeyboardShortCutManager {
     private static let copyShortcutMigrationKey = "kCopyShortcutMigrationV2"
     private static let unsafeCommandShortcutMigrationKey = "kUnsafeCommandShortcutMigrationV1"
+    private static let defaultProxyModeShortcutMigrationKey =
+        "kDefaultProxyModeShortcutMigrationV1"
 
     static func setup() {
         migrateUnsafeCopyShortcutsIfNeeded()
         migrateUnsafeCommandShortcutsIfNeeded()
+        migrateDefaultProxyModeShortcutsIfNeeded()
 
         KeyboardShortcuts.onKeyUp(for: .toggleSystemProxyMode) {
             AppDelegate.shared.actionSetSystemProxy(nil)
@@ -66,15 +60,15 @@ enum KeyboardShortCutManager {
         }
 
         KeyboardShortcuts.onKeyUp(for: .modeDirect) {
-            AppDelegate.shared.switchProxyMode(mode: .direct)
+            AppDelegate.shared.switchProxyMode(mode: .direct, source: .globalShortcut)
         }
 
         KeyboardShortcuts.onKeyUp(for: .modeRule) {
-            AppDelegate.shared.switchProxyMode(mode: .rule)
+            AppDelegate.shared.switchProxyMode(mode: .rule, source: .globalShortcut)
         }
 
         KeyboardShortcuts.onKeyUp(for: .modeGlobal) {
-            AppDelegate.shared.switchProxyMode(mode: .global)
+            AppDelegate.shared.switchProxyMode(mode: .global, source: .globalShortcut)
         }
 
         KeyboardShortcuts.onKeyUp(for: .toggleEnhancedMode) {
@@ -160,6 +154,42 @@ enum KeyboardShortCutManager {
         NSUserNotificationCenter.default.post(
             title: NSLocalizedString("Global Shortcut Updated", comment: ""),
             info: NSLocalizedString("Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut.", comment: "")
+        )
+    }
+
+    private static func migrateDefaultProxyModeShortcutsIfNeeded() {
+        guard !UserDefaults.standard.bool(
+            forKey: defaultProxyModeShortcutMigrationKey
+        ) else {
+            return
+        }
+
+        let legacyShortcuts: [(KeyboardShortcuts.Name, KeyboardShortcuts.Shortcut)] = [
+            (.modeDirect, .init(.d, modifiers: .option)),
+            (.modeRule, .init(.r, modifiers: .option)),
+            (.modeGlobal, .init(.g, modifiers: .option))
+        ]
+        var migrated = false
+
+        for (name, legacyShortcut) in legacyShortcuts
+            where KeyboardShortcuts.getShortcut(for: name) == legacyShortcut {
+            KeyboardShortcuts.setShortcut(nil, for: name)
+            migrated = true
+        }
+
+        UserDefaults.standard.set(
+            true,
+            forKey: defaultProxyModeShortcutMigrationKey
+        )
+        guard migrated else { return }
+
+        Logger.log("Removed default global shortcuts for outbound proxy modes")
+        NSUserNotificationCenter.default.post(
+            title: NSLocalizedString("Global Shortcut Updated", comment: ""),
+            info: NSLocalizedString(
+                "Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut.",
+                comment: ""
+            )
         )
     }
 }

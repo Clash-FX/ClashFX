@@ -586,3 +586,5 @@
 "Global Shortcut Updated" = "グローバルショートカットを更新しました";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "Command-C を横取りしないよう、コピーのショートカットを変更しました。設定 > グローバルショートカットで変更できます。";
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "macOS の標準ショートカットを復元するため、安全でない Command キーのグローバルショートカットを削除しました。設定 > グローバルショートカットで任意の組み合わせを設定できます。";
+"Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "バックグラウンドでの意図しないモード変更を防ぐため、プロキシモードの既定ショートカットを削除しました。設定 > グローバルショートカットで任意の組み合わせを設定できます。";
+"Could not switch to %@. ClashFX kept the core's current proxy mode." = "%@ に切り替えられませんでした。ClashFX はコアの現在のプロキシモードを維持しました。";
