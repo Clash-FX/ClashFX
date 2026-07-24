@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.8.5 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.8.5 (Lab)</h2><ul><li><strong>System Proxy Bypass Changes Apply Immediately</strong> — Editing the bypass list now reapplies the active macOS System Proxy settings and reloads the standard-mode runtime rules without requiring a proxy toggle or app restart. The settings copy also clarifies that Enhanced Mode bypasses belong in Profile Mixin. (#182)</li><li><strong>TUN Interface Error Storms Recover Automatically</strong> — Repeated interface auto-detection failures are grouped and rate-limited before file logging, and a sustained error storm now triggers an Enhanced Mode rebuild instead of consuming CPU and growing logs indefinitely. (#183)</li><li><strong>Dashboard Version Indicators No Longer Suggest Unsupported Updates</strong> — ClashFX now removes the upstream update dots, disables the bundled Dashboard's version actions, and explains that Dashboard and core updates are managed by ClashFX releases. (#184)</li><li><strong>Outbound Mode No Longer Changes Unexpectedly</strong> — Removed the default global `⌥D`, `⌥R`, and `⌥G` bindings that could switch ClashFX from other apps. Upgrades clear only bindings that still match those legacy defaults, while preserving other custom shortcuts. (#179)</li><li><strong>The Last Mode Choice Now Wins Reliably</strong> — Outbound-mode changes are serialized, persisted only after the core accepts them, and verified against the core's actual mode. Config reloads and stale state reads can no longer overwrite the user's latest choice, and logs now record each change source and result. (#179)</li></ul>
+  ]]></description>
+  <pubDate>Fri, 24 Jul 2026 04:44:42 +0000</pubDate>
+  <sparkle:version>1001008005</sparkle:version>
+  <sparkle:shortVersionString>1.1.8.5</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.8.5/ClashFX.dmg"
+    sparkle:version="1001008005"
+    sparkle:shortVersionString="1.1.8.5"
+    sparkle:edSignature="LiQRYT2q6lUYOVYFXA9vjmCon+3FuIHzYCla4KamoYxzlDAdCFtk9XkkYDP9enu+ssnjirRwpJDbkL3hGOWnDA=="
+    length="95484449"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.8.4 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.8.4 (Lab)</h2><ul><li><strong>Outbound Mode No Longer Changes Unexpectedly</strong> — Removed the default global `⌥D`, `⌥R`, and `⌥G` bindings that could switch ClashFX from other apps. Upgrades clear only bindings that still match those legacy defaults, while preserving other custom shortcuts. (#179)</li><li><strong>The Last Mode Choice Now Wins Reliably</strong> — Outbound-mode changes are serialized, persisted only after the core accepts them, and verified against the core's actual mode. Config reloads and stale state reads can no longer overwrite the user's latest choice, and logs now record each change source and result. (#179)</li></ul>
