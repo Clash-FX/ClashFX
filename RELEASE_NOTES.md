@@ -1,5 +1,27 @@
 ### Bug Fixes
 
+- **Automatic Groups Re-evaluate After Manual Delay Tests** — Completing a manual delay benchmark now triggers each affected `url-test` group to test its candidates again with the group's own URL and expected status. Stale selections are refreshed while Mihomo's configured `tolerance` continues to prevent unnecessary switching from small latency changes. (#147)
+
+### Contributors
+
+- @a51095 — Reported that Automatic Selection could keep an older candidate after a manual delay test found faster nodes. (#147)
+
+---
+
+### 修复
+
+- **手动延迟测速后会重新评估自动策略组** — 手动测速完成后，相关 `url-test` 策略组会使用各自配置的测速地址和预期状态重新测试候选节点；旧选择会及时刷新，同时继续保留 Mihomo 的 `tolerance` 容差，避免因细微延迟波动频繁切换。 (#147)
+
+### 贡献者
+
+- @a51095 — 反馈手动延迟测速发现更快节点后，自动选择仍可能保留旧候选节点的问题。 (#147)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **System Proxy Bypass Changes Apply Immediately** — Editing the bypass list now reapplies the active macOS System Proxy settings and reloads the standard-mode runtime rules without requiring a proxy toggle or app restart. The settings copy also clarifies that Enhanced Mode bypasses belong in Profile Mixin. (#182)
 - **TUN Interface Error Storms Recover Automatically** — Repeated interface auto-detection failures are grouped and rate-limited before file logging, and a sustained error storm now triggers an Enhanced Mode rebuild instead of consuming CPU and growing logs indefinitely. (#183)
 - **Dashboard Version Indicators No Longer Suggest Unsupported Updates** — ClashFX now removes the upstream update dots, disables the bundled Dashboard's version actions, and explains that Dashboard and core updates are managed by ClashFX releases. (#184)
