@@ -68,7 +68,7 @@ if ! git diff --quiet HEAD; then
   echo "❌ Uncommitted changes. Stash or commit first." >&2
   exit 1
 fi
-git fetch -q origin main
+git fetch -q origin main --tags
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 if [[ "$LOCAL" != "$REMOTE" ]]; then
@@ -87,6 +87,15 @@ IS_PRE=$(echo "$LAB_INFO" | python3 -c "import json,sys; print(json.load(sys.std
 PUB_AT=$(echo "$LAB_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin)['publishedAt'])")
 if [[ "$IS_PRE" != "True" ]]; then
   echo "❌ Release $LAB_TAG is not prerelease. Refusing to promote a non-Lab build." >&2
+  exit 1
+fi
+LAB_COMMIT=$(git rev-list -n 1 "$LAB_TAG")
+if [[ -z "$LAB_COMMIT" ]]; then
+  echo "❌ Could not resolve Lab tag $LAB_TAG to a commit." >&2
+  exit 1
+fi
+if ! git merge-base --is-ancestor "$LAB_COMMIT" origin/main; then
+  echo "❌ Lab commit $LAB_COMMIT is not contained in origin/main." >&2
   exit 1
 fi
 LAB_AGE_HOURS=$(python3 -c "
@@ -133,7 +142,7 @@ fi
 echo
 
 echo "▶ Step 6/11 — Final confirm"
-echo "    Tag $STABLE_TAG → ${LOCAL:0:8} (current main HEAD)"
+echo "    Tag $STABLE_TAG → ${LAB_COMMIT:0:8} (Lab $LAB_TAG commit)"
 echo "    CI will: build, sign, release (prerelease=false), update appcast,"
 echo "             dispatch website (config.ts bump + Cloudflare deploy)"
 if [[ "$AUTO_YES" != true ]]; then
@@ -143,7 +152,7 @@ fi
 echo
 
 echo "▶ Step 7/11 — Create + push tag $STABLE_TAG"
-git tag "$STABLE_TAG" "$LOCAL"
+git tag "$STABLE_TAG" "$LAB_COMMIT"
 git push origin "$STABLE_TAG"
 echo "  ✓ Tag pushed"
 echo
