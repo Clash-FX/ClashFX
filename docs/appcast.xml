@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.9.1 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.1 (Lab)</h2><ul><li><strong>Automatic Groups Re-evaluate After Manual Delay Tests</strong> — Completing a manual delay benchmark now triggers each affected `url-test` group to test its candidates again with the group's own URL and expected status. Stale selections are refreshed while Mihomo's configured `tolerance` continues to prevent unnecessary switching from small latency changes. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 27 Jul 2026 09:07:04 +0000</pubDate>
+  <sparkle:version>1001009001</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.1</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.1/ClashFX.dmg"
+    sparkle:version="1001009001"
+    sparkle:shortVersionString="1.1.9.1"
+    sparkle:edSignature="4jK4pymn93NnUGicfhycr7Knii8NsUgwQ9Sf1yIf7WY3R1ayAnL/k3XnHOw56osflbJdUh9lxL4FzNcftRvyBw=="
+    length="95553044"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.9</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.9</h2><ul><li><strong>System Proxy Bypass Changes Apply Immediately</strong> — Editing the bypass list now reapplies the active macOS System Proxy settings and reloads the standard-mode runtime rules without requiring a proxy toggle or app restart. The settings copy also clarifies that Enhanced Mode bypasses belong in Profile Mixin. (#182)</li><li><strong>TUN Interface Error Storms Recover Automatically</strong> — Repeated interface auto-detection failures are grouped and rate-limited before file logging, and a sustained error storm now triggers an Enhanced Mode rebuild instead of consuming CPU and growing logs indefinitely. (#183)</li><li><strong>Dashboard Version Indicators No Longer Suggest Unsupported Updates</strong> — ClashFX now removes the upstream update dots, disables the bundled Dashboard's version actions, and explains that Dashboard and core updates are managed by ClashFX releases. (#184)</li><li><strong>Outbound Mode No Longer Changes Unexpectedly</strong> — Removed the default global `⌥D`, `⌥R`, and `⌥G` bindings that could switch ClashFX from other apps. Upgrades clear only bindings that still match those legacy defaults, while preserving other custom shortcuts. (#179)</li><li><strong>The Last Mode Choice Now Wins Reliably</strong> — Outbound-mode changes are serialized, persisted only after the core accepts them, and verified against the core's actual mode. Config reloads and stale state reads can no longer overwrite the user's latest choice, and logs now record each change source and result. (#179)</li></ul>
