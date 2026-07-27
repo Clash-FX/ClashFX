@@ -413,6 +413,75 @@ class ApiRequest {
         )
     }
 
+    static func getProxyGroupDelay(groupName: ClashProxyName,
+                                   benchmarkURL: String = Settings.benchMarkUrl,
+                                   expectedStatus: String? = nil,
+                                   timeout: Int = 5000,
+                                   callback: @escaping (([ClashProxyName: Int]) -> Void)) {
+        Logger.log("[Proxy Delay] Testing group '\(groupName)' with its configured URL")
+        var parameters: Parameters = ["timeout": timeout, "url": benchmarkURL]
+        if let expectedStatus, !expectedStatus.isEmpty {
+            parameters["expected"] = expectedStatus
+        }
+        req("/group/\(groupName.encoded)/delay",
+            method: .get,
+            parameters: parameters)
+            .responseData { res in
+                let statusCode = res.response?.statusCode ?? -1
+                switch res.result {
+                case let .success(value) where (200 ..< 300).contains(statusCode):
+                    let delays = JSON(value).dictionaryValue.mapValues(\.intValue)
+                    Logger.log(
+                        "[Proxy Delay] Group '\(groupName)' re-evaluated "
+                            + "\(delays.count) candidates, status: \(statusCode)"
+                    )
+                    callback(delays)
+                case .success, .failure:
+                    let body = res.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
+                    Logger.log(
+                        "[Proxy Delay] Group '\(groupName)' re-evaluation failed, "
+                            + "status: \(statusCode), error: "
+                            + "\(res.error?.localizedDescription ?? "unknown error"), body: \(body)",
+                        level: .warning
+                    )
+                    callback([:])
+                }
+            }
+    }
+
+    static func retestURLTestGroups(in response: ClashProxyResp,
+                                    limitedTo groupNames: Set<ClashProxyName>? = nil,
+                                    timeout: Int,
+                                    maxConcurrent: Int = 3,
+                                    completion: @escaping () -> Void) {
+        typealias DelayTask = LimitedAsyncTaskRunner.Task
+        let groups = response.proxyGroups.filter { group in
+            group.type == .urltest && (groupNames == nil || groupNames?.contains(group.name) == true)
+        }
+        guard !groups.isEmpty else {
+            completion()
+            return
+        }
+
+        let tasks: [DelayTask] = groups.map { group in
+            { done in
+                getProxyGroupDelay(
+                    groupName: group.name,
+                    benchmarkURL: group.testUrl ?? Settings.benchMarkUrl,
+                    expectedStatus: group.expectedStatus,
+                    timeout: timeout
+                ) { _ in
+                    done()
+                }
+            }
+        }
+        Logger.log(
+            "[Proxy Delay] Re-evaluating \(groups.count) URLTest groups, "
+                + "max concurrency \(max(1, maxConcurrent))"
+        )
+        LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: maxConcurrent).start(completion: completion)
+    }
+
     static func benchmarkLeafProxies(in response: ClashProxyResp,
                                      benchmarkURL: String,
                                      timeout: Int,
@@ -528,20 +597,6 @@ class ApiRequest {
                 Logger.log("HeathCheck for \(proxy) finished")
             } else {
                 Logger.log("HeathCheck for \(proxy) failed:\(res.response?.statusCode ?? -1)")
-            }
-            completeHandler?()
-        }
-    }
-
-    static func resetAutoProxyGroup(group: ClashProxyName, completeHandler: (() -> Void)? = nil) {
-        Logger.log("[Proxy ReTest] Resetting auto proxy group '\(group)'")
-        req("/proxies/\(group.encoded)", method: .delete).responseData { res in
-            let statusCode = res.response?.statusCode ?? -1
-            if statusCode == 204 {
-                Logger.log("[Proxy ReTest] Auto proxy group '\(group)' reset")
-            } else {
-                let body = res.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
-                Logger.log("[Proxy ReTest] Failed resetting auto proxy group '\(group)', status: \(statusCode), body: \(body)", level: .warning)
             }
             completeHandler?()
         }

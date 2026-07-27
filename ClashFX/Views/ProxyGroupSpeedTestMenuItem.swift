@@ -57,8 +57,17 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         isEnabled = false
         updateViewTitle(NSLocalizedString("Testing", comment: ""))
 
-        ApiRequest.resetAutoProxyGroup(group: proxyGroup.name) {
-            self.scheduleMenuRefresh()
+        ApiRequest.getProxyGroupDelay(
+            groupName: proxyGroup.name,
+            benchmarkURL: proxyGroup.testUrl ?? Settings.benchMarkUrl,
+            expectedStatus: proxyGroup.expectedStatus
+        ) { _ in
+            DispatchQueue.main.async {
+                self.isTesting = false
+                self.isEnabled = true
+                self.updateViewTitle(self.testType.title)
+                self.scheduleMenuRefresh()
+            }
         }
     }
 
@@ -168,12 +177,23 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         testGroup.notify(queue: .main) {
             [weak self] in
             guard let self = self, let menu = self.enclosingMenuItem else { return }
-            self.label.stringValue = menu.title
-            menu.isEnabled = true
-            self.setNeedsDisplay()
-            if !providers.isEmpty {
+            let finish = {
+                self.label.stringValue = menu.title
+                menu.isEnabled = true
+                self.setNeedsDisplay()
                 MenuItemFactory.refreshExistingMenuItems()
             }
+
+            guard let response = group.enclosingResp else {
+                finish()
+                return
+            }
+            ApiRequest.retestURLTestGroups(
+                in: response,
+                limitedTo: Set(group.all ?? []),
+                timeout: 5000,
+                completion: finish
+            )
         }
     }
 }

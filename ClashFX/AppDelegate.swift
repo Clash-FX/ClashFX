@@ -2769,7 +2769,9 @@ extension AppDelegate {
                 benchmarkURL: benchmarkURL,
                 timeout: timeout
             ) {
-                self.finishSpeedTest(showNotifications: showNotifications)
+                ApiRequest.retestURLTestGroups(in: resp, timeout: timeout) {
+                    self.finishSpeedTest(showNotifications: showNotifications)
+                }
             }
         }
     }
