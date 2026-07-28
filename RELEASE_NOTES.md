@@ -1,5 +1,27 @@
 ### Bug Fixes
 
+- **Enhanced Mode Startup Errors Are Now Actionable** — Failed Enhanced Mode toggles now show a prominent error dialog even when reduced notifications are enabled. Invalid TUN route-exclude entries are identified directly, with guidance to separate entries correctly and a shortcut to open Settings. (#190)
+
+### Contributors
+
+- @ljssafe — Reported that Enhanced Mode appeared to do nothing when an invalid TUN route-exclude entry prevented startup. (#190)
+
+---
+
+### 修复
+
+- **增强模式启动错误现在会明确提示并引导修正** — 增强模式切换失败时会直接显示醒目的错误弹窗，即使启用了“减少通知”也不会被隐藏。若 TUN 路由排除项格式无效，弹窗会指出具体条目、说明正确的分隔方式，并提供打开设置的快捷入口。 (#190)
+
+### 贡献者
+
+- @ljssafe — 反馈无效的 TUN 路由排除项导致增强模式无法启动，但界面看起来没有任何反应的问题。 (#190)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Automatic Groups Re-evaluate After Manual Delay Tests** — Completing a manual delay benchmark now triggers each affected `url-test` group to test its candidates again with the group's own URL and expected status. Stale selections are refreshed while Mihomo's configured `tolerance` continues to prevent unnecessary switching from small latency changes. (#147)
 
 ### Contributors
