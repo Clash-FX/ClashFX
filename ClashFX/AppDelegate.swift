@@ -1682,7 +1682,7 @@ extension AppDelegate {
                 Settings.enhancedMode = !newState
                 self.enhancedModeMenuItem.state = !newState ? .on : .off
                 Logger.log("Enhanced Mode toggle failed: \(error)", level: .error)
-                NSUserNotificationCenter.default.postConfigErrorNotice(msg: error)
+                self.presentEnhancedModeToggleError(error, attemptedEnable: newState)
             } else {
                 Settings.enhancedMode = newState
                 self.enhancedModeMenuItem.state = newState ? .on : .off
@@ -1699,6 +1699,52 @@ extension AppDelegate {
             enableEnhancedMode(completion: completion)
         } else {
             disableEnhancedMode(completion: completion)
+        }
+    }
+
+    private func presentEnhancedModeToggleError(_ error: String, attemptedEnable: Bool) {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.icon = NSApp.applicationIconImage
+        alert.messageText = NSLocalizedString(
+            attemptedEnable ? "Failed to Start Enhanced Mode" : "Failed to Stop Enhanced Mode",
+            comment: ""
+        )
+
+        let errorPrefix = "error:"
+        let normalizedError = (error.hasPrefix(errorPrefix)
+            ? String(error.dropFirst(errorPrefix.count))
+            : error)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let invalidExcludePrefix = "invalid TUN route exclude entries:"
+        let invalidExcludeEntries: String?
+        if normalizedError.hasPrefix(invalidExcludePrefix) {
+            invalidExcludeEntries = String(normalizedError.dropFirst(invalidExcludePrefix.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            invalidExcludeEntries = nil
+        }
+
+        let shouldOfferSettings = invalidExcludeEntries?.isEmpty == false
+        if let invalidExcludeEntries, shouldOfferSettings {
+            alert.informativeText = String(
+                format: NSLocalizedString(
+                    "TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list.",
+                    comment: ""
+                ),
+                invalidExcludeEntries
+            )
+            alert.addButton(withTitle: NSLocalizedString("Open Settings", comment: ""))
+            alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
+        } else {
+            alert.informativeText = normalizedError
+            alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        if shouldOfferSettings, response == .alertFirstButtonReturn {
+            actionMoreSetting(alert)
         }
     }
 

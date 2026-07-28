@@ -629,3 +629,7 @@
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "已移除会拦截 macOS 常用命令的全局快捷键。可在“设置 > 全局快捷键”中重新指定自定义组合。";
 "Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "已移除默认的出站模式快捷键，避免在后台误切换模式。可在“设置 > 全局快捷键”中重新指定自定义组合。";
 "Could not switch to %@. ClashFX kept the core's current proxy mode." = "无法切换到 %@。ClashFX 已保留核心当前的代理模式。";
+"Failed to Start Enhanced Mode" = "增强模式启动失败";
+"Failed to Stop Enhanced Mode" = "增强模式停止失败";
+"TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "TUN 路由排除中包含无效条目：\n%@\n\n请使用逗号或换行分隔条目，或者重置该列表。";
+"Open Settings" = "打开设置";

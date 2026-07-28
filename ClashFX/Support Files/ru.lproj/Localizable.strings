@@ -589,3 +589,7 @@
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "Небезопасные глобальные сочетания с Command удалены, чтобы восстановить стандартные сочетания macOS. Свои сочетания можно назначить в разделе «Настройки > Глобальные сочетания».";
 "Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "Сочетания клавиш режима прокси по умолчанию удалены, чтобы предотвратить случайное переключение в фоне. Назначить свои сочетания можно в разделе «Настройки > Глобальные сочетания».";
 "Could not switch to %@. ClashFX kept the core's current proxy mode." = "Не удалось переключиться на %@. ClashFX сохранил текущий режим прокси ядра.";
+"Failed to Start Enhanced Mode" = "Не удалось запустить расширенный режим";
+"Failed to Stop Enhanced Mode" = "Не удалось остановить расширенный режим";
+"TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "Список исключений маршрутов TUN содержит недопустимые элементы:\n%@\n\nРазделите элементы запятыми или переносами строк либо сбросьте список.";
+"Open Settings" = "Открыть настройки";
