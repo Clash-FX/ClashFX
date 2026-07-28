@@ -596,3 +596,7 @@
 "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut.";
 "Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut.";
 "Could not switch to %@. ClashFX kept the core's current proxy mode." = "Could not switch to %@. ClashFX kept the core's current proxy mode.";
+"Failed to Start Enhanced Mode" = "Failed to Start Enhanced Mode";
+"Failed to Stop Enhanced Mode" = "Failed to Stop Enhanced Mode";
+"TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list.";
+"Open Settings" = "Open Settings";
