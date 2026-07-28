@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.9.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.2 (Lab)</h2><ul><li><strong>Enhanced Mode Startup Errors Are Now Actionable</strong> — Failed Enhanced Mode toggles now show a prominent error dialog even when reduced notifications are enabled. Invalid TUN route-exclude entries are identified directly, with guidance to separate entries correctly and a shortcut to open Settings. (#190)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 28 Jul 2026 08:06:41 +0000</pubDate>
+  <sparkle:version>1001009002</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.2/ClashFX.dmg"
+    sparkle:version="1001009002"
+    sparkle:shortVersionString="1.1.9.2"
+    sparkle:edSignature="jJWPRC1D5rRU/VRTAznKtKo4+iJj/Jraij+4YLYht9FefoSTKaohvgB8hj/Q5bPbNautkneTCsoa/EI6Qi4/Dw=="
+    length="95583075"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.9.1 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.9.1 (Lab)</h2><ul><li><strong>Automatic Groups Re-evaluate After Manual Delay Tests</strong> — Completing a manual delay benchmark now triggers each affected `url-test` group to test its candidates again with the group's own URL and expected status. Stale selections are refreshed while Mihomo's configured `tolerance` continues to prevent unnecessary switching from small latency changes. (#147)</li></ul>
