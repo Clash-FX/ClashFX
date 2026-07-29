@@ -207,13 +207,20 @@ enum Settings {
 
     static let disableShowCurrentProxyInMenu = !AppDelegate.isAboveMacOS14
 
-    static let defaultBenchmarkUrl = "http://cp.cloudflare.com/generate_204"
+    private static let legacyDefaultBenchmarkUrl = "http://cp.cloudflare.com/generate_204"
+    static let defaultBenchmarkUrl = "https://cp.cloudflare.com/generate_204"
     @UserDefault("benchMarkUrl", defaultValue: defaultBenchmarkUrl)
     static var benchMarkUrl: String {
         didSet {
             if benchMarkUrl.isEmpty {
                 benchMarkUrl = defaultBenchmarkUrl
             }
+        }
+    }
+
+    static func migrateLegacyBenchmarkURLIfNeeded() {
+        if benchMarkUrl == legacyDefaultBenchmarkUrl {
+            benchMarkUrl = defaultBenchmarkUrl
         }
     }
 

@@ -64,7 +64,57 @@ private final class LimitedAsyncTaskRunner {
 }
 
 class ApiRequest {
+    final class BenchmarkSession {
+        private let lock = NSLock()
+        private var requests: [UUID: DataRequest] = [:]
+        private var cancelled = false
+
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancelled
+        }
+
+        fileprivate func track(_ request: DataRequest) -> UUID {
+            let id = UUID()
+            lock.lock()
+            let shouldCancel = cancelled
+            if !shouldCancel {
+                requests[id] = request
+            }
+            lock.unlock()
+
+            if shouldCancel {
+                request.cancel()
+            }
+            return id
+        }
+
+        fileprivate func finish(_ id: UUID) {
+            lock.lock()
+            requests[id] = nil
+            lock.unlock()
+        }
+
+        func cancel() {
+            lock.lock()
+            guard !cancelled else {
+                lock.unlock()
+                return
+            }
+            cancelled = true
+            let pendingRequests = Array(requests.values)
+            requests.removeAll()
+            lock.unlock()
+
+            pendingRequests.forEach { $0.cancel() }
+        }
+    }
+
     static let shared = ApiRequest()
+    static let benchmarkMaxConcurrent = 8
+    private static let benchmarkRequestTimeoutMargin: TimeInterval = 5
+    private static let benchmarkMinimumRequestTimeout: TimeInterval = 10
 
     private var proxyRespCache: ClashProxyResp?
 
@@ -89,7 +139,8 @@ class ApiRequest {
         _ url: String,
         method: HTTPMethod = .get,
         parameters: Parameters? = nil,
-        encoding: ParameterEncoding = URLEncoding.default
+        encoding: ParameterEncoding = URLEncoding.default,
+        timeoutInterval: TimeInterval? = nil
     )
         -> DataRequest {
         guard ConfigManager.shared.isRunning else {
@@ -101,7 +152,12 @@ class ApiRequest {
                      method: method,
                      parameters: parameters,
                      encoding: encoding,
-                     headers: authHeader())
+                     headers: authHeader(),
+                     requestModifier: { request in
+                         if let timeoutInterval {
+                             request.timeoutInterval = timeoutInterval
+                         }
+                     })
     }
 
     weak var delegate: ApiRequestStreamDelegate?
@@ -389,12 +445,14 @@ class ApiRequest {
     static func getProxyDelay(proxyName: String,
                               benchmarkURL: String = Settings.benchMarkUrl,
                               timeout: Int = 5000,
+                              session: BenchmarkSession? = nil,
                               callback: @escaping ((Int) -> Void)) {
         requestProxyDelay(
             path: "/proxies/\(proxyName.encoded)/delay",
             description: "proxy '\(proxyName)'",
             benchmarkURL: benchmarkURL,
             timeout: timeout,
+            session: session,
             callback: callback
         )
     }
@@ -403,12 +461,14 @@ class ApiRequest {
                                       proxyName: ClashProxyName,
                                       benchmarkURL: String = Settings.benchMarkUrl,
                                       timeout: Int = 5000,
+                                      session: BenchmarkSession? = nil,
                                       callback: @escaping ((Int) -> Void)) {
         requestProxyDelay(
             path: "/providers/proxies/\(providerName.encoded)/\(proxyName.encoded)/healthcheck",
             description: "provider '\(providerName)' proxy '\(proxyName)'",
             benchmarkURL: benchmarkURL,
             timeout: timeout,
+            session: session,
             callback: callback
         )
     }
@@ -417,16 +477,33 @@ class ApiRequest {
                                    benchmarkURL: String = Settings.benchMarkUrl,
                                    expectedStatus: String? = nil,
                                    timeout: Int = 5000,
+                                   session: BenchmarkSession? = nil,
                                    callback: @escaping (([ClashProxyName: Int]) -> Void)) {
+        guard session?.isCancelled != true else {
+            callback([:])
+            return
+        }
         Logger.log("[Proxy Delay] Testing group '\(groupName)' with its configured URL")
         var parameters: Parameters = ["timeout": timeout, "url": benchmarkURL]
         if let expectedStatus, !expectedStatus.isEmpty {
             parameters["expected"] = expectedStatus
         }
-        req("/group/\(groupName.encoded)/delay",
+        let request = req(
+            "/group/\(groupName.encoded)/delay",
             method: .get,
-            parameters: parameters)
+            parameters: parameters,
+            timeoutInterval: benchmarkRequestTimeout(for: timeout)
+        )
+        let requestID = session?.track(request)
+        request
             .responseData { res in
+                if let requestID {
+                    session?.finish(requestID)
+                }
+                guard session?.isCancelled != true else {
+                    callback([:])
+                    return
+                }
                 let statusCode = res.response?.statusCode ?? -1
                 switch res.result {
                 case let .success(value) where (200 ..< 300).contains(statusCode):
@@ -453,7 +530,12 @@ class ApiRequest {
                                     limitedTo groupNames: Set<ClashProxyName>? = nil,
                                     timeout: Int,
                                     maxConcurrent: Int = 3,
+                                    session: BenchmarkSession? = nil,
                                     completion: @escaping () -> Void) {
+        guard session?.isCancelled != true else {
+            completion()
+            return
+        }
         typealias DelayTask = LimitedAsyncTaskRunner.Task
         let groups = response.proxyGroups.filter { group in
             group.type == .urltest && (groupNames == nil || groupNames?.contains(group.name) == true)
@@ -465,11 +547,16 @@ class ApiRequest {
 
         let tasks: [DelayTask] = groups.map { group in
             { done in
+                guard session?.isCancelled != true else {
+                    done()
+                    return
+                }
                 getProxyGroupDelay(
                     groupName: group.name,
                     benchmarkURL: group.testUrl ?? Settings.benchMarkUrl,
                     expectedStatus: group.expectedStatus,
-                    timeout: timeout
+                    timeout: timeout,
+                    session: session
                 ) { _ in
                     done()
                 }
@@ -485,8 +572,13 @@ class ApiRequest {
     static func benchmarkLeafProxies(in response: ClashProxyResp,
                                      benchmarkURL: String,
                                      timeout: Int,
-                                     maxConcurrent: Int = 10,
+                                     maxConcurrent: Int = benchmarkMaxConcurrent,
+                                     session: BenchmarkSession? = nil,
                                      completion: @escaping () -> Void) {
+        guard session?.isCancelled != true else {
+            completion()
+            return
+        }
         typealias DelayTask = LimitedAsyncTaskRunner.Task
         var tasks = [DelayTask]()
 
@@ -510,10 +602,15 @@ class ApiRequest {
 
         for proxy in inlineProxies where inlineProxyNames.insert(proxy.name).inserted {
             tasks.append { done in
+                guard session?.isCancelled != true else {
+                    done()
+                    return
+                }
                 getProxyDelay(
                     proxyName: proxy.name,
                     benchmarkURL: benchmarkURL,
-                    timeout: timeout
+                    timeout: timeout,
+                    session: session
                 ) { _ in
                     done()
                 }
@@ -532,11 +629,16 @@ class ApiRequest {
                 let key = provider.name + "\u{0}" + proxy.name
                 guard providerProxyKeys.insert(key).inserted else { continue }
                 tasks.append { done in
+                    guard session?.isCancelled != true else {
+                        done()
+                        return
+                    }
                     getProviderProxyDelay(
                         providerName: provider.name,
                         proxyName: proxy.name,
                         benchmarkURL: benchmarkURL,
-                        timeout: timeout
+                        timeout: timeout,
+                        session: session
                     ) { _ in
                         done()
                     }
@@ -552,16 +654,104 @@ class ApiRequest {
         LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: maxConcurrent).start(completion: completion)
     }
 
+    static func benchmarkProxySelection(
+        proxyNames: [ClashProxyName],
+        providerNames: Set<ClashProviderName>,
+        benchmarkURL: String,
+        timeout: Int,
+        maxConcurrent: Int = benchmarkMaxConcurrent,
+        session: BenchmarkSession,
+        proxyResult: @escaping (ClashProxyName, Int) -> Void,
+        completion: @escaping () -> Void
+    ) {
+        guard !session.isCancelled else {
+            completion()
+            return
+        }
+
+        typealias DelayTask = LimitedAsyncTaskRunner.Task
+        var tasks = [DelayTask]()
+        var uniqueProxyNames = Set<ClashProxyName>()
+
+        for proxyName in proxyNames where uniqueProxyNames.insert(proxyName).inserted {
+            tasks.append { done in
+                guard !session.isCancelled else {
+                    done()
+                    return
+                }
+                getProxyDelay(
+                    proxyName: proxyName,
+                    benchmarkURL: benchmarkURL,
+                    timeout: timeout,
+                    session: session
+                ) { delay in
+                    if !session.isCancelled {
+                        proxyResult(proxyName, delay)
+                    }
+                    done()
+                }
+            }
+        }
+
+        for providerName in providerNames.sorted() {
+            tasks.append { done in
+                guard !session.isCancelled else {
+                    done()
+                    return
+                }
+                healthCheck(
+                    proxy: providerName,
+                    requestTimeout: benchmarkRequestTimeout(for: timeout),
+                    session: session,
+                    completeHandler: done
+                )
+            }
+        }
+
+        Logger.log(
+            "[Proxy Delay] Starting selected benchmark: " +
+                "\(uniqueProxyNames.count) inline, \(providerNames.count) provider, " +
+                "max concurrency \(max(1, maxConcurrent))"
+        )
+        LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: maxConcurrent)
+            .start(completion: completion)
+    }
+
+    private static func benchmarkRequestTimeout(for coreTimeoutMilliseconds: Int) -> TimeInterval {
+        max(
+            benchmarkMinimumRequestTimeout,
+            Double(coreTimeoutMilliseconds) / 1000 + benchmarkRequestTimeoutMargin
+        )
+    }
+
     private static func requestProxyDelay(path: String,
                                           description: String,
                                           benchmarkURL: String,
                                           timeout: Int,
+                                          session: BenchmarkSession?,
                                           callback: @escaping ((Int) -> Void)) {
+        guard session?.isCancelled != true else {
+            callback(0)
+            return
+        }
         Logger.log("[Proxy Delay] Testing \(description) with url: \(benchmarkURL)")
-        req(path,
+        let request = req(
+            path,
             method: .get,
-            parameters: ["timeout": timeout, "url": benchmarkURL])
+            parameters: ["timeout": timeout, "url": benchmarkURL],
+            timeoutInterval: benchmarkRequestTimeout(for: timeout)
+        )
+        let requestID = session?.track(request)
+        request
             .responseData { res in
+                if let requestID {
+                    session?.finish(requestID)
+                }
+                guard session?.isCancelled != true else {
+                    Logger.log("[Proxy Delay] Cancelled \(description)", level: .debug)
+                    callback(0)
+                    return
+                }
                 let statusCode = res.response?.statusCode ?? -1
                 switch res.result {
                 case let .success(value):
@@ -590,9 +780,30 @@ class ApiRequest {
         }
     }
 
-    static func healthCheck(proxy: ClashProviderName, completeHandler: (() -> Void)? = nil) {
+    static func healthCheck(
+        proxy: ClashProviderName,
+        requestTimeout: TimeInterval? = nil,
+        session: BenchmarkSession? = nil,
+        completeHandler: (() -> Void)? = nil
+    ) {
+        guard session?.isCancelled != true else {
+            completeHandler?()
+            return
+        }
         Logger.log("HeathCheck for \(proxy) started")
-        req("/providers/proxies/\(proxy.encoded)/healthcheck").response { res in
+        let request = req(
+            "/providers/proxies/\(proxy.encoded)/healthcheck",
+            timeoutInterval: requestTimeout
+        )
+        let requestID = session?.track(request)
+        request.response { res in
+            if let requestID {
+                session?.finish(requestID)
+            }
+            guard session?.isCancelled != true else {
+                completeHandler?()
+                return
+            }
             if res.response?.statusCode == 204 {
                 Logger.log("HeathCheck for \(proxy) finished")
             } else {

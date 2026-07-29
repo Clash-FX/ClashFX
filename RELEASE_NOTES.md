@@ -1,5 +1,23 @@
 ### Bug Fixes
 
+- **Large Delay Tests No Longer Trigger Enhanced Mode Restarts** — Manual benchmarks now share a bounded eight-request queue, cancel cleanly before recovery, and use control-plane health thresholds that tolerate short load spikes. Testing a large proxy group can no longer starve the controller and make ClashFX rebuild a healthy core. The default benchmark endpoint also uses HTTPS, with existing default settings migrated automatically.
+- **Helper Upgrades No Longer Loop or Race App Startup** — ClashFX now compares the bundled and installed Helper reliably, gives privileged operations enough time to finish, validates connecting clients, and keeps the Helper alive briefly while the app reconnects. Startup waits for Helper cleanup before restoring Enhanced Mode, preventing repeated installer prompts and transient “Helper unavailable” failures.
+- **Network Restoration Cannot Freeze Relaunch** — DNS restoration and cache flushing now have strict watchdogs, so a slow system command cannot stall ClashFX for minutes. If an older restore finishes late, the active proxy DNS settings are reapplied instead of being overwritten.
+
+---
+
+### 修复
+
+- **大批量延迟测速不再触发增强模式重启** — 手动测速现在统一使用最多八个并发请求的队列，恢复前会取消仍在进行的测速，并采用可容忍短时负载峰值的控制面健康阈值。测试大型策略组时不会再因控制接口被挤占而误判并重建健康核心。默认测速地址也已改为 HTTPS，旧的默认设置会自动迁移。
+- **Helper 升级不再反复弹窗或与应用启动竞争** — ClashFX 现在会可靠比较内置与已安装的 Helper，为特权操作保留充足完成时间，校验连接客户端，并在应用重连期间让 Helper 短暂保持运行。启动时会先等待 Helper 清理残留核心，再恢复增强模式，避免安装程序重复弹出及瞬时“Helper 不可用”失败。
+- **网络恢复不会再卡住应用重启** — DNS 恢复与缓存刷新现在都有严格的超时保护，缓慢的系统命令不会让 ClashFX 卡住数分钟。若旧恢复任务延迟完成，应用会重新应用当前代理 DNS 设置，避免覆盖正在使用的网络配置。
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Enhanced Mode Startup Errors Are Now Actionable** — Failed Enhanced Mode toggles now show a prominent error dialog even when reduced notifications are enabled. Invalid TUN route-exclude entries are identified directly, with guidance to separate entries correctly and a shortcut to open Settings. (#190)
 
 ### Contributors

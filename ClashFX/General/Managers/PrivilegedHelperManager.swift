@@ -9,6 +9,7 @@
 import AppKit
 import RxCocoa
 import RxSwift
+import Security
 import ServiceManagement
 
 class PrivilegedHelperManager {
@@ -21,6 +22,13 @@ class PrivilegedHelperManager {
     private let connectionLock = NSLock()
     static let machServiceName = "com.clashfx.app.Helper"
     static let shared = PrivilegedHelperManager()
+    // Keep this longer than the helper's initial connection grace period so
+    // the app cannot reinstall a helper that is still waiting for launchd to
+    // deliver the XPC request.
+    private static let installedHelperResponseTimeout: TimeInterval = 75
+    private static let missingHelperResponseTimeout: TimeInterval = 5
+    private static let adHocSignatureFlag: UInt32 = 0x2
+
     init() {
         initAuthorizationRef()
     }
@@ -85,6 +93,30 @@ class PrivilegedHelperManager {
             Logger.log("initAuthorizationRef AuthorizationCreate failed", level: .error)
             return
         }
+    }
+
+    private func currentAppUsesAdHocSignature() -> Bool {
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(
+            Bundle.main.bundleURL as CFURL,
+            [],
+            &staticCode
+        ) == errSecSuccess, let staticCode else {
+            return false
+        }
+
+        var signingInfo: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &signingInfo
+        ) == errSecSuccess,
+            let info = signingInfo as? [String: Any],
+            let flags = info[kSecCodeInfoFlags as String] as? NSNumber else {
+            return false
+        }
+
+        return flags.uint32Value & Self.adHocSignatureFlag != 0
     }
 
     /// Install new helper daemon
@@ -230,12 +262,25 @@ class PrivilegedHelperManager {
             finish(.noFound)
             return
         }
-        let helperFileExists = FileManager.default.fileExists(atPath: "/Library/PrivilegedHelperTools/\(PrivilegedHelperManager.machServiceName)")
+        let installedHelperURL = URL(
+            fileURLWithPath: "/Library/PrivilegedHelperTools/\(PrivilegedHelperManager.machServiceName)"
+        )
+        let helperFileExists = FileManager.default.fileExists(atPath: installedHelperURL.path)
         if !helperFileExists {
             finish(.noFound)
             return
         }
-        let timeout: TimeInterval = helperFileExists ? 15 : 5
+        if !FileManager.default.contentsEqual(
+            atPath: helperURL.path,
+            andPath: installedHelperURL.path
+        ) {
+            Logger.log("Installed helper differs from bundled helper; update required")
+            finish(.needUpdate)
+            return
+        }
+        let timeout = helperFileExists
+            ? Self.installedHelperResponseTimeout
+            : Self.missingHelperResponseTimeout
         let time = Date()
 
         timer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
@@ -293,8 +338,12 @@ extension PrivilegedHelperManager {
             return
         }
 
-        if useLegacyInstall {
+        if useLegacyInstall || currentAppUsesAdHocSignature() {
             useLegacyInstall = false
+            Logger.log(
+                "Using legacy helper installation for an ad-hoc signed app",
+                level: .info
+            )
             legacyInstallHelper()
             if !cancelInstallCheck {
                 checkInstall()
