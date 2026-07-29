@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.9.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.3 (Lab)</h2><ul><li><strong>Large Delay Tests No Longer Trigger Enhanced Mode Restarts</strong> — Manual benchmarks now share a bounded eight-request queue, cancel cleanly before recovery, and use control-plane health thresholds that tolerate short load spikes. Testing a large proxy group can no longer starve the controller and make ClashFX rebuild a healthy core. The default benchmark endpoint also uses HTTPS, with existing default settings migrated automatically.</li><li><strong>Helper Upgrades No Longer Loop or Race App Startup</strong> — ClashFX now compares the bundled and installed Helper reliably, gives privileged operations enough time to finish, validates connecting clients, and keeps the Helper alive briefly while the app reconnects. Startup waits for Helper cleanup before restoring Enhanced Mode, preventing repeated installer prompts and transient “Helper unavailable” failures.</li><li><strong>Network Restoration Cannot Freeze Relaunch</strong> — DNS restoration and cache flushing now have strict watchdogs, so a slow system command cannot stall ClashFX for minutes. If an older restore finishes late, the active proxy DNS settings are reapplied instead of being overwritten.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 29 Jul 2026 06:33:22 +0000</pubDate>
+  <sparkle:version>1001009003</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.3/ClashFX.dmg"
+    sparkle:version="1001009003"
+    sparkle:shortVersionString="1.1.9.3"
+    sparkle:edSignature="dYaiDZuFHDBFQ5NyuzNgJgJl47Z+CO6rt1QU4AFP0WKWMoQsUFS1X2QHafzM3aJhEapyQvaMJOYS81Ti6a+yCA=="
+    length="95581272"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.9.2 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.9.2 (Lab)</h2><ul><li><strong>Enhanced Mode Startup Errors Are Now Actionable</strong> — Failed Enhanced Mode toggles now show a prominent error dialog even when reduced notifications are enabled. Invalid TUN route-exclude entries are identified directly, with guidance to separate entries correctly and a shortcut to open Settings. (#190)</li></ul>
