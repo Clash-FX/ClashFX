@@ -1,5 +1,31 @@
 ### Bug Fixes
 
+- **Enhanced Mode Now Detects Silent Data-Plane Failures** — Runtime monitoring now verifies the core's DIRECT outbound path and DNS resolution in addition to the controller and TUN interface. Three confirmed core-only failures trigger a bounded rebuild, while unavailable system connectivity is treated as inconclusive to avoid restart loops. (#147)
+- **Recovery Captures Evidence Before Restarting the Core** — Every external-core launch now has a unique capped log, launch and termination metadata, and an on-demand process sample. Automatic recovery records this evidence before rebuilding, and a failed startup can restart the Helper host once instead of leaving a stale external core behind. (#147)
+- **Proxy and Rules Views Survive Brief Core Interruptions** — The menu and Dashboard preserve their last valid proxy/rules snapshot when the local controller is temporarily unavailable. The Dashboard clearly marks cached rules as stale instead of showing an empty page, so a recovery no longer looks like the user's rules disappeared. (#147)
+
+### Contributors
+
+- @a51095 — Reported that long-running Enhanced Mode could partially stop loading external sites and recover only after restarting ClashFX. (#147)
+
+---
+
+### 修复
+
+- **增强模式现在可识别数据面的静默失效** — 运行时监控除了检查控制接口和 TUN 网卡，还会验证核心的 DIRECT 出站链路及 DNS 解析。仅当系统直连正常且核心连续三次失败时才会执行有界重建；系统网络本身不可用时会视为无法判定，避免反复重启。 (#147)
+- **重启核心前会先保留诊断证据** — 每次外部核心启动现在都有独立且受容量限制的日志、启动与退出元数据，以及按需进程采样。自动恢复会先记录这些证据再重建；启动失败时也可仅重启一次 Helper 宿主，避免残留外部核心持续阻塞。 (#147)
+- **核心短暂中断时代理与规则界面不再清空** — 本地控制接口暂时不可用时，菜单与控制台会保留最后一次有效的代理和规则快照。控制台会明确提示当前展示的是旧规则，不会再以空白页面表现为“规则消失”。 (#147)
+
+### 贡献者
+
+- @a51095 — 反馈增强模式长时间运行后外部网站可能只能部分加载，必须重启 ClashFX 才恢复的问题。 (#147)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Large Delay Tests No Longer Trigger Enhanced Mode Restarts** — Manual benchmarks now share a bounded eight-request queue, cancel cleanly before recovery, and use control-plane health thresholds that tolerate short load spikes. Testing a large proxy group can no longer starve the controller and make ClashFX rebuild a healthy core. The default benchmark endpoint also uses HTTPS, with existing default settings migrated automatically.
 - **Helper Upgrades No Longer Loop or Race App Startup** — ClashFX now compares the bundled and installed Helper reliably, gives privileged operations enough time to finish, validates connecting clients, and keeps the Helper alive briefly while the app reconnects. Startup waits for Helper cleanup before restoring Enhanced Mode, preventing repeated installer prompts and transient “Helper unavailable” failures.
 - **Network Restoration Cannot Freeze Relaunch** — DNS restoration and cache flushing now have strict watchdogs, so a slow system command cannot stall ClashFX for minutes. If an older restore finishes late, the active proxy DNS settings are reapplied instead of being overwritten.

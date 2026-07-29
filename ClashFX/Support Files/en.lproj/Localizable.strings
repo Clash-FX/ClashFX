@@ -600,3 +600,4 @@
 "Failed to Stop Enhanced Mode" = "Failed to Stop Enhanced Mode";
 "TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list.";
 "Open Settings" = "Open Settings";
+"Core temporarily unavailable; showing the last valid rules snapshot" = "Core temporarily unavailable; showing the last valid rules snapshot";
