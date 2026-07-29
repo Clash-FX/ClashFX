@@ -9,7 +9,9 @@
 #import "ProxyConfigHelper.h"
 #import <AppKit/AppKit.h>
 #import <Security/Security.h>
+#import <libproc.h>
 #import <signal.h>
+#import <string.h>
 #import <unistd.h>
 #import "ProxyConfigRemoteProcessProtocol.h"
 #import "ProxySettingTool.h"
@@ -23,6 +25,7 @@ ProxyConfigRemoteProcessProtocol
 @property (nonatomic, strong) NSXPCListener *listener;
 @property (nonatomic, strong) NSMutableSet<NSXPCConnection *> *connections;
 @property (nonatomic, strong) NSTimer *checkTimer;
+@property (nonatomic, strong) NSTimer *idleExitTimer;
 @property (nonatomic, assign) BOOL shouldQuit;
 @property (nonatomic, strong) NSTask *mihomoTask;
 
@@ -38,6 +41,53 @@ ProxyConfigRemoteProcessProtocol
 
 static const NSTimeInterval kMihomoGracefulStopTimeout = 2.0;
 static const unsigned long long kMihomoCoreLogMaximumBytes = 4 * 1024 * 1024;
+static const NSTimeInterval kDNSCacheCommandTimeout = 2.0;
+// Give a newly launched ClashFX instance enough time to attach before an
+// invalidated connection from the previous instance lets the helper exit.
+static const NSTimeInterval kIdleExitGracePeriod = 10.0;
+// launchd can start the helper well before the original XPC request is
+// delivered when the system is under heavy load. Five seconds caused the
+// helper to exit cleanly before ClashFX could connect, which in turn made the
+// app repeatedly reinstall an already healthy helper.
+static const NSTimeInterval kInitialConnectionGracePeriod = 60.0;
+
+static BOOL RunTaskWithTimeout(NSString *executablePath,
+                               NSArray<NSString *> *arguments,
+                               NSTimeInterval timeout) {
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:executablePath];
+    task.arguments = arguments;
+
+    NSError *launchError = nil;
+    if (![task launchAndReturnError:&launchError]) {
+        NSLog(@"DNS cache command failed to launch (%@): %@",
+              executablePath.lastPathComponent,
+              launchError.localizedDescription);
+        return NO;
+    }
+
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+    while (task.isRunning && deadline.timeIntervalSinceNow > 0) {
+        usleep(50 * 1000);
+    }
+    if (!task.isRunning) {
+        return task.terminationStatus == 0;
+    }
+
+    NSLog(@"DNS cache command timed out after %.1fs: %@",
+          timeout,
+          executablePath.lastPathComponent);
+    [task terminate];
+
+    NSDate *terminationDeadline = [NSDate dateWithTimeIntervalSinceNow:0.5];
+    while (task.isRunning && terminationDeadline.timeIntervalSinceNow > 0) {
+        usleep(50 * 1000);
+    }
+    if (task.isRunning) {
+        kill(task.processIdentifier, SIGKILL);
+    }
+    return NO;
+}
 
 - (instancetype)init {
     
@@ -162,7 +212,11 @@ static const unsigned long long kMihomoCoreLogMaximumBytes = 4 * 1024 * 1024;
 - (void)run {
     [self.listener resume];
     self.checkTimer =
-    [NSTimer timerWithTimeInterval:5.f target:self selector:@selector(connectionCheckOnLaunch) userInfo:nil repeats:NO];
+    [NSTimer timerWithTimeInterval:kInitialConnectionGracePeriod
+                            target:self
+                          selector:@selector(connectionCheckOnLaunch)
+                          userInfo:nil
+                           repeats:NO];
     [[NSRunLoop currentRunLoop] addTimer:self.checkTimer forMode:NSDefaultRunLoopMode];
     while (!self.shouldQuit) {
         [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:2.0]];
@@ -175,9 +229,47 @@ static const unsigned long long kMihomoCoreLogMaximumBytes = 4 * 1024 * 1024;
     }
 }
 
+- (void)cancelIdleExit {
+    void (^cancel)(void) = ^{
+        [self.idleExitTimer invalidate];
+        self.idleExitTimer = nil;
+    };
+    if (NSThread.isMainThread) {
+        cancel();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), cancel);
+    }
+}
+
+- (void)scheduleIdleExitIfNeeded {
+    dispatch_block_t schedule = ^{
+        [self.idleExitTimer invalidate];
+        __weak ProxyConfigHelper *weakSelf = self;
+        self.idleExitTimer =
+        [NSTimer scheduledTimerWithTimeInterval:kIdleExitGracePeriod
+                                        repeats:NO
+                                          block:^(NSTimer *timer) {
+            ProxyConfigHelper *strongSelf = weakSelf;
+            if (!strongSelf) {
+                return;
+            }
+            strongSelf.idleExitTimer = nil;
+            if (strongSelf.connections.count == 0 &&
+                !(strongSelf.mihomoTask && strongSelf.mihomoTask.isRunning)) {
+                NSLog(@"Helper idle grace elapsed; exiting");
+                strongSelf.shouldQuit = YES;
+            }
+        }];
+    };
+    if (NSThread.isMainThread) {
+        schedule();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), schedule);
+    }
+}
+
 - (BOOL)connectionIsValid: (NSXPCConnection *)connection {
     pid_t pid = connection.processIdentifier;
-    NSRunningApplication *remoteApp = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
     NSString *requirementString = [self authorizedClientRequirement];
     if (requirementString.length == 0) {
         NSLog(@"Rejected XPC client because helper has no authorized client requirement");
@@ -185,8 +277,31 @@ static const unsigned long long kMihomoCoreLogMaximumBytes = 4 * 1024 * 1024;
     }
 
     NSString *authorizedBundleIdentifier = [self authorizedClientBundleIdentifierFromRequirement:requirementString];
-    if (authorizedBundleIdentifier.length == 0 || ![remoteApp.bundleIdentifier isEqualToString:authorizedBundleIdentifier]) {
-        NSLog(@"Rejected XPC client with pid %d and bundle id %@", pid, remoteApp.bundleIdentifier);
+    char executablePathBuffer[PROC_PIDPATHINFO_MAXSIZE] = {0};
+    int executablePathLength = proc_pidpath(pid, executablePathBuffer, sizeof(executablePathBuffer));
+    if (executablePathLength <= 0) {
+        NSLog(@"Rejected XPC client because executable path lookup failed for pid %d", pid);
+        return NO;
+    }
+
+    NSString *executablePath = [[NSFileManager defaultManager]
+        stringWithFileSystemRepresentation:executablePathBuffer
+                                    length:strnlen(executablePathBuffer, sizeof(executablePathBuffer))];
+    NSURL *executableURL = [NSURL fileURLWithPath:executablePath];
+    NSURL *bundleURL = [[[executableURL URLByDeletingLastPathComponent]
+        URLByDeletingLastPathComponent] URLByDeletingLastPathComponent];
+    NSBundle *clientBundle = [NSBundle bundleWithURL:bundleURL];
+
+    BOOL hasExpectedBundleLayout =
+        [bundleURL.pathExtension caseInsensitiveCompare:@"app"] == NSOrderedSame &&
+        [executableURL.lastPathComponent isEqualToString:@"ClashFX"] &&
+        [executableURL.path hasPrefix:
+            [bundleURL.path stringByAppendingPathComponent:@"Contents/MacOS/"]];
+    if (authorizedBundleIdentifier.length == 0 ||
+        !hasExpectedBundleLayout ||
+        ![clientBundle.bundleIdentifier isEqualToString:authorizedBundleIdentifier]) {
+        NSLog(@"Rejected XPC client with pid %d, bundle id %@, executable %@",
+              pid, clientBundle.bundleIdentifier, executablePath);
         return NO;
     }
 
@@ -221,10 +336,9 @@ static const unsigned long long kMihomoCoreLogMaximumBytes = 4 * 1024 * 1024;
         // cannot satisfy. Bundle ID was already validated above; accept the
         // connection if the executable matches a ClashFX .app bundle.
         // TODO(#65): remove once releases ship with a Developer ID signature.
-        if ([remoteApp.bundleURL.pathExtension isEqualToString:@"app"] &&
-            [remoteApp.executableURL.lastPathComponent isEqualToString:@"ClashFX"]) {
+        if (hasExpectedBundleLayout) {
             NSLog(@"Allowing XPC client with ad-hoc signature (pid=%d, bundle=%@)",
-                  pid, remoteApp.bundleIdentifier);
+                  pid, clientBundle.bundleIdentifier);
             return YES;
         }
         NSLog(@"Rejected XPC client because code signature validation failed: %d", status);
@@ -274,12 +388,29 @@ static const unsigned long long kMihomoCoreLogMaximumBytes = 4 * 1024 * 1024;
     __weak NSXPCConnection *weakConnection = newConnection;
     __weak ProxyConfigHelper *weakSelf = self;
     newConnection.invalidationHandler = ^{
-        [weakSelf.connections removeObject:weakConnection];
-        if (weakSelf.connections.count == 0 && !(weakSelf.mihomoTask && weakSelf.mihomoTask.isRunning)) {
-            weakSelf.shouldQuit = YES;
-        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            ProxyConfigHelper *strongSelf = weakSelf;
+            NSXPCConnection *strongConnection = weakConnection;
+            if (!strongSelf) {
+                return;
+            }
+            if (strongConnection) {
+                [strongSelf.connections removeObject:strongConnection];
+            }
+            if (strongSelf.connections.count == 0) {
+                [strongSelf scheduleIdleExitIfNeeded];
+            }
+        });
     };
-    [self.connections addObject:newConnection];
+    [self cancelIdleExit];
+    void (^registerConnection)(void) = ^{
+        [self.connections addObject:newConnection];
+    };
+    if (NSThread.isMainThread) {
+        registerConnection();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), registerConnection);
+    }
     [newConnection resume];
     return YES;
 }
@@ -473,19 +604,22 @@ static const unsigned long long kMihomoCoreLogMaximumBytes = 4 * 1024 * 1024;
 
 - (void)flushDNSCacheWithReply:(stringReplyBlock)reply {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSTask *flush = [[NSTask alloc] init];
-        flush.executableURL = [NSURL fileURLWithPath:@"/usr/bin/dscacheutil"];
-        flush.arguments = @[@"-flushcache"];
-        [flush launchAndReturnError:nil];
-        [flush waitUntilExit];
+        BOOL flushSucceeded = RunTaskWithTimeout(
+            @"/usr/bin/dscacheutil",
+            @[@"-flushcache"],
+            kDNSCacheCommandTimeout
+        );
+        BOOL hupSucceeded = RunTaskWithTimeout(
+            @"/usr/bin/killall",
+            @[@"-HUP", @"mDNSResponder"],
+            kDNSCacheCommandTimeout
+        );
 
-        NSTask *hup = [[NSTask alloc] init];
-        hup.executableURL = [NSURL fileURLWithPath:@"/usr/bin/killall"];
-        hup.arguments = @[@"-HUP", @"mDNSResponder"];
-        [hup launchAndReturnError:nil];
-        [hup waitUntilExit];
-
-        reply(nil);
+        if (flushSucceeded && hupSucceeded) {
+            reply(nil);
+        } else {
+            reply(@"DNS cache refresh timed out or failed");
+        }
     });
 }
 

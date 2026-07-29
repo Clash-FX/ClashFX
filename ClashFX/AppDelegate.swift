@@ -123,6 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var disposeBag = DisposeBag()
     var statusItemView: StatusItemViewProtocol!
     var isSpeedTesting = false
+    private var activeBenchmarkSession: ApiRequest.BenchmarkSession?
 
     var runAfterConfigReload: (() -> Void)?
     var isConfigUpdating = false
@@ -136,6 +137,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var enhancedModeHealthTimer: Timer?
     private var isEnhancedModeHealthCheckInFlight = false
     private var consecutiveEnhancedModeHealthFailures = 0
+    private var enhancedModeHealthGraceUntil = Date.distantPast
     private var lastCoreLogRecoveryTime = Date.distantPast
     private var didCompleteStaleEnhancedCoreCleanup = false
     private var outboundModeRequestSequence = 0
@@ -154,7 +156,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private static let wakeRecoveryMaxAttempts = 3
     private static let wakeEnhancedModeRestartMaxAttempts = 3
     private static let enhancedModeHealthInterval: TimeInterval = 15
-    private static let enhancedModeHealthFailureThreshold = 2
+    private static let enhancedModeHealthFailureThreshold = 3
+    private static let enhancedModeHealthGracePeriod: TimeInterval = 60
+    private static let enhancedModeHealthRequestTimeout: TimeInterval = 5
+    private static let tunDNSRestoreTimeout: TimeInterval = 8
+    private static let staleEnhancedCoreCleanupTimeout: TimeInterval = 3
     private static let fatalTunRecoveryCooldown: TimeInterval = 30
     private static let runtimePatchedConfigPath = kConfigFolderPath + ".runtime_config.yaml"
 
@@ -211,6 +217,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func postFinishLaunching() {
         Logger.log("postFinishLaunching")
+        Settings.migrateLegacyBenchmarkURLIfNeeded()
         defer {
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 self.checkMenuIconVisable()
@@ -272,8 +279,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             Logger.log("do not setup built in logger/traffic, useDirectApi = false")
         }
-        scheduleStaleMihomoCoreCleanupOnLaunch()
-
         // start proxy
         Logger.log("initClashCore")
         initClashCore()
@@ -1297,6 +1302,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             consecutiveEnhancedModeHealthFailures = 0
             return
         }
+        guard Date() >= enhancedModeHealthGraceUntil else {
+            consecutiveEnhancedModeHealthFailures = 0
+            return
+        }
         guard !isEnhancedModeHealthCheckInFlight else { return }
 
         isEnhancedModeHealthCheckInFlight = true
@@ -1474,7 +1483,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             complete(.unhealthy("invalid core API URL"))
             return
         }
-        var request = URLRequest(url: url, timeoutInterval: 2)
+        var request = URLRequest(
+            url: url,
+            timeoutInterval: Self.enhancedModeHealthRequestTimeout
+        )
         for header in ApiRequest.authHeader() {
             request.setValue(header.value, forHTTPHeaderField: header.name)
         }
@@ -1533,6 +1545,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if attemptsLeft == Self.wakeEnhancedModeRestartMaxAttempts {
             guard !isWakeEnhancedModeRestarting else { return }
             isWakeEnhancedModeRestarting = true
+            cancelActiveSpeedTestForCoreRecovery()
         }
 
         let wasActive = ConfigManager.shared.isEnhancedModeActive
@@ -1581,46 +1594,57 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         enhancedModeMenuItem.isEnabled = false
-        helper.stopMihomoCore { [weak self] stopError in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                guard !attemptCompleted else { return }
-                if let stopError {
-                    Logger.log(
-                        "Wake recovery: failed to stop stale Enhanced Mode core: \(stopError)",
-                        level: .warning
-                    )
-                }
-
-                ConfigManager.shared.isEnhancedModeActive = false
-                self.refreshStatusItemViewStatus()
-
-                let completion: (String?) -> Void = { [weak self] error in
+        let stopAndRestart = { [weak self] in
+            helper.stopMihomoCore { [weak self] stopError in
+                DispatchQueue.main.async {
                     guard let self = self else { return }
                     guard !attemptCompleted else { return }
-                    if let error {
-                        retryOrFail(error)
-                        return
+                    if let stopError {
+                        Logger.log(
+                            "Wake recovery: failed to stop stale Enhanced Mode core: \(stopError)",
+                            level: .warning
+                        )
                     }
 
-                    attemptCompleted = true
-                    self.isWakeEnhancedModeRestarting = false
-                    self.enhancedModeMenuItem.isEnabled = true
-                    self.enhancedModeMenuItem.state = .on
-                    Logger.log("Wake recovery: Enhanced Mode rebuilt successfully")
-                    self.scheduleEnhancedModePostToggleRefresh()
-                }
+                    ConfigManager.shared.isEnhancedModeActive = false
+                    self.refreshStatusItemViewStatus()
 
-                if wasActive {
-                    self.attemptEnableEnhancedMode(
-                        attemptsLeft: 1,
-                        alreadySuspended: true,
-                        completion: completion
-                    )
-                } else {
-                    self.enableEnhancedMode(completion: completion)
+                    let completion: (String?) -> Void = { [weak self] error in
+                        guard let self = self else { return }
+                        guard !attemptCompleted else { return }
+                        if let error {
+                            retryOrFail(error)
+                            return
+                        }
+
+                        attemptCompleted = true
+                        self.isWakeEnhancedModeRestarting = false
+                        self.enhancedModeMenuItem.isEnabled = true
+                        self.enhancedModeMenuItem.state = .on
+                        Logger.log("Wake recovery: Enhanced Mode rebuilt successfully")
+                        self.scheduleEnhancedModePostToggleRefresh()
+                    }
+
+                    if wasActive {
+                        self.attemptEnableEnhancedMode(
+                            attemptsLeft: 1,
+                            alreadySuspended: true,
+                            completion: completion
+                        )
+                    } else {
+                        self.enableEnhancedMode(completion: completion)
+                    }
                 }
             }
+        }
+
+        if wasActive {
+            restoreDNSAfterTun(
+                reapplyTunIfLate: true,
+                completion: stopAndRestart
+            )
+        } else {
+            stopAndRestart()
         }
     }
 
@@ -2217,6 +2241,10 @@ extension AppDelegate {
 
                 if listenersUp {
                     Logger.log("External core API + listeners ready on port \(port)")
+                    self.enhancedModeHealthGraceUntil = Date().addingTimeInterval(
+                        Self.enhancedModeHealthGracePeriod
+                    )
+                    self.consecutiveEnhancedModeHealthFailures = 0
                     ready(true)
                 } else if retriesLeft > 0 {
                     Logger.log("Waiting for external core listeners (\(retriesLeft) retries left)...", level: .debug)
@@ -2410,7 +2438,10 @@ extension AppDelegate {
         }
     }
 
-    private func restoreDNSAfterTun(completion: (() -> Void)? = nil) {
+    private func restoreDNSAfterTun(
+        reapplyTunIfLate: Bool = false,
+        completion: (() -> Void)? = nil
+    ) {
         guard let helper = PrivilegedHelperManager.shared.helper() else {
             completion?()
             return
@@ -2423,12 +2454,61 @@ extension AppDelegate {
         } else {
             restoreInfo = saved
         }
+
+        Logger.log("TUN DNS restore started")
+        var didFinish = false
+        var didTimeOut = false
+        let finish: (Bool) -> Void = { timedOut in
+            let finishOnMain = {
+                guard !didFinish else { return }
+                didFinish = true
+                didTimeOut = timedOut
+                if timedOut {
+                    Logger.log(
+                        "TUN DNS restore timed out after " +
+                            "\(Self.tunDNSRestoreTimeout)s; continuing recovery",
+                        level: .warning
+                    )
+                }
+                completion?()
+            }
+
+            if Thread.isMainThread {
+                finishOnMain()
+            } else {
+                DispatchQueue.main.async(execute: finishOnMain)
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.tunDNSRestoreTimeout) {
+            finish(true)
+        }
+
         helper.restoreDNS(withSavedInfo: restoreInfo,
                           filterInterface: Settings.filterInterface) { [weak self] _ in
-            self?.savedDNSInfo = [:]
-            helper.flushDNSCache { _ in
-                Logger.log("TUN DNS restored")
-                completion?()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.savedDNSInfo = [:]
+                Logger.log("TUN DNS settings restored")
+
+                if didFinish {
+                    if didTimeOut,
+                       reapplyTunIfLate,
+                       ConfigManager.shared.isEnhancedModeActive {
+                        Logger.log(
+                            "Late TUN DNS restore completed after core recovery; " +
+                                "reapplying TUN DNS",
+                            level: .warning
+                        )
+                        self.overrideDNSForTun()
+                    }
+                    return
+                }
+
+                helper.flushDNSCache { _ in
+                    Logger.log("TUN DNS cache flushed")
+                    finish(false)
+                }
             }
         }
     }
@@ -2483,33 +2563,48 @@ extension AppDelegate {
         return []
     }
 
-    private func scheduleStaleMihomoCoreCleanupOnLaunch() {
-        guard Settings.enhancedMode else { return }
-        if PrivilegedHelperManager.shared.isHelperCheckFinished.value {
-            cleanupStaleMihomoCoreOnLaunch()
+    private func cleanupStaleMihomoCoreOnLaunch(completion: @escaping () -> Void) {
+        guard Settings.enhancedMode else {
+            completion()
+            return
+        }
+        guard !didCompleteStaleEnhancedCoreCleanup else {
+            completion()
+            return
+        }
+        Logger.log("Cleanup stale mihomo_core from previous session", level: .info)
+        var didFinish = false
+        let finish: (Bool) -> Void = { [weak self] timedOut in
+            DispatchQueue.main.async {
+                guard !didFinish else { return }
+                didFinish = true
+                if timedOut {
+                    Logger.log(
+                        "Stale mihomo_core cleanup timed out; continuing restore",
+                        level: .warning
+                    )
+                }
+                self?.didCompleteStaleEnhancedCoreCleanup = true
+                Logger.log("Stale mihomo_core cleanup finished")
+                completion()
+            }
+        }
+        guard let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else {
+            finish(false)
+            return
+        }
+        guard let helper = PrivilegedHelperManager.shared.helper(failture: {
+            finish(false)
+        }) else {
+            finish(false)
             return
         }
 
-        PrivilegedHelperManager.shared.isHelperCheckFinished
-            .filter { $0 }
-            .take(1)
-            .observe(on: MainScheduler.instance)
-            .subscribe(onNext: { [weak self] _ in
-                self?.cleanupStaleMihomoCoreOnLaunch()
-            })
-            .disposed(by: disposeBag)
-    }
-
-    private func cleanupStaleMihomoCoreOnLaunch() {
-        guard Settings.enhancedMode else { return }
-        guard !didCompleteStaleEnhancedCoreCleanup else { return }
-        didCompleteStaleEnhancedCoreCleanup = true
-        Logger.log("Cleanup stale mihomo_core from previous session", level: .info)
-        guard let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else { return }
-        let semaphore = DispatchSemaphore(value: 0)
-        guard let helper = PrivilegedHelperManager.shared.helper(failture: {
-            semaphore.signal()
-        }) else { return }
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.staleEnhancedCoreCleanupTimeout
+        ) {
+            finish(true)
+        }
 
         helper.cleanupMihomoCore(
             withBinaryPath: binaryPath,
@@ -2519,14 +2614,35 @@ extension AppDelegate {
             if let error = error {
                 Logger.log("Stale mihomo_core cleanup failed: \(error)", level: .warning)
             }
-            semaphore.signal()
+            finish(false)
         }
-        _ = semaphore.wait(timeout: .now() + 3.0)
     }
 
     private func restoreEnhancedModeIfNeeded() {
         guard Settings.enhancedMode else { return }
-        restoreEnhancedMode(attemptsLeft: Self.enhancedModeRestoreMaxAttempts)
+        let prepareAndRestore = { [weak self] in
+            guard let self else { return }
+            self.cleanupStaleMihomoCoreOnLaunch { [weak self] in
+                self?.restoreEnhancedMode(
+                    attemptsLeft: Self.enhancedModeRestoreMaxAttempts
+                )
+            }
+        }
+
+        if PrivilegedHelperManager.shared.isHelperCheckFinished.value {
+            prepareAndRestore()
+            return
+        }
+
+        Logger.log("Waiting for helper before Enhanced Mode restore")
+        PrivilegedHelperManager.shared.isHelperCheckFinished
+            .filter { $0 }
+            .take(1)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { _ in
+                prepareAndRestore()
+            })
+            .disposed(by: disposeBag)
     }
 
     private func restoreEnhancedMode(attemptsLeft: Int) {
@@ -2791,43 +2907,100 @@ extension AppDelegate {
     private func runSpeedTest(benchmarkURL: String,
                               timeout: Int,
                               showNotifications: Bool) {
-        if isSpeedTesting {
-            if showNotifications {
-                NSUserNotificationCenter.default.postSpeedTestingNotice()
-            }
+        guard let session = beginSpeedTest(showNotifications: showNotifications) else {
             return
         }
-        if showNotifications {
-            NSUserNotificationCenter.default.postSpeedTestBeginNotice()
-        }
-
-        isSpeedTesting = true
 
         ApiRequest.getMergedProxyData { [weak self] resp in
             guard let self = self else { return }
+            guard !session.isCancelled else {
+                self.finishSpeedTest(
+                    session: session,
+                    showNotifications: showNotifications
+                )
+                return
+            }
             guard let resp = resp else {
-                self.finishSpeedTest(showNotifications: showNotifications)
+                self.finishSpeedTest(
+                    session: session,
+                    showNotifications: showNotifications
+                )
                 return
             }
 
             ApiRequest.benchmarkLeafProxies(
                 in: resp,
                 benchmarkURL: benchmarkURL,
-                timeout: timeout
+                timeout: timeout,
+                session: session
             ) {
-                ApiRequest.retestURLTestGroups(in: resp, timeout: timeout) {
-                    self.finishSpeedTest(showNotifications: showNotifications)
+                ApiRequest.retestURLTestGroups(
+                    in: resp,
+                    timeout: timeout,
+                    session: session
+                ) {
+                    self.finishSpeedTest(
+                        session: session,
+                        showNotifications: showNotifications
+                    )
                 }
             }
         }
     }
 
-    private func finishSpeedTest(showNotifications: Bool) {
+    func beginSpeedTest(showNotifications: Bool) -> ApiRequest.BenchmarkSession? {
+        guard !isWakeEnhancedModeRestarting else {
+            Logger.log(
+                "Benchmark blocked while Enhanced Mode recovery is in progress",
+                level: .warning
+            )
+            NSUserNotificationCenter.default.post(
+                title: NSLocalizedString("Benchmark", comment: ""),
+                info: NSLocalizedString(
+                    "Enhanced Mode is recovering. Please try again shortly.",
+                    comment: ""
+                )
+            )
+            return nil
+        }
+        guard !isSpeedTesting else {
+            if showNotifications {
+                NSUserNotificationCenter.default.postSpeedTestingNotice()
+            }
+            return nil
+        }
+
+        let session = ApiRequest.BenchmarkSession()
+        activeBenchmarkSession = session
+        isSpeedTesting = true
+        if showNotifications {
+            NSUserNotificationCenter.default.postSpeedTestBeginNotice()
+        }
+        return session
+    }
+
+    func finishSpeedTest(
+        session: ApiRequest.BenchmarkSession,
+        showNotifications: Bool
+    ) {
+        guard activeBenchmarkSession === session else { return }
+        activeBenchmarkSession = nil
         isSpeedTesting = false
         MenuItemFactory.refreshExistingMenuItems()
-        if showNotifications {
+        if showNotifications, !session.isCancelled {
             NSUserNotificationCenter.default.postSpeedTestFinishNotice()
         }
+    }
+
+    private func cancelActiveSpeedTestForCoreRecovery() {
+        guard let session = activeBenchmarkSession else { return }
+        Logger.log(
+            "Cancelling active benchmark before Enhanced Mode core recovery",
+            level: .warning
+        )
+        activeBenchmarkSession = nil
+        isSpeedTesting = false
+        session.cancel()
     }
 
     @IBAction func actionUpdateExternalResource(_ sender: Any) {
