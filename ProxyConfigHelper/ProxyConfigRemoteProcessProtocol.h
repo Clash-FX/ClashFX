@@ -13,7 +13,7 @@ typedef void(^boolReplyBlock)(BOOL);
 typedef void(^dictReplyBlock)(NSDictionary *);
 typedef void(^uintReplyBlock)(NSUInteger);
 
-#define CLASHFX_HELPER_PROTOCOL_VERSION 2
+#define CLASHFX_HELPER_PROTOCOL_VERSION 3
 
 @protocol ProxyConfigRemoteProcessProtocol <NSObject>
 @required
@@ -23,6 +23,14 @@ typedef void(^uintReplyBlock)(NSUInteger);
 @optional
 
 - (void)getProtocolVersion:(uintReplyBlock)reply NS_SWIFT_NAME(getHelperProtocolVersion(_:));
+
+- (void)getMihomoCoreStatusWithReply:(dictReplyBlock)reply
+    NS_SWIFT_NAME(getMihomoCoreStatus(_:));
+
+- (void)captureMihomoCoreDiagnosticWithReason:(NSString *)reason
+                                        reply:(stringReplyBlock)reply;
+
+- (void)restartMihomoCoreHostWithReply:(stringReplyBlock)reply;
 
 @required
 

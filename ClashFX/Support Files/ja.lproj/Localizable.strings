@@ -593,3 +593,4 @@
 "Failed to Stop Enhanced Mode" = "拡張モードを停止できませんでした";
 "TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "TUN ルート除外に無効な項目があります：\n%@\n\n項目をカンマまたは改行で区切るか、リストをリセットしてください。";
 "Open Settings" = "設定を開く";
+"Core temporarily unavailable; showing the last valid rules snapshot" = "コアは一時的に利用できません。最後の有効なルールのスナップショットを表示しています";

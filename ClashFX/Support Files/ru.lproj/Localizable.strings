@@ -593,3 +593,4 @@
 "Failed to Stop Enhanced Mode" = "Не удалось остановить расширенный режим";
 "TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "Список исключений маршрутов TUN содержит недопустимые элементы:\n%@\n\nРазделите элементы запятыми или переносами строк либо сбросьте список.";
 "Open Settings" = "Открыть настройки";
+"Core temporarily unavailable; showing the last valid rules snapshot" = "Ядро временно недоступно; показан последний действительный снимок правил";

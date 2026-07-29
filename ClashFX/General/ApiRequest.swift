@@ -116,7 +116,9 @@ class ApiRequest {
     private static let benchmarkRequestTimeoutMargin: TimeInterval = 5
     private static let benchmarkMinimumRequestTimeout: TimeInterval = 10
 
-    private var proxyRespCache: ClashProxyResp?
+    private var proxyRespCacheData: Data?
+    private var rulesCache: [ClashRule] = []
+    private var lastProxyCacheFallbackLogDate = Date.distantPast
 
     static let clashRequestQueue = DispatchQueue(label: "com.clashfx.clashRequestQueue")
 
@@ -354,11 +356,39 @@ class ApiRequest {
     }
 
     static func requestProxyGroupList(completeHandler: ((ClashProxyResp) -> Void)? = nil) {
-        req("/proxies").responseData {
-            res in
-            let proxies = ClashProxyResp(try? res.result.get())
-            ApiRequest.shared.proxyRespCache = proxies
-            completeHandler?(proxies)
+        req("/proxies").responseData { res in
+            let statusCode = res.response?.statusCode ?? -1
+            if case let .success(data) = res.result,
+               (200 ..< 300).contains(statusCode),
+               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               root["proxies"] is [String: Any] {
+                let proxies = ClashProxyResp(data)
+                ApiRequest.shared.proxyRespCacheData = data
+                completeHandler?(proxies)
+                return
+            }
+
+            if let cachedData = ApiRequest.shared.proxyRespCacheData {
+                let cached = ClashProxyResp(cachedData)
+                let now = Date()
+                if now.timeIntervalSince(ApiRequest.shared.lastProxyCacheFallbackLogDate) >= 15 {
+                    ApiRequest.shared.lastProxyCacheFallbackLogDate = now
+                    Logger.log(
+                        "Proxy API unavailable (status=\(statusCode)); " +
+                            "preserving the last valid menu snapshot with " +
+                            "\(cached.proxiesMap.count) entries",
+                        level: .warning
+                    )
+                }
+                completeHandler?(cached)
+                return
+            }
+
+            Logger.log(
+                "Proxy API unavailable (status=\(statusCode)) and no valid snapshot exists",
+                level: .warning
+            )
+            completeHandler?(ClashProxyResp(nil))
         }
     }
 
@@ -774,9 +804,24 @@ class ApiRequest {
 
     static func getRules(completeHandler: @escaping ([ClashRule]) -> Void) {
         req("/rules").responseData { res in
-            guard let data = try? res.result.get() else { return }
-            let rule = ClashRuleResponse.fromData(data)
-            completeHandler(rule.rules ?? [])
+            let statusCode = res.response?.statusCode ?? -1
+            if case let .success(data) = res.result,
+               (200 ..< 300).contains(statusCode),
+               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               root["rules"] is [Any] {
+                let rule = ClashRuleResponse.fromData(data)
+                let rules = rule.rules ?? []
+                ApiRequest.shared.rulesCache = rules
+                completeHandler(rules)
+                return
+            }
+
+            Logger.log(
+                "Rules API unavailable (status=\(statusCode)); preserving the last " +
+                    "valid snapshot with \(ApiRequest.shared.rulesCache.count) rules",
+                level: .warning
+            )
+            completeHandler(ApiRequest.shared.rulesCache)
         }
     }
 

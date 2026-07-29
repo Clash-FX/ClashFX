@@ -176,6 +176,108 @@ class ClashWebViewContoller: NSViewController {
         """
     }
 
+    private static func dashboardRulesSnapshotJS(port: String, staleMessage: String) -> String {
+        let backendURL = "http://127.0.0.1:\(port)"
+        let escapedBackendURL = backendURL
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        let escapedStaleMessage = staleMessage
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+            .replacingOccurrences(of: "\n", with: "\\n")
+        return """
+        (function() {
+          var BACKEND_ORIGIN = '\(escapedBackendURL)';
+          var STALE_MESSAGE = '\(escapedStaleMessage)';
+          var BANNER_ID = 'clashfx-stale-rules-banner';
+          var rulesSnapshot = null;
+          var originalFetch = window.fetch;
+
+          function isRulesRequest(input, init) {
+            var method = ((init && init.method) ||
+              (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+            if (method !== 'GET') return false;
+            var rawURL = (typeof input === 'string') ? input : (input.url || '');
+            try {
+              var url = new URL(rawURL, window.location.href);
+              return url.origin === BACKEND_ORIGIN && url.pathname === '/rules';
+            } catch (_) {
+              return false;
+            }
+          }
+
+          function showStaleBanner() {
+            if (document.getElementById(BANNER_ID)) return;
+            var banner = document.createElement('div');
+            banner.id = BANNER_ID;
+            banner.textContent = STALE_MESSAGE;
+            banner.style.position = 'fixed';
+            banner.style.top = '10px';
+            banner.style.left = '50%';
+            banner.style.transform = 'translateX(-50%)';
+            banner.style.zIndex = '2147483647';
+            banner.style.padding = '7px 12px';
+            banner.style.borderRadius = '8px';
+            banner.style.background = 'rgba(154, 87, 0, 0.94)';
+            banner.style.color = '#fff';
+            banner.style.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
+            banner.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.22)';
+            banner.style.pointerEvents = 'none';
+            (document.body || document.documentElement).appendChild(banner);
+          }
+
+          function hideStaleBanner() {
+            var banner = document.getElementById(BANNER_ID);
+            if (banner) banner.remove();
+          }
+
+          function rememberRules(response) {
+            response.clone().text().then(function(text) {
+              try {
+                var payload = JSON.parse(text);
+                if (!Array.isArray(payload.rules)) return;
+                rulesSnapshot = text;
+                hideStaleBanner();
+              } catch (_) {}
+            });
+          }
+
+          function staleRulesResponse() {
+            showStaleBanner();
+            console.warn('[ClashFX] Core unavailable; serving the last valid rules snapshot');
+            return new Response(rulesSnapshot, {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'X-ClashFX-Stale-Snapshot': 'rules'
+              }
+            });
+          }
+
+          window.fetch = function(input, init) {
+            if (!isRulesRequest(input, init)) {
+              return originalFetch.apply(this, arguments);
+            }
+            var receiver = this;
+            var args = arguments;
+            return originalFetch.apply(receiver, args).then(function(response) {
+              if (response && response.ok) {
+                rememberRules(response);
+                return response;
+              }
+              if (rulesSnapshot && response && response.status >= 500) {
+                return staleRulesResponse();
+              }
+              return response;
+            }).catch(function(error) {
+              if (rulesSnapshot) return staleRulesResponse();
+              throw error;
+            });
+          };
+        })();
+        """
+    }
+
     private static func metaCubeXDSetupURL(port: String, secret: String) -> URL? {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&=+")
@@ -206,6 +308,15 @@ class ClashWebViewContoller: NSViewController {
         let secret = ConfigManager.shared.overrideSecret ?? ConfigManager.shared.apiSecret
         let metaCubeXDConfigScript = WKUserScript(source: Self.metaCubeXDConfigJS(port: port, secret: secret), injectionTime: .atDocumentStart, forMainFrameOnly: true)
         let guardScript = WKUserScript(source: Self.apiGuardJS, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        let staleRulesMessage = NSLocalizedString(
+            "Core temporarily unavailable; showing the last valid rules snapshot",
+            comment: ""
+        )
+        let rulesSnapshotScript = WKUserScript(
+            source: Self.dashboardRulesSnapshotJS(port: port, staleMessage: staleRulesMessage),
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
         let managedMessage = NSLocalizedString(
             "Dashboard and core updates are managed by ClashFX",
             comment: ""
@@ -217,6 +328,7 @@ class ClashWebViewContoller: NSViewController {
         )
         webview.configuration.userContentController.addUserScript(metaCubeXDConfigScript)
         webview.configuration.userContentController.addUserScript(guardScript)
+        webview.configuration.userContentController.addUserScript(rulesSnapshotScript)
         webview.configuration.userContentController.addUserScript(hideScript)
 
         bridge = JsBridgeUtil.initJSbridge(webview: webview, delegate: self)

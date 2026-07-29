@@ -9,6 +9,7 @@
 #import "ProxyConfigHelper.h"
 #import <AppKit/AppKit.h>
 #import <Security/Security.h>
+#import <fcntl.h>
 #import <libproc.h>
 #import <signal.h>
 #import <string.h>
@@ -28,6 +29,12 @@ ProxyConfigRemoteProcessProtocol
 @property (nonatomic, strong) NSTimer *idleExitTimer;
 @property (nonatomic, assign) BOOL shouldQuit;
 @property (nonatomic, strong) NSTask *mihomoTask;
+@property (nonatomic, copy) NSString *mihomoLaunchID;
+@property (nonatomic, copy) NSString *mihomoLogPath;
+@property (nonatomic, copy) NSString *mihomoHomeDir;
+@property (nonatomic, strong) NSDate *mihomoLaunchDate;
+@property (nonatomic, assign) pid_t mihomoProcessID;
+@property (nonatomic, copy) NSString *mihomoLastTerminationSummary;
 
 - (void)terminateMihomoTask:(NSTask *)task completion:(dispatch_block_t)completion;
 - (void)launchMihomoCoreWithBinaryPath:(NSString *)binaryPath
@@ -41,6 +48,7 @@ ProxyConfigRemoteProcessProtocol
 
 static const NSTimeInterval kMihomoGracefulStopTimeout = 2.0;
 static const unsigned long long kMihomoCoreLogMaximumBytes = 4 * 1024 * 1024;
+static const NSUInteger kMihomoDiagnosticFileLimit = 24;
 static const NSTimeInterval kDNSCacheCommandTimeout = 2.0;
 // Give a newly launched ClashFX instance enough time to attach before an
 // invalidated connection from the previous instance lets the helper exit.
@@ -51,6 +59,24 @@ static const NSTimeInterval kIdleExitGracePeriod = 10.0;
 // app repeatedly reinstall an already healthy helper.
 static const NSTimeInterval kInitialConnectionGracePeriod = 60.0;
 
+static void AppendLineToFile(NSString *path, NSString *line) {
+    if (path.length == 0 || line.length == 0) {
+        return;
+    }
+
+    int fd = open(path.fileSystemRepresentation, O_WRONLY | O_APPEND);
+    if (fd < 0) {
+        return;
+    }
+
+    NSString *terminatedLine = [line hasSuffix:@"\n"] ? line : [line stringByAppendingString:@"\n"];
+    NSData *data = [terminatedLine dataUsingEncoding:NSUTF8StringEncoding];
+    if (data.length > 0) {
+        (void)write(fd, data.bytes, data.length);
+    }
+    close(fd);
+}
+
 static BOOL RunTaskWithTimeout(NSString *executablePath,
                                NSArray<NSString *> *arguments,
                                NSTimeInterval timeout) {
@@ -60,7 +86,7 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
 
     NSError *launchError = nil;
     if (![task launchAndReturnError:&launchError]) {
-        NSLog(@"DNS cache command failed to launch (%@): %@",
+        NSLog(@"Command failed to launch (%@): %@",
               executablePath.lastPathComponent,
               launchError.localizedDescription);
         return NO;
@@ -74,7 +100,7 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         return task.terminationStatus == 0;
     }
 
-    NSLog(@"DNS cache command timed out after %.1fs: %@",
+    NSLog(@"Command timed out after %.1fs: %@",
           timeout,
           executablePath.lastPathComponent);
     [task terminate];
@@ -98,6 +124,81 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         self.listener.delegate = self;
     }
     return self;
+}
+
+- (NSString *)newMihomoLaunchID {
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+    formatter.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+    formatter.dateFormat = @"yyyyMMdd-HHmmss-SSS";
+    NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+    NSString *suffix = [[[NSUUID UUID] UUIDString] substringToIndex:8].lowercaseString;
+    return [NSString stringWithFormat:@"%@-%@", timestamp, suffix];
+}
+
+- (void)pruneMihomoDiagnosticDirectory:(NSString *)directory
+                           keepingPath:(NSString *)currentPath {
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSArray<NSURL *> *files = [fileManager contentsOfDirectoryAtURL:[NSURL fileURLWithPath:directory]
+                                          includingPropertiesForKeys:@[NSURLContentModificationDateKey]
+                                                             options:NSDirectoryEnumerationSkipsHiddenFiles
+                                                               error:nil];
+    files = [files filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSURL *url, NSDictionary *_) {
+        return [url.pathExtension isEqualToString:@"log"] ||
+            [url.lastPathComponent hasSuffix:@".sample.txt"];
+    }]];
+    files = [files sortedArrayUsingComparator:^NSComparisonResult(NSURL *lhs, NSURL *rhs) {
+        NSDate *leftDate = nil;
+        NSDate *rightDate = nil;
+        [lhs getResourceValue:&leftDate forKey:NSURLContentModificationDateKey error:nil];
+        [rhs getResourceValue:&rightDate forKey:NSURLContentModificationDateKey error:nil];
+        return [(rightDate ?: NSDate.distantPast) compare:(leftDate ?: NSDate.distantPast)];
+    }];
+
+    NSUInteger kept = 0;
+    for (NSURL *file in files) {
+        if ([file.path isEqualToString:currentPath] || kept < kMihomoDiagnosticFileLimit) {
+            kept += 1;
+            continue;
+        }
+        [fileManager removeItemAtURL:file error:nil];
+    }
+}
+
+- (NSString *)prepareMihomoLogForHomeDir:(NSString *)homeDir
+                                launchID:(NSString *)launchID {
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSString *logDirectory = [homeDir stringByAppendingPathComponent:@".mihomo_core_logs"];
+    NSError *directoryError = nil;
+    if (![fileManager createDirectoryAtPath:logDirectory
+                withIntermediateDirectories:YES
+                                 attributes:@{NSFilePosixPermissions: @(0755)}
+                                      error:&directoryError]) {
+        NSLog(@"[mihomo_core] Failed creating diagnostic directory: %@",
+              directoryError.localizedDescription);
+    }
+
+    NSString *uniqueLogPath = [logDirectory
+        stringByAppendingPathComponent:[NSString stringWithFormat:@"mihomo-%@.log", launchID]];
+    [fileManager createFileAtPath:uniqueLogPath
+                        contents:[NSData data]
+                      attributes:@{NSFilePosixPermissions: @(0644)}];
+
+    NSString *stableLogPath = [homeDir stringByAppendingPathComponent:@".mihomo_core.log"];
+    [fileManager removeItemAtPath:stableLogPath error:nil];
+    NSError *linkError = nil;
+    if (![fileManager linkItemAtPath:uniqueLogPath toPath:stableLogPath error:&linkError]) {
+        NSLog(@"[mihomo_core] Failed linking active log to diagnostic log: %@",
+              linkError.localizedDescription);
+        [fileManager removeItemAtPath:uniqueLogPath error:nil];
+        [fileManager createFileAtPath:stableLogPath
+                            contents:[NSData data]
+                          attributes:@{NSFilePosixPermissions: @(0644)}];
+        uniqueLogPath = stableLogPath;
+    }
+
+    [self pruneMihomoDiagnosticDirectory:logDirectory keepingPath:uniqueLogPath];
+    return uniqueLogPath;
 }
 
 - (NSArray<NSNumber *> *)mihomoProcessIDsMatchingBinaryPath:(NSString *)binaryPath
@@ -428,6 +529,117 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
     reply(CLASHFX_HELPER_PROTOCOL_VERSION);
 }
 
+- (void)getMihomoCoreStatusWithReply:(dictReplyBlock)reply {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSTask *task = self.mihomoTask;
+        NSMutableDictionary *status = [NSMutableDictionary dictionary];
+        status[@"running"] = @(task && task.isRunning);
+        status[@"pid"] = @(self.mihomoProcessID);
+        if (self.mihomoLaunchID.length > 0) {
+            status[@"launchID"] = self.mihomoLaunchID;
+        }
+        if (self.mihomoLogPath.length > 0) {
+            status[@"logPath"] = self.mihomoLogPath;
+            NSDictionary *attributes = [[NSFileManager defaultManager]
+                attributesOfItemAtPath:self.mihomoLogPath
+                                 error:nil];
+            status[@"logBytes"] = attributes[NSFileSize] ?: @0;
+        }
+        if (self.mihomoLaunchDate) {
+            status[@"startedAt"] = @([self.mihomoLaunchDate timeIntervalSince1970]);
+        }
+        if (self.mihomoLastTerminationSummary.length > 0) {
+            status[@"lastTermination"] = self.mihomoLastTerminationSummary;
+        }
+        reply(status);
+    });
+}
+
+- (void)captureMihomoCoreDiagnosticWithReason:(NSString *)reason
+                                        reply:(stringReplyBlock)reply {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSTask *task = self.mihomoTask;
+        if (!(task && task.isRunning)) {
+            NSString *summary = self.mihomoLastTerminationSummary ?: @"none";
+            reply([NSString stringWithFormat:@"error: core is not running; last termination=%@", summary]);
+            return;
+        }
+
+        pid_t pid = task.processIdentifier;
+        NSString *launchID = self.mihomoLaunchID ?: @"unknown";
+        NSString *homeDir = self.mihomoHomeDir;
+        NSString *coreLogPath = self.mihomoLogPath;
+        NSString *diagnosticReason = reason.length > 0 ? reason : @"unspecified";
+        NSString *diagnosticID = [self newMihomoLaunchID];
+
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            NSString *logDirectory = [homeDir stringByAppendingPathComponent:@".mihomo_core_logs"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:logDirectory
+                                      withIntermediateDirectories:YES
+                                                       attributes:@{NSFilePosixPermissions: @(0755)}
+                                                            error:nil];
+            NSString *samplePath = [logDirectory
+                stringByAppendingPathComponent:[NSString stringWithFormat:
+                    @"mihomo-%@-diagnostic-%@.sample.txt",
+                    launchID,
+                    diagnosticID]];
+
+            BOOL sampled = RunTaskWithTimeout(
+                @"/usr/bin/sample",
+                @[
+                    [NSString stringWithFormat:@"%d", pid],
+                    @"2",
+                    @"1",
+                    @"-file",
+                    samplePath
+                ],
+                6.0
+            );
+            NSString *context = [NSString stringWithFormat:
+                @"ClashFX core diagnostic: reason=%@ pid=%d launch=%@ sampled=%@",
+                diagnosticReason,
+                pid,
+                launchID,
+                sampled ? @"yes" : @"no"];
+            AppendLineToFile(samplePath, context);
+            AppendLineToFile(
+                coreLogPath,
+                [NSString stringWithFormat:
+                    @"[ClashFX Helper] captured core diagnostic reason=%@ sample=%@ result=%@",
+                    diagnosticReason,
+                    samplePath,
+                    sampled ? @"success" : @"failed"]
+            );
+            NSLog(@"[mihomo_core] Captured core diagnostic for pid %d at %@ (success=%@)",
+                  pid,
+                  samplePath,
+                  sampled ? @"yes" : @"no");
+            [self pruneMihomoDiagnosticDirectory:logDirectory keepingPath:samplePath];
+            reply(sampled
+                ? samplePath
+                : [NSString stringWithFormat:@"error: sample failed; diagnostic=%@", samplePath]);
+        });
+    });
+}
+
+- (void)restartMihomoCoreHostWithReply:(stringReplyBlock)reply {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSTask *task = self.mihomoTask;
+        self.mihomoTask = nil;
+        [self terminateMihomoTask:task completion:^{
+            NSLog(@"[mihomo_core] Restarting helper host after an external-core startup failure");
+            reply(nil);
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(),
+                ^{
+                    self.shouldQuit = YES;
+                }
+            );
+        }];
+    });
+}
+
 - (void)enableProxyWithPort:(int)port
           socksPort:(int)socksPort
             pac:(NSString *)pac
@@ -506,16 +718,27 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
     task.executableURL = [NSURL fileURLWithPath:binaryPath];
     task.arguments = @[@"-f", configPath, @"-d", homeDir];
 
-    NSString *logPath = [homeDir stringByAppendingPathComponent:@".mihomo_core.log"];
-    [@"" writeToFile:logPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    [[NSFileManager defaultManager] setAttributes:@{NSFilePosixPermissions: @(0644)}
-                                     ofItemAtPath:logPath error:nil];
+    NSString *launchID = [self newMihomoLaunchID];
+    NSString *logPath = [self prepareMihomoLogForHomeDir:homeDir launchID:launchID];
+    NSDate *launchDate = [NSDate date];
+    self.mihomoLaunchID = launchID;
+    self.mihomoLogPath = logPath;
+    self.mihomoHomeDir = homeDir;
+    self.mihomoLaunchDate = launchDate;
+    self.mihomoProcessID = 0;
+    self.mihomoLastTerminationSummary = nil;
 
     NSPipe *pipe = [NSPipe pipe];
     task.standardOutput = pipe;
     task.standardError = pipe;
 
     NSFileHandle *logHandle = [NSFileHandle fileHandleForWritingAtPath:logPath];
+    if (logHandle) {
+        int flags = fcntl(logHandle.fileDescriptor, F_GETFL);
+        if (flags >= 0) {
+            (void)fcntl(logHandle.fileDescriptor, F_SETFL, flags | O_APPEND);
+        }
+    }
     __block BOOL didReportTruncation = NO;
 
     pipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *handle) {
@@ -545,20 +768,86 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         }
     };
 
+    __weak ProxyConfigHelper *weakSelf = self;
+    task.terminationHandler = ^(NSTask *finishedTask) {
+        NSString *reason = finishedTask.terminationReason == NSTaskTerminationReasonUncaughtSignal
+            ? @"signal"
+            : @"exit";
+        NSTimeInterval duration = [[NSDate date] timeIntervalSinceDate:launchDate];
+        NSString *summary = [NSString stringWithFormat:
+            @"launch=%@ pid=%d reason=%@ status=%d duration=%.3fs log=%@",
+            launchID,
+            finishedTask.processIdentifier,
+            reason,
+            finishedTask.terminationStatus,
+            duration,
+            logPath];
+        AppendLineToFile(
+            logPath,
+            [NSString stringWithFormat:@"[ClashFX Helper] terminated %@", summary]
+        );
+        NSLog(@"[mihomo_core] Process terminated %@", summary);
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            ProxyConfigHelper *strongSelf = weakSelf;
+            if (!strongSelf) {
+                return;
+            }
+            if ([strongSelf.mihomoLaunchID isEqualToString:launchID]) {
+                strongSelf.mihomoLastTerminationSummary = summary;
+            }
+            if (strongSelf.mihomoTask == finishedTask) {
+                strongSelf.mihomoTask = nil;
+            }
+        });
+    };
+
     NSError *error = nil;
     [task launchAndReturnError:&error];
     if (error) {
         pipe.fileHandleForReading.readabilityHandler = nil;
         [logHandle closeFile];
+        NSString *summary = [NSString stringWithFormat:
+            @"launch=%@ failed before start: %@",
+            launchID,
+            error.localizedDescription];
+        self.mihomoLastTerminationSummary = summary;
+        AppendLineToFile(logPath, [NSString stringWithFormat:@"[ClashFX Helper] %@", summary]);
         reply([NSString stringWithFormat:@"Launch failed: %@", error.localizedDescription]);
         return;
     }
 
     self.mihomoTask = task;
+    self.mihomoProcessID = task.processIdentifier;
+    AppendLineToFile(
+        logPath,
+        [NSString stringWithFormat:
+            @"[ClashFX Helper] launched id=%@ pid=%d binary=%@ config=%@ home=%@",
+            launchID,
+            task.processIdentifier,
+            binaryPath,
+            configPath,
+            homeDir]
+    );
+    NSLog(@"[mihomo_core] Launched id=%@ pid=%d log=%@",
+          launchID,
+          task.processIdentifier,
+          logPath);
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (!task.isRunning) {
-            NSLog(@"[mihomo_core] Process exited early with status: %d", task.terminationStatus);
+            NSLog(@"[mihomo_core] Process %@ pid %d exited within 1s with status: %d",
+                  launchID,
+                  task.processIdentifier,
+                  task.terminationStatus);
+        } else {
+            NSDictionary *attributes = [[NSFileManager defaultManager]
+                attributesOfItemAtPath:logPath
+                                 error:nil];
+            NSLog(@"[mihomo_core] Process %@ pid %d still running after 1s, log bytes=%@",
+                  launchID,
+                  task.processIdentifier,
+                  attributes[NSFileSize] ?: @0);
         }
     });
 

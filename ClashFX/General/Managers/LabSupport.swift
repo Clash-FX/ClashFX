@@ -41,6 +41,7 @@ enum LabSupport {
         lines.append("- System Proxy Matches ClashFX: \(NetworkChangeNotifier.isCurrentSystemSetToClash())")
         lines.append("- DNS Servers: \(NetworkChangeNotifier.getCurrentDns().joined(separator: ", "))")
         lines.append("- TUN Interfaces: \(tunInterfaceSummary())")
+        lines.append("- Enhanced Runtime Health: \(AppDelegate.shared.enhancedModeRuntimeHealthSummary)")
         lines.append("")
         lines.append("### Recent log (last 50 lines, sensitive data redacted)")
         lines.append("```")

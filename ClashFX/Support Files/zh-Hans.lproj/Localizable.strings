@@ -633,3 +633,4 @@
 "Failed to Stop Enhanced Mode" = "增强模式停止失败";
 "TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "TUN 路由排除中包含无效条目：\n%@\n\n请使用逗号或换行分隔条目，或者重置该列表。";
 "Open Settings" = "打开设置";
+"Core temporarily unavailable; showing the last valid rules snapshot" = "核心暂时不可用，正在显示上一次有效的规则快照";

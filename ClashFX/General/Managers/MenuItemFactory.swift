@@ -20,13 +20,20 @@ class MenuItemFactory {
     static func refreshExistingMenuItems() {
         ApiRequest.getMergedProxyData {
             info in
-            if info?.proxiesMap.keys != cachedProxyData?.proxiesMap.keys {
+            guard let info, !info.proxiesMap.isEmpty else {
+                Logger.log(
+                    "Skipped proxy-menu refresh because no valid proxy snapshot is available",
+                    level: .warning
+                )
+                return
+            }
+            if info.proxiesMap.keys != cachedProxyData?.proxiesMap.keys {
                 cachedProxyData = info
                 refreshMenuItems(mergedData: info)
                 return
             }
 
-            for proxy in info?.proxies ?? [] {
+            for proxy in info.proxies {
                 NotificationCenter.default.post(name: .proxyUpdate(for: proxy.name), object: proxy, userInfo: nil)
             }
         }
@@ -35,6 +42,13 @@ class MenuItemFactory {
     static func recreateProxyMenuItems() {
         ApiRequest.getMergedProxyData {
             proxyInfo in
+            guard let proxyInfo, !proxyInfo.proxiesMap.isEmpty else {
+                Logger.log(
+                    "Kept existing proxy menu because the refreshed snapshot is empty",
+                    level: .warning
+                )
+                return
+            }
             cachedProxyData = proxyInfo
             refreshMenuItems(mergedData: proxyInfo)
         }
