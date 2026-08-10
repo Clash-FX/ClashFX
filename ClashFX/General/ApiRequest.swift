@@ -64,6 +64,11 @@ private final class LimitedAsyncTaskRunner {
 }
 
 class ApiRequest {
+    struct ProviderProxyBenchmarkTarget: Hashable {
+        let providerName: ClashProviderName
+        let proxyName: ClashProxyName
+    }
+
     final class BenchmarkSession {
         private let lock = NSLock()
         private var requests: [UUID: DataRequest] = [:]
@@ -686,7 +691,7 @@ class ApiRequest {
 
     static func benchmarkProxySelection(
         proxyNames: [ClashProxyName],
-        providerNames: Set<ClashProviderName>,
+        providerProxies: [ProviderProxyBenchmarkTarget],
         benchmarkURL: String,
         timeout: Int,
         maxConcurrent: Int = benchmarkMaxConcurrent,
@@ -702,6 +707,7 @@ class ApiRequest {
         typealias DelayTask = LimitedAsyncTaskRunner.Task
         var tasks = [DelayTask]()
         var uniqueProxyNames = Set<ClashProxyName>()
+        var uniqueProviderProxies = Set<ProviderProxyBenchmarkTarget>()
 
         for proxyName in proxyNames where uniqueProxyNames.insert(proxyName).inserted {
             tasks.append { done in
@@ -723,24 +729,37 @@ class ApiRequest {
             }
         }
 
-        for providerName in providerNames.sorted() {
+        let sortedProviderProxies = providerProxies.sorted {
+            if $0.providerName == $1.providerName {
+                return $0.proxyName.localizedStandardCompare($1.proxyName) == .orderedAscending
+            }
+            return $0.providerName.localizedStandardCompare($1.providerName) == .orderedAscending
+        }
+        for target in sortedProviderProxies where uniqueProviderProxies.insert(target).inserted {
             tasks.append { done in
                 guard !session.isCancelled else {
                     done()
                     return
                 }
-                healthCheck(
-                    proxy: providerName,
-                    requestTimeout: benchmarkRequestTimeout(for: timeout),
-                    session: session,
-                    completeHandler: done
-                )
+                getProviderProxyDelay(
+                    providerName: target.providerName,
+                    proxyName: target.proxyName,
+                    benchmarkURL: benchmarkURL,
+                    timeout: timeout,
+                    session: session
+                ) { delay in
+                    if !session.isCancelled {
+                        proxyResult(target.proxyName, delay)
+                    }
+                    done()
+                }
             }
         }
 
         Logger.log(
             "[Proxy Delay] Starting selected benchmark: " +
-                "\(uniqueProxyNames.count) inline, \(providerNames.count) provider, " +
+                "\(uniqueProxyNames.count) inline, " +
+                "\(uniqueProviderProxies.count) provider proxy, " +
                 "max concurrency \(max(1, maxConcurrent))"
         )
         LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: maxConcurrent)
