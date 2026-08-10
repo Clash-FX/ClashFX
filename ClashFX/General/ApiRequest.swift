@@ -766,6 +766,44 @@ class ApiRequest {
             .start(completion: completion)
     }
 
+    static func benchmarkSelectorPlan(
+        _ plan: SelectorBenchmarkPlan,
+        session: BenchmarkSession,
+        result: @escaping (SelectorBenchmarkMeasurementKey, Int) -> Void,
+        completion: @escaping () -> Void
+    ) {
+        guard !session.isCancelled else {
+            completion()
+            return
+        }
+
+        typealias DelayTask = LimitedAsyncTaskRunner.Task
+        let tasks: [DelayTask] = plan.targets.compactMap { target in
+            guard target.key.endpoint == .inline else { return nil }
+            return { done in
+                guard !session.isCancelled else {
+                    done()
+                    return
+                }
+                getProxyDelay(
+                    proxyName: target.key.proxyName,
+                    benchmarkURL: target.key.benchmarkURL,
+                    timeout: target.key.timeout,
+                    session: session
+                ) { delay in
+                    if !session.isCancelled {
+                        result(target.key, delay)
+                    }
+                    done()
+                }
+            }
+        }
+
+        Logger.log("[Proxy Delay] Starting Selector benchmark: \(tasks.count) inline target(s)")
+        LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: benchmarkMaxConcurrent)
+            .start(completion: completion)
+    }
+
     private static func benchmarkRequestTimeout(for coreTimeoutMilliseconds: Int) -> TimeInterval {
         max(
             benchmarkMinimumRequestTimeout,

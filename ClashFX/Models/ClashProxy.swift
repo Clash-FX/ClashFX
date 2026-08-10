@@ -68,6 +68,138 @@ enum ClashProxyType: String, Codable {
 typealias ClashProxyName = String
 typealias ClashProviderName = String
 
+enum SelectorBenchmarkEndpoint: Hashable {
+    case inline
+    case provider
+}
+
+struct SelectorBenchmarkMeasurementKey: Hashable {
+    let endpoint: SelectorBenchmarkEndpoint
+    let providerName: ClashProviderName?
+    let proxyName: ClashProxyName
+    let benchmarkURL: String
+    let timeout: Int
+}
+
+enum SelectorBenchmarkUnavailableReason: Hashable {
+    case cycle(ClashProxyName)
+    case missingNode(ClashProxyName)
+    case missingSelection(ClashProxyName)
+    case unknownTarget(ClashProxyName)
+    case nonLeafTerminal(ClashProxyName)
+}
+
+struct SelectorBenchmarkRow {
+    let rowName: ClashProxyName
+    let displayName: String
+    let measurementKey: SelectorBenchmarkMeasurementKey?
+    let unavailableReason: SelectorBenchmarkUnavailableReason?
+}
+
+struct SelectorBenchmarkPlan {
+    struct Target {
+        let key: SelectorBenchmarkMeasurementKey
+        let aliases: [SelectorBenchmarkRow]
+    }
+
+    let orderedRows: [SelectorBenchmarkRow]
+    let targets: [Target]
+
+    static func make(selector: ClashProxy,
+                     snapshot: ClashProxyResp,
+                     benchmarkURL: String,
+                     timeout: Int) -> SelectorBenchmarkPlan {
+        guard let firstVisibleName = selector.all?.first else {
+            return SelectorBenchmarkPlan(orderedRows: [], targets: [])
+        }
+
+        let row = makeRow(
+            visibleName: firstVisibleName,
+            snapshot: snapshot,
+            benchmarkURL: benchmarkURL,
+            timeout: timeout
+        )
+        let targets = row.measurementKey.map { key in
+            [Target(key: key, aliases: [row])]
+        } ?? []
+        return SelectorBenchmarkPlan(orderedRows: [row], targets: targets)
+    }
+
+    private static func makeRow(visibleName: ClashProxyName,
+                                snapshot: ClashProxyResp,
+                                benchmarkURL: String,
+                                timeout: Int) -> SelectorBenchmarkRow {
+        switch resolve(name: visibleName, snapshot: snapshot, visited: []) {
+        case let .leaf(proxy, path):
+            let endpoint: SelectorBenchmarkEndpoint
+            let providerName: ClashProviderName?
+            if let provider = proxy.enclosingProvider {
+                endpoint = .provider
+                providerName = provider.name
+            } else {
+                endpoint = .inline
+                providerName = nil
+            }
+            return SelectorBenchmarkRow(
+                rowName: visibleName,
+                displayName: path.joined(separator: " → "),
+                measurementKey: SelectorBenchmarkMeasurementKey(
+                    endpoint: endpoint,
+                    providerName: providerName,
+                    proxyName: proxy.name,
+                    benchmarkURL: benchmarkURL,
+                    timeout: timeout
+                ),
+                unavailableReason: nil
+            )
+        case let .unavailable(reason):
+            return SelectorBenchmarkRow(
+                rowName: visibleName,
+                displayName: visibleName,
+                measurementKey: nil,
+                unavailableReason: reason
+            )
+        }
+    }
+
+    private enum Resolution {
+        case leaf(ClashProxy, [ClashProxyName])
+        case unavailable(SelectorBenchmarkUnavailableReason)
+    }
+
+    private static func resolve(name: ClashProxyName,
+                                snapshot: ClashProxyResp,
+                                visited: Set<ClashProxyName>) -> Resolution {
+        guard let proxy = snapshot.proxiesMap[name] else {
+            return .unavailable(.missingNode(name))
+        }
+        guard !visited.contains(proxy.name) else {
+            return .unavailable(.cycle(proxy.name))
+        }
+        guard ClashProxyType.isProxyGroup(proxy) else {
+            guard proxy.all == nil else {
+                return .unavailable(.nonLeafTerminal(proxy.name))
+            }
+            return .leaf(proxy, [proxy.name])
+        }
+        guard let selectedName = proxy.now, !selectedName.isEmpty else {
+            return .unavailable(.missingSelection(proxy.name))
+        }
+        guard snapshot.proxiesMap[selectedName] != nil else {
+            return .unavailable(.unknownTarget(selectedName))
+        }
+
+        switch resolve(name: selectedName,
+                       snapshot: snapshot,
+                       visited: visited.union([proxy.name])) {
+        case let .leaf(leaf, path):
+            return .leaf(leaf, [proxy.name] + path)
+        case let .unavailable(reason):
+            return .unavailable(reason)
+        }
+    }
+}
+
 class ClashProxySpeedHistory: Codable {
     let time: Date
     let delay: Int

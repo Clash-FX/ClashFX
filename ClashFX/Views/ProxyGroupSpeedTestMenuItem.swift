@@ -152,38 +152,6 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             return
         }
 
-        guard let response = group.enclosingResp else {
-            AppDelegate.shared.finishSpeedTest(
-                session: session,
-                showNotifications: false
-            )
-            return
-        }
-
-        let selectedNames = Set(group.all ?? [])
-        let includedURLTestGroups = response.proxyGroups.filter {
-            $0.type == .urltest && selectedNames.contains($0.name)
-        }
-        var coveredNames = Set(includedURLTestGroups.map(\.name))
-        for autoGroup in includedURLTestGroups {
-            coveredNames.formUnion(autoGroup.all ?? [])
-        }
-
-        var proxies = [ClashProxyName]()
-        var providerProxies = [ApiRequest.ProviderProxyBenchmarkTarget]()
-        for testable in group.speedtestAble {
-            switch testable {
-            case let .provider(name, provider):
-                guard !coveredNames.contains(name) else { continue }
-                providerProxies.append(
-                    .init(providerName: provider, proxyName: name)
-                )
-            case let .proxy(name):
-                guard !coveredNames.contains(name) else { continue }
-                proxies.append(name)
-            }
-        }
-
         label.stringValue = NSLocalizedString("Testing", comment: "")
         speedTestItem.isEnabled = false
         setNeedsDisplay()
@@ -197,44 +165,37 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             self.label.stringValue = menu.title
             menu.isEnabled = true
             self.setNeedsDisplay()
-            MenuItemFactory.refreshExistingMenuItems()
         }
 
-        let benchmarkRemainingProxies = {
-            ApiRequest.benchmarkProxySelection(
-                proxyNames: proxies,
-                providerProxies: providerProxies,
-                benchmarkURL: Settings.benchMarkUrl,
-                timeout: 5000,
+        ApiRequest.getMergedProxyData { response in
+            guard let response, let selector = response.proxiesMap[group.name] else {
+                finish()
+                return
+            }
+            let plan = SelectorBenchmarkPlan.make(
+                selector: selector,
+                snapshot: response,
+                benchmarkURL: selector.testUrl ?? Settings.benchMarkUrl,
+                timeout: 5000
+            )
+            ApiRequest.benchmarkSelectorPlan(
+                plan,
                 session: session,
-                proxyResult: { proxyName, delay in
-                    let delayStr = delay == 0 ? NSLocalizedString("fail", comment: "") : "\(delay) ms"
-                    NotificationCenter.default.post(name: .speedTestFinishForProxy,
-                                                    object: nil,
-                                                    userInfo: ["proxyName": proxyName, "delay": delayStr, "rawValue": delay])
+                result: { key, delay in
+                    let delayString = delay == 0 ? NSLocalizedString("fail", comment: "") : "\(delay) ms"
+                    for row in plan.orderedRows where row.measurementKey == key {
+                        DispatchQueue.main.async {
+                            NotificationCenter.default.post(
+                                name: .speedTestFinishForProxy,
+                                object: nil,
+                                userInfo: ["proxyName": row.rowName, "delay": delayString, "rawValue": delay]
+                            )
+                        }
+                    }
                 },
                 completion: finish
             )
         }
-
-        guard !includedURLTestGroups.isEmpty else {
-            benchmarkRemainingProxies()
-            return
-        }
-
-        ApiRequest.retestURLTestGroups(
-            in: response,
-            limitedTo: Set(includedURLTestGroups.map(\.name)),
-            timeout: 5000,
-            session: session,
-            completion: {
-                guard !session.isCancelled else {
-                    finish()
-                    return
-                }
-                benchmarkRemainingProxies()
-            }
-        )
     }
 }
 
