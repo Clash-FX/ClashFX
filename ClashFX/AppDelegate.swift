@@ -1041,7 +1041,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         startProxy()
         guard ConfigManager.shared.isRunning else { return }
 
-        cancelActiveSpeedTest(reason: "configuration reload")
+        cancelActiveSpeedTest(reason: "configuration reload", refreshMenu: false)
         isConfigUpdating = true
         clashPauseCallbacks()
         let config = configName ?? ConfigManager.selectConfigName
@@ -3586,7 +3586,8 @@ extension AppDelegate {
     func finishSpeedTest(
         session: ApiRequest.BenchmarkSession,
         showNotifications: Bool,
-        cancelled: Bool = false
+        cancelled: Bool = false,
+        refreshMenu: Bool = true
     ) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard activeBenchmarkSession === session else { return }
@@ -3596,7 +3597,9 @@ extension AppDelegate {
         activeBenchmarkSession = nil
         isSpeedTesting = false
         session.terminate()
-        MenuItemFactory.refreshExistingMenuItems()
+        if refreshMenu {
+            MenuItemFactory.refreshExistingMenuItems()
+        }
         if showNotifications, !session.isCancelled {
             NSUserNotificationCenter.default.postSpeedTestFinishNotice()
         }
@@ -3607,7 +3610,7 @@ extension AppDelegate {
         return activeBenchmarkSession === session
     }
 
-    private func cancelActiveSpeedTest(reason: String) {
+    private func cancelActiveSpeedTest(reason: String, refreshMenu: Bool = true) {
         guard let session = activeBenchmarkSession else { return }
         Logger.log(
             "Cancelling active benchmark before \(reason)",
@@ -3616,7 +3619,8 @@ extension AppDelegate {
         finishSpeedTest(
             session: session,
             showNotifications: false,
-            cancelled: true
+            cancelled: true,
+            refreshMenu: refreshMenu
         )
     }
 
