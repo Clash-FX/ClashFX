@@ -1,5 +1,33 @@
 ### Bug Fixes
 
+- **Never-Matched Rules No Longer Show “57 Years Ago”** — The bundled Dashboard now removes epoch timestamps from rules with no hits or misses, so only real recent-match times are displayed. (#147)
+- **Delay Tests Stay Within the Selected Group** — Provider-backed nodes are now tested individually through their provider instead of benchmarking every node in the provider. Large groups complete faster, avoid unrelated failures, and keep the existing concurrency limit. (#147)
+- **macOS 10.14 Launch Compatibility Is Restored** — Removed the incompatible AppCenter Analytics and Crashes binaries that referenced Objective-C runtime symbols unavailable on Mojave, while keeping ClashFX's macOS 10.14 deployment target. (#197)
+
+### Contributors
+
+- @a51095 — Reported the incorrect recent-match time and the slow, failure-heavy delay-test behavior. (#147)
+- @wzh2dev — Diagnosed the macOS 10.14 launch failure and traced it to AppCenter/PLCrashReporter. (#197)
+
+---
+
+### 修复
+
+- **未命中的规则不再显示“57 年前”** — 内置控制台会移除命中或未命中次数为零时的 Unix 纪元时间，只显示真实的最近匹配时间。 (#147)
+- **延迟测速只测试当前策略组节点** — 来自代理提供者的节点现在会逐个通过对应 Provider 接口测速，不再把 Provider 内所有无关节点一起测试；大型策略组返回更快，也不会再出现大片无关失败，并继续保留并发限制。 (#147)
+- **恢复 macOS 10.14 启动兼容性** — 移除了引用 Mojave 不支持的 Objective-C 运行时符号的 AppCenter Analytics/Crashes 二进制，同时继续保留 ClashFX 的 macOS 10.14 最低系统要求。 (#197)
+
+### 贡献者
+
+- @a51095 — 反馈规则最近命中时间错误，以及延迟测速缓慢并出现大量失败的问题。 (#147)
+- @wzh2dev — 定位 macOS 10.14 启动失败，并追踪到 AppCenter/PLCrashReporter。 (#197)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Enhanced Mode Now Detects Silent Data-Plane Failures** — Runtime monitoring now verifies the core's DIRECT outbound path and DNS resolution in addition to the controller and TUN interface. Three confirmed core-only failures trigger a bounded rebuild, while unavailable system connectivity is treated as inconclusive to avoid restart loops. (#147)
 - **Recovery Captures Evidence Before Restarting the Core** — Every external-core launch now has a unique capped log, launch and termination metadata, and an on-demand process sample. Automatic recovery records this evidence before rebuilding, and a failed startup can restart the Helper host once instead of leaving a stale external core behind. (#147)
 - **Proxy and Rules Views Survive Brief Core Interruptions** — The menu and Dashboard preserve their last valid proxy/rules snapshot when the local controller is temporarily unavailable. The Dashboard clearly marks cached rules as stale instead of showing an empty page, so a recovery no longer looks like the user's rules disappeared. (#147)

@@ -153,11 +153,13 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         }
 
         var proxies = [ClashProxyName]()
-        var providers = Set<ClashProviderName>()
+        var providerProxies = [ApiRequest.ProviderProxyBenchmarkTarget]()
         for testable in group.speedtestAble {
             switch testable {
-            case let .provider(_, provider):
-                providers.insert(provider)
+            case let .provider(name, provider):
+                providerProxies.append(
+                    .init(providerName: provider, proxyName: name)
+                )
             case let .proxy(name):
                 proxies.append(name)
             }
@@ -181,7 +183,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
 
         ApiRequest.benchmarkProxySelection(
             proxyNames: proxies,
-            providerNames: providers,
+            providerProxies: providerProxies,
             benchmarkURL: Settings.benchMarkUrl,
             timeout: 5000,
             session: session,

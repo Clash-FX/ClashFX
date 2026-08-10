@@ -7,9 +7,6 @@
 //
 
 import Alamofire
-import AppCenter
-import AppCenterAnalytics
-import AppCenterCrashes
 import Cocoa
 import CocoaLumberjack
 import KeyboardShortcuts
@@ -353,7 +350,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         RemoteConfigManager.shared.autoUpdateCheck()
 
         setupNetworkNotifier()
-        registCrashLogger()
         KeyboardShortCutManager.setup()
         RemoteControlManager.setupMenuItem(separator: externalControlSeparator)
         applyTrayMenuVisibility()
@@ -3852,23 +3848,7 @@ extension AppDelegate {
     }
 }
 
-// MARK: crash hanlder
-
 extension AppDelegate {
-    func registCrashLogger() {
-        #if DEBUG
-            return
-        #else
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                AppCenter.start(withAppSecret: "dce6e9a3-b6e3-4fd2-9f2d-35c767a99663", services: [
-                    Analytics.self,
-                    Crashes.self
-                ])
-            }
-
-        #endif
-    }
-
     func failLaunchProtect() {
         #if DEBUG
             return
