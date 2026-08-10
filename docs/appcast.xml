@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.9.6 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.6 (Lab)</h2><ul><li><strong>Selected-Group Delay Tests Avoid Duplicate Work</strong> — When a selector contains a URLTest group and the same leaf nodes, ClashFX now tests that automatic group once with its configured URL and skips individually retesting the nodes it already covered. Large groups finish sooner without bringing back provider-wide health checks. (#147)</li><li><strong>Automatic Groups Re-evaluate After Complete Results</strong> — A URLTest started from the controller now clears any choice cached while candidates were still responding, then applies the configured tolerance to the complete result set. Early responses can no longer remain selected after slower candidates finish. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 10 Aug 2026 08:16:51 +0000</pubDate>
+  <sparkle:version>1001009006</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.6</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.6/ClashFX.dmg"
+    sparkle:version="1001009006"
+    sparkle:shortVersionString="1.1.9.6"
+    sparkle:edSignature="MAxgwZcBHl9YMMwX82e5cwMqH/xVa1byP/1l7KFyvk0Qw0cXtpkhe285fDSL9LCaiV9tkmmLujDQYVP4qPLfBg=="
+    length="95005730"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.9.5 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.9.5 (Lab)</h2><ul><li><strong>Never-Matched Rules No Longer Show “57 Years Ago”</strong> — The bundled Dashboard now removes epoch timestamps from rules with no hits or misses, so only real recent-match times are displayed. (#147)</li><li><strong>Delay Tests Stay Within the Selected Group</strong> — Provider-backed nodes are now tested individually through their provider instead of benchmarking every node in the provider. Large groups complete faster, avoid unrelated failures, and keep the existing concurrency limit. (#147)</li><li><strong>macOS 10.14 Launch Compatibility Is Restored</strong> — Removed the incompatible AppCenter Analytics and Crashes binaries that referenced Objective-C runtime symbols unavailable on Mojave, while keeping ClashFX's macOS 10.14 deployment target. (#197)</li></ul>
