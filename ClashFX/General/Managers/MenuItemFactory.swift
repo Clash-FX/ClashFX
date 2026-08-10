@@ -27,6 +27,7 @@ class MenuItemFactory {
                 )
                 return
             }
+            AutomaticGroupBenchmarkPresentationStore.prune(using: info)
             if info.proxiesMap.keys != cachedProxyData?.proxiesMap.keys {
                 cachedProxyData = info
                 refreshMenuItems(mergedData: info)
@@ -40,18 +41,22 @@ class MenuItemFactory {
     }
 
     static func recreateProxyMenuItems() {
-        ApiRequest.getMergedProxyData {
-            proxyInfo in
-            guard let proxyInfo, !proxyInfo.proxiesMap.isEmpty else {
-                Logger.log(
-                    "Kept existing proxy menu because the refreshed snapshot is empty",
-                    level: .warning
-                )
-                return
+        let recreate = {
+            AutomaticGroupBenchmarkPresentationStore.clearAll()
+            ApiRequest.getMergedProxyData {
+                proxyInfo in
+                guard let proxyInfo, !proxyInfo.proxiesMap.isEmpty else {
+                    Logger.log(
+                        "Kept existing proxy menu because the refreshed snapshot is empty",
+                        level: .warning
+                    )
+                    return
+                }
+                cachedProxyData = proxyInfo
+                refreshMenuItems(mergedData: proxyInfo)
             }
-            cachedProxyData = proxyInfo
-            refreshMenuItems(mergedData: proxyInfo)
         }
+        if Thread.isMainThread { recreate() } else { DispatchQueue.main.async(execute: recreate) }
     }
 
     static func refreshMenuItems(mergedData proxyInfo: ClashProxyResp?) {
@@ -160,7 +165,7 @@ class MenuItemFactory {
         let menu = NSMenuItem(title: proxyGroup.name, action: nil, keyEquivalent: "")
         let selectedName = proxyGroup.now ?? ""
         if !Settings.disableShowCurrentProxyInMenu {
-            menu.view = ProxyGroupMenuItemView(group: proxyGroup.name, targetProxy: selectedName, hasLeftPadding: leftPadding)
+            menu.view = ProxyGroupMenuItemView(proxyGroup: proxyGroup, targetProxy: selectedName, hasLeftPadding: leftPadding)
         }
         let submenu = ProxyGroupMenu(title: proxyGroup.name)
 
@@ -190,7 +195,7 @@ class MenuItemFactory {
         let selectedName = proxyGroup.now ?? ""
         let menu = NSMenuItem(title: proxyGroup.name, action: nil, keyEquivalent: "")
         if !Settings.disableShowCurrentProxyInMenu {
-            menu.view = ProxyGroupMenuItemView(group: proxyGroup.name, targetProxy: selectedName, hasLeftPadding: leftPadding)
+            menu.view = ProxyGroupMenuItemView(proxyGroup: proxyGroup, targetProxy: selectedName, hasLeftPadding: leftPadding)
         }
         let submenu = NSMenu(title: proxyGroup.name)
 
@@ -225,7 +230,7 @@ class MenuItemFactory {
 
         let menu = NSMenuItem(title: proxyGroup.name, action: nil, keyEquivalent: "")
         if !Settings.disableShowCurrentProxyInMenu {
-            menu.view = ProxyGroupMenuItemView(group: proxyGroup.name, targetProxy: NSLocalizedString("Load Balance", comment: ""), hasLeftPadding: leftPadding, observeUpdate: false)
+            menu.view = ProxyGroupMenuItemView(proxyGroup: proxyGroup, targetProxy: NSLocalizedString("Load Balance", comment: ""), hasLeftPadding: leftPadding)
         }
         let submenu = ProxyGroupMenu(title: proxyGroup.name)
 

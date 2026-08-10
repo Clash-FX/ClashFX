@@ -89,6 +89,66 @@ enum SelectorBenchmarkUnavailableReason: Hashable {
     case nonLeafTerminal(ClashProxyName)
 }
 
+enum SelectedProxyPathResolution {
+    case resolved(path: [ClashProxyName], leaf: ClashProxy)
+    case unavailable(path: [ClashProxyName], reason: SelectorBenchmarkUnavailableReason)
+}
+
+struct AutomaticGroupRetestSnapshot {
+    enum Evidence {
+        case measured(delay: Int)
+        case zeroDelay(node: ClashProxyName)
+        case unavailable(SelectorBenchmarkUnavailableReason)
+        case noMatchingCandidate
+    }
+
+    let groupName: ClashProxyName
+    let selectedPath: [ClashProxyName]
+    let finalLeaf: ClashProxyName?
+    let evidence: Evidence
+
+    static func make(groupName: ClashProxyName,
+                     candidateDelays: [ClashProxyName: Int],
+                     snapshot: ClashProxyResp) -> AutomaticGroupRetestSnapshot {
+        switch snapshot.resolveSelectedPath(from: groupName) {
+        case let .unavailable(path, reason):
+            return AutomaticGroupRetestSnapshot(
+                groupName: groupName,
+                selectedPath: path,
+                finalLeaf: path.last,
+                evidence: .unavailable(reason)
+            )
+        case let .resolved(path, leaf):
+            // Mihomo's fresh path is the only authority. Candidate values are display
+            // evidence, never a policy input; the final leaf wins over its ancestors.
+            let candidatePath = Array(path.dropFirst().reversed())
+            for node in candidatePath {
+                guard let delay = candidateDelays[node] else { continue }
+                if delay > 0 {
+                    return AutomaticGroupRetestSnapshot(
+                        groupName: groupName,
+                        selectedPath: path,
+                        finalLeaf: leaf.name,
+                        evidence: .measured(delay: delay)
+                    )
+                }
+                return AutomaticGroupRetestSnapshot(
+                    groupName: groupName,
+                    selectedPath: path,
+                    finalLeaf: leaf.name,
+                    evidence: .zeroDelay(node: node)
+                )
+            }
+            return AutomaticGroupRetestSnapshot(
+                groupName: groupName,
+                selectedPath: path,
+                finalLeaf: leaf.name,
+                evidence: .noMatchingCandidate
+            )
+        }
+    }
+}
+
 struct SelectorBenchmarkRow {
     let rowName: ClashProxyName
     let displayName: String
@@ -141,8 +201,8 @@ struct SelectorBenchmarkPlan {
                                 snapshot: ClashProxyResp,
                                 benchmarkURL: String,
                                 timeout: Int) -> SelectorBenchmarkRow {
-        switch resolve(name: visibleName, snapshot: snapshot, visited: []) {
-        case let .leaf(proxy):
+        switch snapshot.resolveSelectedPath(from: visibleName) {
+        case let .resolved(_, proxy):
             let endpoint: SelectorBenchmarkEndpoint
             let providerName: ClashProviderName?
             if let provider = proxy.enclosingProvider {
@@ -166,7 +226,7 @@ struct SelectorBenchmarkPlan {
                 ),
                 unavailableReason: nil
             )
-        case let .unavailable(reason):
+        case let .unavailable(_, reason):
             Logger.log(
                 "[Proxy Delay] Selector row '\(visibleName)' is unavailable: \(reason)",
                 level: .warning
@@ -177,43 +237,6 @@ struct SelectorBenchmarkPlan {
                 measurementKey: nil,
                 unavailableReason: reason
             )
-        }
-    }
-
-    private enum Resolution {
-        case leaf(ClashProxy)
-        case unavailable(SelectorBenchmarkUnavailableReason)
-    }
-
-    private static func resolve(name: ClashProxyName,
-                                snapshot: ClashProxyResp,
-                                visited: Set<ClashProxyName>) -> Resolution {
-        guard let proxy = snapshot.proxiesMap[name] else {
-            return .unavailable(.missingNode(name))
-        }
-        guard !visited.contains(proxy.name) else {
-            return .unavailable(.cycle(proxy.name))
-        }
-        guard ClashProxyType.isProxyGroup(proxy) else {
-            guard proxy.all == nil else {
-                return .unavailable(.nonLeafTerminal(proxy.name))
-            }
-            return .leaf(proxy)
-        }
-        guard let selectedName = proxy.now, !selectedName.isEmpty else {
-            return .unavailable(.missingSelection(proxy.name))
-        }
-        guard snapshot.proxiesMap[selectedName] != nil else {
-            return .unavailable(.unknownTarget(selectedName))
-        }
-
-        switch resolve(name: selectedName,
-                       snapshot: snapshot,
-                       visited: visited.union([proxy.name])) {
-        case let .leaf(leaf):
-            return .leaf(leaf)
-        case let .unavailable(reason):
-            return .unavailable(reason)
         }
     }
 }
@@ -352,6 +375,38 @@ class ClashProxyResp {
 
         for proxy in self.proxies {
             proxy.enclosingResp = self
+        }
+    }
+
+    func resolveSelectedPath(from name: ClashProxyName) -> SelectedProxyPathResolution {
+        var path = [ClashProxyName]()
+        var visited = Set<ClashProxyName>()
+        var currentName = name
+
+        while true {
+            guard let proxy = proxiesMap[currentName] else {
+                let reason: SelectorBenchmarkUnavailableReason = path.isEmpty
+                    ? .missingNode(currentName)
+                    : .unknownTarget(currentName)
+                return .unavailable(path: path, reason: reason)
+            }
+            guard !visited.contains(proxy.name) else {
+                return .unavailable(path: path, reason: .cycle(proxy.name))
+            }
+
+            visited.insert(proxy.name)
+            path.append(proxy.name)
+            guard ClashProxyType.isProxyGroup(proxy) else {
+                guard proxy.all == nil else {
+                    return .unavailable(path: path, reason: .nonLeafTerminal(proxy.name))
+                }
+                return .resolved(path: path, leaf: proxy)
+            }
+
+            guard let selectedName = proxy.now, !selectedName.isEmpty else {
+                return .unavailable(path: path, reason: .missingSelection(proxy.name))
+            }
+            currentName = selectedName
         }
     }
 

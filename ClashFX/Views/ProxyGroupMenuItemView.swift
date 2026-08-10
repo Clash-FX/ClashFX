@@ -2,13 +2,118 @@
 //  ProxyGroupMenuItemView.swift
 //  ClashX
 //
-//  Created by yicheng on 2019/10/16.
-//  Copyright © 2019 west2online. All rights reserved.
-//
 
 import Cocoa
 
+struct AutomaticGroupBenchmarkPresentation {
+    let groupName: ClashProxyName
+    let selectedPath: [ClashProxyName]
+    let finalLeaf: ClashProxyName?
+    let rowState: ProxyBenchmarkRowState
+}
+
+/// Retains a single automatic-group result across the terminal menu rebuild.
+/// This store is deliberately main-queue-only because it is an AppKit presentation owner.
+enum AutomaticGroupBenchmarkPresentationStore {
+    private static var presentations = [ClashProxyName: AutomaticGroupBenchmarkPresentation]()
+
+    static func begin(group: ClashProxy) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let path = selectedPath(for: group)
+        let presentation = AutomaticGroupBenchmarkPresentation(
+            groupName: group.name,
+            selectedPath: path,
+            finalLeaf: path.last,
+            rowState: .testing(displayName: displayName(groupName: group.name, finalLeaf: path.last))
+        )
+        publish(presentation)
+    }
+
+    static func publish(_ presentation: AutomaticGroupBenchmarkPresentation) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        presentations[presentation.groupName] = presentation
+        NotificationCenter.default.post(
+            name: .proxyUpdate(for: presentation.groupName),
+            object: presentation
+        )
+    }
+
+    static func settleTestingAsUnavailable(groupName: ClashProxyName,
+                                           finalLeaf: ClashProxyName?) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let presentation = presentations[groupName] else { return }
+        guard case .testing = presentation.rowState else { return }
+        publish(AutomaticGroupBenchmarkPresentation(
+            groupName: groupName,
+            selectedPath: presentation.selectedPath,
+            finalLeaf: finalLeaf ?? presentation.finalLeaf,
+            rowState: .unavailable(displayName: displayName(
+                groupName: groupName,
+                finalLeaf: finalLeaf ?? presentation.finalLeaf
+            ))
+        ))
+    }
+
+    static func reconcile(group: ClashProxy) -> AutomaticGroupBenchmarkPresentation? {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let current = presentations[group.name] else { return nil }
+        let path = selectedPath(for: group)
+        guard path == current.selectedPath else {
+            let finalLeaf = path.last ?? current.finalLeaf
+            let replacement: ProxyBenchmarkRowState
+            switch current.rowState {
+            case .testing:
+                replacement = .testing(displayName: displayName(groupName: group.name, finalLeaf: finalLeaf))
+            case .measured, .failed, .unavailable:
+                Logger.log(
+                    "[Proxy Delay] Automatic group '\(group.name)' changed its selected path without current-run evidence",
+                    level: .warning
+                )
+                replacement = .unavailable(displayName: displayName(groupName: group.name, finalLeaf: finalLeaf))
+            }
+            let presentation = AutomaticGroupBenchmarkPresentation(
+                groupName: group.name,
+                selectedPath: path,
+                finalLeaf: finalLeaf,
+                rowState: replacement
+            )
+            presentations[group.name] = presentation
+            return presentation
+        }
+        return current
+    }
+
+    static func prune(using snapshot: ClashProxyResp) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        presentations = presentations.filter { groupName, _ in
+            snapshot.proxiesMap[groupName]?.type.isAutoGroup == true
+        }
+    }
+
+    static func clearAll() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        presentations.removeAll()
+    }
+
+    private static func selectedPath(for group: ClashProxy) -> [ClashProxyName] {
+        guard let snapshot = group.enclosingResp else {
+            return group.now.map { [group.name, $0] } ?? [group.name]
+        }
+        switch snapshot.resolveSelectedPath(from: group.name) {
+        case let .resolved(path, _), let .unavailable(path, _):
+            return path
+        }
+    }
+
+    private static func displayName(groupName: ClashProxyName,
+                                    finalLeaf: ClashProxyName?) -> String {
+        guard let finalLeaf, finalLeaf != groupName else { return groupName }
+        return "\(groupName) → \(finalLeaf)"
+    }
+}
+
 class ProxyGroupMenuItemView: MenuItemBaseView {
+    private let groupName: ClashProxyName
     private let groupNameLabel: NSTextField
     private let selectProxyLabel: NSTextField
     private let arrowLabel: NSControl = {
@@ -31,24 +136,21 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         return [groupNameLabel.cell, selectProxyLabel.cell, arrowLabel.cell]
     }
 
-    init(group: ClashProxyName, targetProxy: ClashProxyName, hasLeftPadding: Bool, observeUpdate: Bool = true) {
-        groupNameLabel = VibrancyTextField(labelWithString: group)
+    init(proxyGroup: ClashProxy, targetProxy: ClashProxyName, hasLeftPadding: Bool) {
+        groupName = proxyGroup.name
+        groupNameLabel = VibrancyTextField(labelWithString: proxyGroup.name)
         selectProxyLabel = VibrancyTextField(labelWithString: targetProxy)
         super.init(autolayout: true)
 
-        // arrow
         effectView.addSubview(arrowLabel)
         arrowLabel.translatesAutoresizingMaskIntoConstraints = false
-        let rightConstraint: CGFloat
-        if #available(macOS 11, *) {
-            rightConstraint = -8
-        } else {
-            rightConstraint = -10
-        }
+        let rightConstraint: CGFloat = {
+            if #available(macOS 11, *) { return -8 }
+            return -10
+        }()
         arrowLabel.rightAnchor.constraint(equalTo: effectView.rightAnchor, constant: rightConstraint).isActive = true
         arrowLabel.centerYAnchor.constraint(equalTo: effectView.centerYAnchor).isActive = true
 
-        // group
         groupNameLabel.translatesAutoresizingMaskIntoConstraints = false
         effectView.addSubview(groupNameLabel)
         leftPaddingConstraint = groupNameLabel.leftAnchor.constraint(equalTo: effectView.leftAnchor, constant: leftPadding)
@@ -56,31 +158,28 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         groupNameLabel.centerYAnchor.constraint(equalTo: effectView.centerYAnchor).isActive = true
         groupNameLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        // select
         selectProxyLabel.translatesAutoresizingMaskIntoConstraints = false
         effectView.addSubview(selectProxyLabel)
         selectProxyLabel.rightAnchor.constraint(equalTo: effectView.rightAnchor, constant: -30).isActive = true
         selectProxyLabel.centerYAnchor.constraint(equalTo: effectView.centerYAnchor).isActive = true
         selectProxyLabel.lineBreakMode = .byTruncatingHead
-
-        // space
         selectProxyLabel.leftAnchor.constraint(greaterThanOrEqualTo: groupNameLabel.rightAnchor, constant: 20).isActive = true
 
-        // width bounds
         effectView.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         if #available(macOS 14, *) {
             selectProxyLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
         } else {
             effectView.widthAnchor.constraint(lessThanOrEqualToConstant: 330).isActive = true
         }
-        // font & color
         groupNameLabel.font = type(of: self).labelFont
         selectProxyLabel.font = type(of: self).labelFont
         groupNameLabel.textColor = NSColor.labelColor
         selectProxyLabel.textColor = NSColor.secondaryLabelColor
-        // noti
-        if observeUpdate {
-            NotificationCenter.default.addObserver(self, selector: #selector(proxyInfoDidUpdate(note:)), name: .proxyUpdate(for: group), object: nil)
+
+        NotificationCenter.default.addObserver(self, selector: #selector(proxyInfoDidUpdate(note:)), name: .proxyUpdate(for: proxyGroup.name), object: nil)
+        if proxyGroup.type.isAutoGroup,
+           let presentation = AutomaticGroupBenchmarkPresentationStore.reconcile(group: proxyGroup) {
+            render(presentation)
         }
         if #available(macOS 11, *) {
             updateLeftMenuPadding(show: hasLeftPadding)
@@ -89,11 +188,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
     }
 
     private func updateLeftMenuPadding(show: Bool) {
-        if show {
-            leftPaddingConstraint?.constant = leftPadding
-        } else {
-            leftPaddingConstraint?.constant = 10
-        }
+        leftPaddingConstraint?.constant = show ? leftPadding : 10
     }
 
     @available(*, unavailable)
@@ -101,13 +196,34 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     @objc private func proxyInfoDidUpdate(note: NSNotification) {
-        guard let info = note.object as? ClashProxy else { assertionFailure(); return }
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.proxyInfoDidUpdate(note: note) }
+            return
+        }
+        if let presentation = note.object as? AutomaticGroupBenchmarkPresentation {
+            guard presentation.groupName == groupName else { return }
+            render(presentation)
+            return
+        }
+        guard let info = note.object as? ClashProxy, info.name == groupName else { return }
+        if info.type.isAutoGroup,
+           let presentation = AutomaticGroupBenchmarkPresentationStore.reconcile(group: info) {
+            render(presentation)
+            return
+        }
         selectProxyLabel.stringValue = info.now ?? ""
+    }
+
+    private func render(_ presentation: AutomaticGroupBenchmarkPresentation) {
+        let leaf = presentation.finalLeaf ?? presentation.rowState.presentationName
+        if let result = presentation.rowState.delayDisplay {
+            selectProxyLabel.stringValue = "\(leaf) · \(result)"
+        } else {
+            selectProxyLabel.stringValue = leaf
+        }
     }
 
     @objc private func showLeftPaddingUpdate(note: NSNotification) {

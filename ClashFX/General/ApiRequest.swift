@@ -64,6 +64,29 @@ private final class LimitedAsyncTaskRunner {
 }
 
 class ApiRequest {
+    enum ProxyGroupDelayResult {
+        case success([ClashProxyName: Int])
+        case empty
+        case httpFailure(statusCode: Int, description: String)
+        case cancelled
+
+        var candidateDelays: [ClashProxyName: Int] {
+            if case let .success(delays) = self {
+                return delays
+            }
+            return [:]
+        }
+
+        var diagnostic: String {
+            switch self {
+            case let .success(delays): return "success: \(delays.count) candidate(s)"
+            case .empty: return "empty candidate response"
+            case let .httpFailure(statusCode, description): return "HTTP \(statusCode): \(description)"
+            case .cancelled: return "cancelled"
+            }
+        }
+    }
+
     struct ProviderProxyBenchmarkTarget: Hashable {
         let providerName: ClashProviderName
         let proxyName: ClashProxyName
@@ -73,6 +96,8 @@ class ApiRequest {
         private let lock = NSLock()
         private var requests: [UUID: DataRequest] = [:]
         private var cancelled = false
+        private var terminated = false
+        private var terminationObservers = [() -> Void]()
 
         var isCancelled: Bool {
             lock.lock()
@@ -113,6 +138,36 @@ class ApiRequest {
             lock.unlock()
 
             pendingRequests.forEach { $0.cancel() }
+            terminate()
+        }
+
+        func onTermination(_ observer: @escaping () -> Void) {
+            lock.lock()
+            let invokeNow = terminated
+            if !invokeNow {
+                terminationObservers.append(observer)
+            }
+            lock.unlock()
+
+            if invokeNow {
+                DispatchQueue.main.async(execute: observer)
+            }
+        }
+
+        func terminate() {
+            lock.lock()
+            guard !terminated else {
+                lock.unlock()
+                return
+            }
+            terminated = true
+            let observers = terminationObservers
+            terminationObservers.removeAll()
+            lock.unlock()
+
+            DispatchQueue.main.async {
+                observers.forEach { $0() }
+            }
         }
     }
 
@@ -513,9 +568,9 @@ class ApiRequest {
                                    expectedStatus: String? = nil,
                                    timeout: Int = 5000,
                                    session: BenchmarkSession? = nil,
-                                   callback: @escaping (([ClashProxyName: Int]) -> Void)) {
+                                   callback: @escaping ((ProxyGroupDelayResult) -> Void)) {
         guard session?.isCancelled != true else {
-            callback([:])
+            callback(.cancelled)
             return
         }
         Logger.log("[Proxy Delay] Testing group '\(groupName)' with its configured URL")
@@ -536,7 +591,7 @@ class ApiRequest {
                     session?.finish(requestID)
                 }
                 guard session?.isCancelled != true else {
-                    callback([:])
+                    callback(.cancelled)
                     return
                 }
                 let statusCode = res.response?.statusCode ?? -1
@@ -547,7 +602,7 @@ class ApiRequest {
                         "[Proxy Delay] Group '\(groupName)' re-evaluated "
                             + "\(delays.count) candidates, status: \(statusCode)"
                     )
-                    callback(delays)
+                    callback(delays.isEmpty ? .empty : .success(delays))
                 case .success, .failure:
                     let body = res.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
                     Logger.log(
@@ -556,9 +611,47 @@ class ApiRequest {
                             + "\(res.error?.localizedDescription ?? "unknown error"), body: \(body)",
                         level: .warning
                     )
-                    callback([:])
+                    callback(.httpFailure(
+                        statusCode: statusCode,
+                        description: res.error?.localizedDescription ?? "unknown error"
+                    ))
                 }
             }
+    }
+
+    /// Fetches one current `/proxies` topology without the normal cached-response fallback.
+    static func getFreshProxyGroupList(session: BenchmarkSession,
+                                       callback: @escaping (ClashProxyResp?) -> Void) {
+        guard !session.isCancelled else {
+            callback(nil)
+            return
+        }
+        let request = req(
+            "/proxies",
+            timeoutInterval: benchmarkRequestTimeout(for: 5000)
+        )
+        let requestID = session.track(request)
+        request.responseData { response in
+            session.finish(requestID)
+            guard !session.isCancelled else {
+                callback(nil)
+                return
+            }
+            let statusCode = response.response?.statusCode ?? -1
+            guard case let .success(data) = response.result,
+                  (200 ..< 300).contains(statusCode),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  root["proxies"] is [String: Any]
+            else {
+                Logger.log(
+                    "[Proxy Delay] Fresh proxy topology unavailable, status: \(statusCode), error: \(response.error?.localizedDescription ?? "unknown error")",
+                    level: .warning
+                )
+                callback(nil)
+                return
+            }
+            callback(ClashProxyResp(data))
+        }
     }
 
     static func retestURLTestGroups(in response: ClashProxyResp,

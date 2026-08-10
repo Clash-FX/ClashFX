@@ -13,7 +13,6 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     let proxyGroup: ClashProxy
     let testType: TestType
     private var isTesting = false
-    private var refreshTimer: Timer?
     private var benchmarkActionSession: ApiRequest.BenchmarkSession?
 
     init(group: ClashProxy) {
@@ -57,35 +56,135 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
             return
         }
 
-        isTesting = true
-        isEnabled = false
-        updateViewTitle(NSLocalizedString("Testing", comment: ""))
+        beginBenchmarkAction(session: session)
+        AutomaticGroupBenchmarkPresentationStore.begin(group: proxyGroup)
+
+        var didFinish = false
+        var bestKnownLeaf = proxyGroup.now
+        let didFinishAction: () -> Void = { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                guard !didFinish else { return }
+                didFinish = true
+                if session.isCancelled {
+                    AutomaticGroupBenchmarkPresentationStore.settleTestingAsUnavailable(
+                        groupName: self.proxyGroup.name,
+                        finalLeaf: bestKnownLeaf
+                    )
+                }
+                if AppDelegate.shared.isActiveBenchmarkSession(session) {
+                    AppDelegate.shared.finishSpeedTest(session: session, showNotifications: false)
+                }
+            }
+        }
+
+        session.onTermination { [weak self] in
+            guard let self else { return }
+            AutomaticGroupBenchmarkPresentationStore.settleTestingAsUnavailable(
+                groupName: self.proxyGroup.name,
+                finalLeaf: bestKnownLeaf
+            )
+            self.finishBenchmarkActionIfOwned(session: session)
+        }
+
+        let benchmarkURL: String
+        if let testURL = proxyGroup.testUrl, !testURL.isEmpty {
+            benchmarkURL = testURL
+        } else {
+            benchmarkURL = Settings.benchMarkUrl
+        }
 
         ApiRequest.getProxyGroupDelay(
             groupName: proxyGroup.name,
-            benchmarkURL: proxyGroup.testUrl ?? Settings.benchMarkUrl,
+            benchmarkURL: benchmarkURL,
             expectedStatus: proxyGroup.expectedStatus,
+            timeout: 5000,
             session: session
-        ) { _ in
+        ) { result in
             DispatchQueue.main.async {
-                AppDelegate.shared.finishSpeedTest(
-                    session: session,
-                    showNotifications: false
-                )
-                self.isTesting = false
-                self.isEnabled = true
-                self.updateViewTitle(self.testType.title)
-                self.scheduleMenuRefresh()
+                guard !session.isCancelled,
+                      AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                    didFinishAction()
+                    return
+                }
+
+                let candidateDelays = result.candidateDelays
+                var publishedCandidates = Set<ClashProxyName>()
+                for candidateName in self.proxyGroup.all ?? [] where publishedCandidates.insert(candidateName).inserted {
+                    guard let delay = candidateDelays[candidateName] else { continue }
+                    let state: ProxyBenchmarkRowState = delay > 0
+                        ? .measured(displayName: candidateName, delay: delay)
+                        : .failed(displayName: candidateName)
+                    NotificationCenter.default.post(
+                        name: .speedTestFinishForProxy,
+                        object: nil,
+                        userInfo: ["proxyName": candidateName, "benchmarkRowState": state]
+                    )
+                }
+
+                ApiRequest.getFreshProxyGroupList(session: session) { snapshot in
+                    DispatchQueue.main.async {
+                        guard !session.isCancelled,
+                              AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                            didFinishAction()
+                            return
+                        }
+                        guard let snapshot else {
+                            Logger.log(
+                                "[Proxy Delay] Automatic group '\(self.proxyGroup.name)' has no fresh topology after \(result.diagnostic)",
+                                level: .warning
+                            )
+                            AutomaticGroupBenchmarkPresentationStore.settleTestingAsUnavailable(
+                                groupName: self.proxyGroup.name,
+                                finalLeaf: bestKnownLeaf
+                            )
+                            didFinishAction()
+                            return
+                        }
+
+                        let retestSnapshot = AutomaticGroupRetestSnapshot.make(
+                            groupName: self.proxyGroup.name,
+                            candidateDelays: candidateDelays,
+                            snapshot: snapshot
+                        )
+                        bestKnownLeaf = retestSnapshot.finalLeaf ?? bestKnownLeaf
+                        let displayName: String = {
+                            guard let leaf = retestSnapshot.finalLeaf,
+                                  leaf != self.proxyGroup.name else { return self.proxyGroup.name }
+                            return "\(self.proxyGroup.name) → \(leaf)"
+                        }()
+                        let state: ProxyBenchmarkRowState
+                        switch retestSnapshot.evidence {
+                        case let .measured(delay):
+                            state = .measured(displayName: displayName, delay: delay)
+                        case .zeroDelay:
+                            state = .failed(displayName: displayName)
+                        case let .unavailable(reason):
+                            Logger.log(
+                                "[Proxy Delay] Automatic group '\(self.proxyGroup.name)' path unavailable after \(result.diagnostic): \(reason)",
+                                level: .warning
+                            )
+                            state = .unavailable(displayName: displayName)
+                        case .noMatchingCandidate:
+                            Logger.log(
+                                "[Proxy Delay] Automatic group '\(self.proxyGroup.name)' has no current-run evidence on fresh path '\(retestSnapshot.selectedPath.joined(separator: " → "))' after \(result.diagnostic)",
+                                level: .warning
+                            )
+                            state = .unavailable(displayName: displayName)
+                        }
+                        AutomaticGroupBenchmarkPresentationStore.publish(
+                            AutomaticGroupBenchmarkPresentation(
+                                groupName: self.proxyGroup.name,
+                                selectedPath: retestSnapshot.selectedPath,
+                                finalLeaf: retestSnapshot.finalLeaf ?? bestKnownLeaf,
+                                rowState: state
+                            )
+                        )
+                        didFinishAction()
+                    }
+                }
             }
         }
-    }
-
-    private func scheduleMenuRefresh() {
-        let timer = Timer(timeInterval: 0.5, repeats: false) { _ in
-            MenuItemFactory.refreshExistingMenuItems()
-        }
-        refreshTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func updateViewTitle(_ title: String) {
