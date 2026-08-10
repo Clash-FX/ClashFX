@@ -53,6 +53,8 @@ class ProxyMenuItem: NSMenuItem {
     let proxyName: String
     let maxProxyNameLength: CGFloat
     private var presentationName: String
+    private var benchmarkRowState: ProxyBenchmarkRowState?
+    private var benchmarkRowStateUpdatedAt: Date?
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -102,6 +104,12 @@ class ProxyMenuItem: NSMenuItem {
     }
 
     @objc private func updateDelayNotification(note: Notification) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateDelayNotification(note: note)
+            }
+            return
+        }
         guard let name = note.userInfo?["proxyName"] as? String, name == proxyName else {
             return
         }
@@ -115,8 +123,18 @@ class ProxyMenuItem: NSMenuItem {
     }
 
     @objc private func proxyInfoUpdate(note: Notification) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.proxyInfoUpdate(note: note)
+            }
+            return
+        }
         guard let info = note.object as? ClashProxy else {
             assertionFailure()
+            return
+        }
+        if benchmarkRowState != nil {
+            applyFreshBenchmarkPresentation(from: info)
             return
         }
         if info.alive == false {
@@ -127,6 +145,12 @@ class ProxyMenuItem: NSMenuItem {
     }
 
     @objc private func proxyGroupInfoUpdate(note: Notification) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.proxyGroupInfoUpdate(note: note)
+            }
+            return
+        }
         guard let group = note.object as? ClashProxy else { return }
         guard ClashProxyType.isProxyGroup(group) else { return }
         let selected = group.now == proxyName
@@ -146,8 +170,74 @@ class ProxyMenuItem: NSMenuItem {
     }
 
     func applyBenchmarkRowState(_ state: ProxyBenchmarkRowState) {
+        benchmarkRowState = state
+        benchmarkRowStateUpdatedAt = Date()
         presentationName = state.presentationName
         updatePresentation(name: presentationName, delay: state.delayDisplay, rawValue: state.rawDelay)
+    }
+
+    private func applyFreshBenchmarkPresentation(from info: ClashProxy) {
+        guard let currentState = benchmarkRowState else { return }
+
+        guard let leaf = finalLeaf(from: info) else {
+            Logger.log(
+                "[Proxy Delay] Selector row '\(proxyName)' became unavailable while refreshing its benchmark presentation",
+                level: .warning
+            )
+            applyBenchmarkRowState(.unavailable(displayName: proxyName))
+            return
+        }
+
+        let displayName = leaf.name == proxyName ? proxyName : "\(proxyName) → \(leaf.name)"
+        if let history = leaf.history.last,
+           let updatedAt = benchmarkRowStateUpdatedAt,
+           history.time > updatedAt {
+            if leaf.alive == false || history.delay == 0 {
+                applyBenchmarkRowState(.failed(displayName: displayName))
+            } else {
+                applyBenchmarkRowState(.measured(displayName: displayName, delay: history.delay))
+            }
+            return
+        }
+
+        guard displayName != currentState.presentationName else {
+            updatePresentation(
+                name: currentState.presentationName,
+                delay: currentState.delayDisplay,
+                rawValue: currentState.rawDelay
+            )
+            return
+        }
+
+        switch currentState {
+        case .testing:
+            applyBenchmarkRowState(.testing(displayName: displayName))
+        case .failed:
+            applyBenchmarkRowState(.failed(displayName: displayName))
+        case .unavailable, .measured:
+            Logger.log(
+                "[Proxy Delay] Selector row '\(proxyName)' resolved to a new leaf without a newer measurement",
+                level: .warning
+            )
+            applyBenchmarkRowState(.unavailable(displayName: displayName))
+        }
+    }
+
+    private func finalLeaf(from root: ClashProxy) -> ClashProxy? {
+        var current = root
+        var visited = Set<ClashProxyName>()
+
+        while ClashProxyType.isProxyGroup(current) {
+            guard visited.insert(current.name).inserted,
+                  let nextName = current.now,
+                  !nextName.isEmpty,
+                  let next = current.enclosingResp?.proxiesMap[nextName] else {
+                return nil
+            }
+            current = next
+        }
+
+        return current.all == nil ? current : nil
     }
 
     private func updatePresentation(name: String, delay: String?, rawValue: Int?) {
