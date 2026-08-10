@@ -152,15 +152,34 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             return
         }
 
+        guard let response = group.enclosingResp else {
+            AppDelegate.shared.finishSpeedTest(
+                session: session,
+                showNotifications: false
+            )
+            return
+        }
+
+        let selectedNames = Set(group.all ?? [])
+        let includedURLTestGroups = response.proxyGroups.filter {
+            $0.type == .urltest && selectedNames.contains($0.name)
+        }
+        var coveredNames = Set(includedURLTestGroups.map(\.name))
+        for autoGroup in includedURLTestGroups {
+            coveredNames.formUnion(autoGroup.all ?? [])
+        }
+
         var proxies = [ClashProxyName]()
         var providerProxies = [ApiRequest.ProviderProxyBenchmarkTarget]()
         for testable in group.speedtestAble {
             switch testable {
             case let .provider(name, provider):
+                guard !coveredNames.contains(name) else { continue }
                 providerProxies.append(
                     .init(providerName: provider, proxyName: name)
                 )
             case let .proxy(name):
+                guard !coveredNames.contains(name) else { continue }
                 proxies.append(name)
             }
         }
@@ -181,34 +200,39 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             MenuItemFactory.refreshExistingMenuItems()
         }
 
-        ApiRequest.benchmarkProxySelection(
-            proxyNames: proxies,
-            providerProxies: providerProxies,
-            benchmarkURL: Settings.benchMarkUrl,
+        let benchmarkRemainingProxies = {
+            ApiRequest.benchmarkProxySelection(
+                proxyNames: proxies,
+                providerProxies: providerProxies,
+                benchmarkURL: Settings.benchMarkUrl,
+                timeout: 5000,
+                session: session,
+                proxyResult: { proxyName, delay in
+                    let delayStr = delay == 0 ? NSLocalizedString("fail", comment: "") : "\(delay) ms"
+                    NotificationCenter.default.post(name: .speedTestFinishForProxy,
+                                                    object: nil,
+                                                    userInfo: ["proxyName": proxyName, "delay": delayStr, "rawValue": delay])
+                },
+                completion: finish
+            )
+        }
+
+        guard !includedURLTestGroups.isEmpty else {
+            benchmarkRemainingProxies()
+            return
+        }
+
+        ApiRequest.retestURLTestGroups(
+            in: response,
+            limitedTo: Set(includedURLTestGroups.map(\.name)),
             timeout: 5000,
             session: session,
-            proxyResult: { proxyName, delay in
-                let delayStr = delay == 0 ? NSLocalizedString("fail", comment: "") : "\(delay) ms"
-                NotificationCenter.default.post(name: .speedTestFinishForProxy,
-                                                object: nil,
-                                                userInfo: ["proxyName": proxyName, "delay": delayStr, "rawValue": delay])
-            },
             completion: {
                 guard !session.isCancelled else {
                     finish()
                     return
                 }
-                guard let response = group.enclosingResp else {
-                    finish()
-                    return
-                }
-                ApiRequest.retestURLTestGroups(
-                    in: response,
-                    limitedTo: Set(group.all ?? []),
-                    timeout: 5000,
-                    session: session,
-                    completion: finish
-                )
+                benchmarkRemainingProxies()
             }
         )
     }
