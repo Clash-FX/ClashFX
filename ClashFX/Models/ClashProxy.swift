@@ -142,7 +142,7 @@ struct SelectorBenchmarkPlan {
                                 benchmarkURL: String,
                                 timeout: Int) -> SelectorBenchmarkRow {
         switch resolve(name: visibleName, snapshot: snapshot, visited: []) {
-        case let .leaf(proxy, path):
+        case let .leaf(proxy):
             let endpoint: SelectorBenchmarkEndpoint
             let providerName: ClashProviderName?
             if let provider = proxy.enclosingProvider {
@@ -154,7 +154,9 @@ struct SelectorBenchmarkPlan {
             }
             return SelectorBenchmarkRow(
                 rowName: visibleName,
-                displayName: path.joined(separator: " → "),
+                displayName: proxy.name == visibleName
+                    ? visibleName
+                    : "\(visibleName) → \(proxy.name)",
                 measurementKey: SelectorBenchmarkMeasurementKey(
                     endpoint: endpoint,
                     providerName: providerName,
@@ -179,7 +181,7 @@ struct SelectorBenchmarkPlan {
     }
 
     private enum Resolution {
-        case leaf(ClashProxy, [ClashProxyName])
+        case leaf(ClashProxy)
         case unavailable(SelectorBenchmarkUnavailableReason)
     }
 
@@ -196,7 +198,7 @@ struct SelectorBenchmarkPlan {
             guard proxy.all == nil else {
                 return .unavailable(.nonLeafTerminal(proxy.name))
             }
-            return .leaf(proxy, [proxy.name])
+            return .leaf(proxy)
         }
         guard let selectedName = proxy.now, !selectedName.isEmpty else {
             return .unavailable(.missingSelection(proxy.name))
@@ -208,8 +210,8 @@ struct SelectorBenchmarkPlan {
         switch resolve(name: selectedName,
                        snapshot: snapshot,
                        visited: visited.union([proxy.name])) {
-        case let .leaf(leaf, path):
-            return .leaf(leaf, [proxy.name] + path)
+        case let .leaf(leaf):
+            return .leaf(leaf)
         case let .unavailable(reason):
             return .unavailable(reason)
         }
