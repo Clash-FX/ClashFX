@@ -311,7 +311,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             }
         }
 
-        ApiRequest.getMergedProxyData { response in
+        ApiRequest.getMergedProxyData(session: session, timeout: 10) { response in
             guard let response, let selector = response.proxiesMap[group.name] else {
                 finish()
                 return

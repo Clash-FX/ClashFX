@@ -540,6 +540,139 @@ class ApiRequest {
         }
     }
 
+    /// Fetches a fresh topology for a benchmark preflight. Both requests are
+    /// bounded and owned by the benchmark session so cancellation cannot leave
+    /// a disabled menu action waiting on the API session's normal timeout.
+    static func getMergedProxyData(
+        session: BenchmarkSession,
+        timeout: TimeInterval,
+        complete: @escaping (ClashProxyResp?) -> Void
+    ) {
+        guard !session.isCancelled else {
+            complete(nil)
+            return
+        }
+
+        let stateLock = NSLock()
+        var didComplete = false
+        var provider: ClashProviderResp?
+        var proxyInfo: ClashProxyResp?
+
+        let providerRequest = req("/providers/proxies", timeoutInterval: timeout)
+        let proxyRequest = req("/proxies", timeoutInterval: timeout)
+        let providerRequestID = session.track(providerRequest)
+        let proxyRequestID = session.track(proxyRequest)
+
+        func completeOnce(
+            proxyInfo: ClashProxyResp? = nil,
+            provider: ClashProviderResp? = nil,
+            cancelPendingRequests: Bool = false
+        ) {
+            stateLock.lock()
+            guard !didComplete else {
+                stateLock.unlock()
+                return
+            }
+            didComplete = true
+            stateLock.unlock()
+
+            if cancelPendingRequests {
+                providerRequest.cancel()
+                proxyRequest.cancel()
+            }
+
+            DispatchQueue.main.async {
+                guard !session.isCancelled,
+                      let proxyInfo,
+                      let provider else {
+                    complete(nil)
+                    return
+                }
+                proxyInfo.updateProvider(provider)
+                complete(proxyInfo)
+            }
+        }
+
+        func publishProvider(_ value: ClashProviderResp) {
+            stateLock.lock()
+            guard !didComplete else {
+                stateLock.unlock()
+                return
+            }
+            provider = value
+            let proxyInfo = proxyInfo
+            let provider = provider
+            stateLock.unlock()
+
+            if let proxyInfo, let provider {
+                completeOnce(proxyInfo: proxyInfo, provider: provider)
+            }
+        }
+
+        func publishProxyInfo(_ value: ClashProxyResp) {
+            stateLock.lock()
+            guard !didComplete else {
+                stateLock.unlock()
+                return
+            }
+            proxyInfo = value
+            let proxyInfo = proxyInfo
+            let provider = provider
+            stateLock.unlock()
+
+            if let proxyInfo, let provider {
+                completeOnce(proxyInfo: proxyInfo, provider: provider)
+            }
+        }
+
+        session.onTermination {
+            guard session.isCancelled else { return }
+            completeOnce(cancelPendingRequests: true)
+        }
+
+        providerRequest
+            .responseDecodable(of: ClashProviderResp.self, decoder: ClashProviderResp.decoder) { response in
+                session.finish(providerRequestID)
+                guard !session.isCancelled else {
+                    completeOnce(cancelPendingRequests: true)
+                    return
+                }
+                let statusCode = response.response?.statusCode ?? -1
+                guard (200 ..< 300).contains(statusCode),
+                      case let .success(providerResponse) = response.result else {
+                    Logger.log(
+                        "[Proxy Delay] Benchmark preflight providers unavailable, status: \(statusCode), error: \(response.error?.localizedDescription ?? "unknown error")",
+                        level: .warning
+                    )
+                    completeOnce(cancelPendingRequests: true)
+                    return
+                }
+                publishProvider(providerResponse)
+            }
+
+        proxyRequest.responseData { response in
+            session.finish(proxyRequestID)
+            guard !session.isCancelled else {
+                completeOnce(cancelPendingRequests: true)
+                return
+            }
+            let statusCode = response.response?.statusCode ?? -1
+            guard case let .success(data) = response.result,
+                  (200 ..< 300).contains(statusCode),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  root["proxies"] is [String: Any]
+            else {
+                Logger.log(
+                    "[Proxy Delay] Benchmark preflight topology unavailable, status: \(statusCode), error: \(response.error?.localizedDescription ?? "unknown error")",
+                    level: .warning
+                )
+                completeOnce(cancelPendingRequests: true)
+                return
+            }
+            publishProxyInfo(ClashProxyResp(data))
+        }
+    }
+
     static func getProxyDelay(proxyName: String,
                               benchmarkURL: String = Settings.benchMarkUrl,
                               timeout: Int = 5000,
