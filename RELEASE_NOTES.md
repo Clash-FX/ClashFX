@@ -1,5 +1,29 @@
 ### Bug Fixes
 
+- **Selected-Group Delay Tests Avoid Duplicate Work** — When a selector contains a URLTest group and the same leaf nodes, ClashFX now tests that automatic group once with its configured URL and skips individually retesting the nodes it already covered. Large groups finish sooner without bringing back provider-wide health checks. (#147)
+- **Automatic Groups Re-evaluate After Complete Results** — A URLTest started from the controller now clears any choice cached while candidates were still responding, then applies the configured tolerance to the complete result set. Early responses can no longer remain selected after slower candidates finish. (#147)
+
+### Contributors
+
+- @a51095 — Reported the remaining selected-group delay-test slowdown and automatic-group selection behavior. (#147)
+
+---
+
+### 修复
+
+- **策略组测速不再重复测试相同节点** — 当手动选择组同时包含自动策略组及其节点时，ClashFX 现在会按自动策略组自己的地址整组测试一次，并跳过已覆盖节点的逐个重复测速；大型策略组会更快完成，也不会重新触发 Provider 全量测速。 (#147)
+- **自动策略会在完整结果返回后重新判断** — 通过控制接口触发 URLTest 时，核心现在会清除测速过程中提前缓存的选择，再基于完整结果和订阅配置的容差重新判断；较早返回的节点不会在整组测速结束后仍被错误保留。 (#147)
+
+### 贡献者
+
+- @a51095 — 反馈策略组测速仍然偏慢，以及自动策略选择结果异常的问题。 (#147)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Never-Matched Rules No Longer Show “57 Years Ago”** — The bundled Dashboard now removes epoch timestamps from rules with no hits or misses, so only real recent-match times are displayed. (#147)
 - **Delay Tests Stay Within the Selected Group** — Provider-backed nodes are now tested individually through their provider instead of benchmarking every node in the provider. Large groups complete faster, avoid unrelated failures, and keep the existing concurrency limit. (#147)
 - **macOS 10.14 Launch Compatibility Is Restored** — Removed the incompatible AppCenter Analytics and Crashes binaries that referenced Objective-C runtime symbols unavailable on Mojave, while keeping ClashFX's macOS 10.14 deployment target. (#197)
