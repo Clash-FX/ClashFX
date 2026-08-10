@@ -320,6 +320,8 @@
 /* No comment provided by engineer. */
 "Testing" = "测速中";
 
+"Benchmark unavailable" = "测速不可用";
+
 /* No comment provided by engineer. */
 "The active connections will be interrupted." = "活动的连接将被强制打断。";
 

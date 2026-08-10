@@ -283,6 +283,8 @@
 /* No comment provided by engineer. */
 "Testing" = "Testing";
 
+"Benchmark unavailable" = "Benchmark unavailable";
+
 /* No comment provided by engineer. */
 "The active connections will be interrupted." = "The active connections will be interrupted.";
 

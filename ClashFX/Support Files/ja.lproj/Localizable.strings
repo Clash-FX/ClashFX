@@ -283,6 +283,8 @@
 /* No comment provided by engineer. */
 "Testing" = "テスト中";
 
+"Benchmark unavailable" = "ベンチマーク不可";
+
 /* No comment provided by engineer. */
 "The active connections will be interrupted." = "アクティブな接続が中断されます。";
 

@@ -283,6 +283,8 @@
 /* No comment provided by engineer. */
 "Testing" = "Тестирование";
 
+"Benchmark unavailable" = "Тест недоступен";
+
 /* No comment provided by engineer. */
 "The active connections will be interrupted." = "Активные соединения будут прерваны.";
 

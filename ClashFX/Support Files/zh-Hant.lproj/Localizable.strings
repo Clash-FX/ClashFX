@@ -283,6 +283,8 @@
 /* No comment provided by engineer. */
 "Testing" = "測試中";
 
+"Benchmark unavailable" = "測速不可用";
+
 /* No comment provided by engineer. */
 "The active connections will be interrupted." = "活躍的連接將被中斷。";
 
