@@ -271,6 +271,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         speedTestItem.beginBenchmarkAction(session: session)
 
         var plan: SelectorBenchmarkPlan?
+        var pendingRows = Set<ClashProxyName>()
         let publishState: (SelectorBenchmarkRow, ProxyBenchmarkRowState) -> Void = { row, state in
             NotificationCenter.default.post(
                 name: .speedTestFinishForProxy,
@@ -285,6 +286,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                     return
                 }
                 for row in target.aliases {
+                    guard pendingRows.remove(row.rowName) != nil else { continue }
                     let state: ProxyBenchmarkRowState = delay == 0
                         ? .failed(displayName: row.displayName)
                         : .measured(displayName: row.displayName, delay: delay)
@@ -330,6 +332,18 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                       AppDelegate.shared.isActiveBenchmarkSession(session) else {
                     finish()
                     return
+                }
+                pendingRows = Set(plan.orderedRows.compactMap { row in
+                    row.measurementKey == nil ? nil : row.rowName
+                })
+                session.onTermination {
+                    guard session.isCancelled,
+                          AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                        return
+                    }
+                    for row in plan.orderedRows where pendingRows.remove(row.rowName) != nil {
+                        publishState(row, .unavailable(displayName: row.displayName))
+                    }
                 }
                 for row in plan.orderedRows {
                     if row.measurementKey == nil {
