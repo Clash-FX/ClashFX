@@ -1020,7 +1020,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func updateConfig(configName: String? = nil, showNotification: Bool = true, completeHandler: ((ErrorString?) -> Void)? = nil) {
+    func updateConfig(configName: String? = nil,
+                      showNotification: Bool = true,
+                      completeHandler: @escaping ((ErrorString?) -> Void)? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateConfig(
+                    configName: configName,
+                    showNotification: showNotification,
+                    completeHandler: completeHandler
+                )
+            }
+            return
+        }
         guard !isConfigUpdating else {
             Logger.log("updateConfig: skipped, already updating", level: .warning)
             completeHandler?("Config update already in progress")
@@ -1029,6 +1041,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         startProxy()
         guard ConfigManager.shared.isRunning else { return }
 
+        cancelActiveSpeedTest(reason: "configuration reload")
         isConfigUpdating = true
         clashPauseCallbacks()
         let config = configName ?? ConfigManager.selectConfigName
@@ -1970,7 +1983,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                   !isEnhancedModeRuntimeRecoveryPending else { return }
             isWakeEnhancedModeRestarting = true
             didRestartHelperDuringEnhancedLaunch = false
-            cancelActiveSpeedTestForCoreRecovery()
+            cancelActiveSpeedTest(reason: "Enhanced Mode core recovery")
         }
 
         let wasActive = ConfigManager.shared.isEnhancedModeActive
@@ -3593,10 +3606,10 @@ extension AppDelegate {
         return activeBenchmarkSession === session
     }
 
-    private func cancelActiveSpeedTestForCoreRecovery() {
+    private func cancelActiveSpeedTest(reason: String) {
         guard let session = activeBenchmarkSession else { return }
         Logger.log(
-            "Cancelling active benchmark before Enhanced Mode core recovery",
+            "Cancelling active benchmark before \(reason)",
             level: .warning
         )
         finishSpeedTest(
