@@ -3530,16 +3530,10 @@ extension AppDelegate {
                 timeout: timeout,
                 session: session
             ) {
-                ApiRequest.retestURLTestGroups(
-                    in: resp,
-                    timeout: timeout,
-                    session: session
-                ) {
-                    self.finishSpeedTest(
-                        session: session,
-                        showNotifications: showNotifications
-                    )
-                }
+                self.finishSpeedTest(
+                    session: session,
+                    showNotifications: showNotifications
+                )
             }
         }
     }
@@ -3577,11 +3571,17 @@ extension AppDelegate {
 
     func finishSpeedTest(
         session: ApiRequest.BenchmarkSession,
-        showNotifications: Bool
+        showNotifications: Bool,
+        cancelled: Bool = false
     ) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard activeBenchmarkSession === session else { return }
+        if cancelled {
+            session.cancel()
+        }
         activeBenchmarkSession = nil
         isSpeedTesting = false
+        session.terminate()
         MenuItemFactory.refreshExistingMenuItems()
         if showNotifications, !session.isCancelled {
             NSUserNotificationCenter.default.postSpeedTestFinishNotice()
@@ -3599,9 +3599,11 @@ extension AppDelegate {
             "Cancelling active benchmark before Enhanced Mode core recovery",
             level: .warning
         )
-        activeBenchmarkSession = nil
-        isSpeedTesting = false
-        session.cancel()
+        finishSpeedTest(
+            session: session,
+            showNotifications: false,
+            cancelled: true
+        )
     }
 
     @IBAction func actionUpdateExternalResource(_ sender: Any) {

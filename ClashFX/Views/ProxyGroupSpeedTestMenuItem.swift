@@ -84,7 +84,6 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
                 groupName: self.proxyGroup.name,
                 finalLeaf: bestKnownLeaf
             )
-            self.finishBenchmarkActionIfOwned(session: session)
         }
 
         let benchmarkURL: String
@@ -197,6 +196,9 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         isTesting = true
         isEnabled = false
         updateViewTitle(NSLocalizedString("Testing", comment: ""))
+        session.onTermination { [weak self] in
+            self?.finishBenchmarkActionIfOwned(session: session)
+        }
     }
 
     @discardableResult

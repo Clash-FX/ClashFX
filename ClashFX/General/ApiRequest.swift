@@ -150,7 +150,11 @@ class ApiRequest {
             lock.unlock()
 
             if invokeNow {
-                DispatchQueue.main.async(execute: observer)
+                if Thread.isMainThread {
+                    observer()
+                } else {
+                    DispatchQueue.main.async(execute: observer)
+                }
             }
         }
 
@@ -165,8 +169,12 @@ class ApiRequest {
             terminationObservers.removeAll()
             lock.unlock()
 
-            DispatchQueue.main.async {
+            if Thread.isMainThread {
                 observers.forEach { $0() }
+            } else {
+                DispatchQueue.main.async {
+                    observers.forEach { $0() }
+                }
             }
         }
     }
@@ -652,49 +660,6 @@ class ApiRequest {
             }
             callback(ClashProxyResp(data))
         }
-    }
-
-    static func retestURLTestGroups(in response: ClashProxyResp,
-                                    limitedTo groupNames: Set<ClashProxyName>? = nil,
-                                    timeout: Int,
-                                    maxConcurrent: Int = 3,
-                                    session: BenchmarkSession? = nil,
-                                    completion: @escaping () -> Void) {
-        guard session?.isCancelled != true else {
-            completion()
-            return
-        }
-        typealias DelayTask = LimitedAsyncTaskRunner.Task
-        let groups = response.proxyGroups.filter { group in
-            group.type == .urltest && (groupNames == nil || groupNames?.contains(group.name) == true)
-        }
-        guard !groups.isEmpty else {
-            completion()
-            return
-        }
-
-        let tasks: [DelayTask] = groups.map { group in
-            { done in
-                guard session?.isCancelled != true else {
-                    done()
-                    return
-                }
-                getProxyGroupDelay(
-                    groupName: group.name,
-                    benchmarkURL: group.testUrl ?? Settings.benchMarkUrl,
-                    expectedStatus: group.expectedStatus,
-                    timeout: timeout,
-                    session: session
-                ) { _ in
-                    done()
-                }
-            }
-        }
-        Logger.log(
-            "[Proxy Delay] Re-evaluating \(groups.count) URLTest groups, "
-                + "max concurrency \(max(1, maxConcurrent))"
-        )
-        LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: maxConcurrent).start(completion: completion)
     }
 
     static func benchmarkLeafProxies(in response: ClashProxyResp,
