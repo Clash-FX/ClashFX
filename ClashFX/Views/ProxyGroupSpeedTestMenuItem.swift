@@ -14,6 +14,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     let testType: TestType
     private var isTesting = false
     private var refreshTimer: Timer?
+    private var benchmarkActionSession: ApiRequest.BenchmarkSession?
 
     init(group: ClashProxy) {
         proxyGroup = group
@@ -91,6 +92,23 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         self.title = title
         (view as? ProxyGroupSpeedTestMenuItemView)?.updateTitle(title)
     }
+
+    func beginBenchmarkAction(session: ApiRequest.BenchmarkSession) {
+        benchmarkActionSession = session
+        isTesting = true
+        isEnabled = false
+        updateViewTitle(NSLocalizedString("Testing", comment: ""))
+    }
+
+    @discardableResult
+    func finishBenchmarkActionIfOwned(session: ApiRequest.BenchmarkSession) -> Bool {
+        guard benchmarkActionSession === session else { return false }
+        benchmarkActionSession = nil
+        isTesting = false
+        isEnabled = true
+        updateViewTitle(testType.title)
+        return true
+    }
 }
 
 extension ProxyGroupSpeedTestMenuItem: ProxyGroupMenuHighlightDelegate {
@@ -152,19 +170,40 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             return
         }
 
-        label.stringValue = NSLocalizedString("Testing", comment: "")
-        speedTestItem.isEnabled = false
-        setNeedsDisplay()
+        speedTestItem.beginBenchmarkAction(session: session)
 
-        let finish = { [weak self, weak speedTestItem] in
-            AppDelegate.shared.finishSpeedTest(
-                session: session,
-                showNotifications: false
-            )
-            guard let self, let menu = speedTestItem else { return }
-            self.label.stringValue = menu.title
-            menu.isEnabled = true
-            self.setNeedsDisplay()
+        var plan: SelectorBenchmarkPlan?
+        let publishResult: (SelectorBenchmarkMeasurementKey, Int) -> Void = { key, delay in
+            DispatchQueue.main.async {
+                guard !session.isCancelled,
+                      AppDelegate.shared.isActiveBenchmarkSession(session),
+                      let plan else {
+                    return
+                }
+                let delayString = delay == 0 ? NSLocalizedString("fail", comment: "") : "\(delay) ms"
+                for row in plan.orderedRows where row.measurementKey == key {
+                    NotificationCenter.default.post(
+                        name: .speedTestFinishForProxy,
+                        object: nil,
+                        userInfo: ["proxyName": row.rowName, "delay": delayString, "rawValue": delay]
+                    )
+                }
+            }
+        }
+
+        var didFinish = false
+        let finish = { [weak speedTestItem] in
+            DispatchQueue.main.async {
+                guard !didFinish else { return }
+                didFinish = true
+                if AppDelegate.shared.isActiveBenchmarkSession(session) {
+                    AppDelegate.shared.finishSpeedTest(
+                        session: session,
+                        showNotifications: false
+                    )
+                }
+                speedTestItem?.finishBenchmarkActionIfOwned(session: session)
+            }
         }
 
         ApiRequest.getMergedProxyData { response in
@@ -172,27 +211,20 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                 finish()
                 return
             }
-            let plan = SelectorBenchmarkPlan.make(
+            plan = SelectorBenchmarkPlan.make(
                 selector: selector,
                 snapshot: response,
                 benchmarkURL: selector.testUrl ?? Settings.benchMarkUrl,
                 timeout: 5000
             )
+            guard let plan else {
+                finish()
+                return
+            }
             ApiRequest.benchmarkSelectorPlan(
                 plan,
                 session: session,
-                result: { key, delay in
-                    let delayString = delay == 0 ? NSLocalizedString("fail", comment: "") : "\(delay) ms"
-                    for row in plan.orderedRows where row.measurementKey == key {
-                        DispatchQueue.main.async {
-                            NotificationCenter.default.post(
-                                name: .speedTestFinishForProxy,
-                                object: nil,
-                                userInfo: ["proxyName": row.rowName, "delay": delayString, "rawValue": delay]
-                            )
-                        }
-                    }
-                },
+                result: publishResult,
                 completion: finish
             )
         }

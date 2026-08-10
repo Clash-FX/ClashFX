@@ -3588,6 +3588,11 @@ extension AppDelegate {
         }
     }
 
+    func isActiveBenchmarkSession(_ session: ApiRequest.BenchmarkSession) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        return activeBenchmarkSession === session
+    }
+
     private func cancelActiveSpeedTestForCoreRecovery() {
         guard let session = activeBenchmarkSession else { return }
         Logger.log(
