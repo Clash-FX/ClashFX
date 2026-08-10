@@ -778,28 +778,54 @@ class ApiRequest {
         }
 
         typealias DelayTask = LimitedAsyncTaskRunner.Task
-        let tasks: [DelayTask] = plan.targets.compactMap { target in
-            guard target.key.endpoint == .inline else { return nil }
+        let tasks: [DelayTask] = plan.targets.map { target in
             return { done in
                 guard !session.isCancelled else {
                     done()
                     return
                 }
-                getProxyDelay(
-                    proxyName: target.key.proxyName,
-                    benchmarkURL: target.key.benchmarkURL,
-                    timeout: target.key.timeout,
-                    session: session
-                ) { delay in
-                    if !session.isCancelled {
-                        result(target.key, delay)
+                switch target.key.endpoint {
+                case .inline:
+                    getProxyDelay(
+                        proxyName: target.key.proxyName,
+                        benchmarkURL: target.key.benchmarkURL,
+                        timeout: target.key.timeout,
+                        session: session
+                    ) { delay in
+                        if !session.isCancelled {
+                            result(target.key, delay)
+                        }
+                        done()
                     }
-                    done()
+                case .provider:
+                    guard let providerName = target.key.providerName else {
+                        Logger.log(
+                            "[Proxy Delay] Selector provider target '\(target.key.proxyName)' has no provider name",
+                            level: .error
+                        )
+                        done()
+                        return
+                    }
+                    getProviderProxyDelay(
+                        providerName: providerName,
+                        proxyName: target.key.proxyName,
+                        benchmarkURL: target.key.benchmarkURL,
+                        timeout: target.key.timeout,
+                        session: session
+                    ) { delay in
+                        if !session.isCancelled {
+                            result(target.key, delay)
+                        }
+                        done()
+                    }
                 }
             }
         }
 
-        Logger.log("[Proxy Delay] Starting Selector benchmark: \(tasks.count) inline target(s)")
+        Logger.log(
+            "[Proxy Delay] Starting Selector benchmark: \(tasks.count) unique target(s), "
+                + "max concurrency \(benchmarkMaxConcurrent)"
+        )
         LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: benchmarkMaxConcurrent)
             .start(completion: completion)
     }

@@ -109,20 +109,32 @@ struct SelectorBenchmarkPlan {
                      snapshot: ClashProxyResp,
                      benchmarkURL: String,
                      timeout: Int) -> SelectorBenchmarkPlan {
-        guard let firstVisibleName = selector.all?.first else {
-            return SelectorBenchmarkPlan(orderedRows: [], targets: [])
+        let visibleNames = selector.all ?? []
+        var orderedRows = [SelectorBenchmarkRow]()
+        var aliases = [SelectorBenchmarkMeasurementKey: [SelectorBenchmarkRow]]()
+        var targetOrder = [SelectorBenchmarkMeasurementKey]()
+
+        for visibleName in visibleNames {
+            let row = makeRow(
+                visibleName: visibleName,
+                snapshot: snapshot,
+                benchmarkURL: benchmarkURL,
+                timeout: timeout
+            )
+            orderedRows.append(row)
+            guard let key = row.measurementKey else { continue }
+            if aliases[key] == nil {
+                aliases[key] = []
+                targetOrder.append(key)
+            }
+            aliases[key]?.append(row)
         }
 
-        let row = makeRow(
-            visibleName: firstVisibleName,
-            snapshot: snapshot,
-            benchmarkURL: benchmarkURL,
-            timeout: timeout
-        )
-        let targets = row.measurementKey.map { key in
-            [Target(key: key, aliases: [row])]
-        } ?? []
-        return SelectorBenchmarkPlan(orderedRows: [row], targets: targets)
+        let targets = targetOrder.compactMap { key -> Target? in
+            guard let rows = aliases[key], !rows.isEmpty else { return nil }
+            return Target(key: key, aliases: rows)
+        }
+        return SelectorBenchmarkPlan(orderedRows: orderedRows, targets: targets)
     }
 
     private static func makeRow(visibleName: ClashProxyName,
@@ -153,6 +165,10 @@ struct SelectorBenchmarkPlan {
                 unavailableReason: nil
             )
         case let .unavailable(reason):
+            Logger.log(
+                "[Proxy Delay] Selector row '\(visibleName)' is unavailable: \(reason)",
+                level: .warning
+            )
             return SelectorBenchmarkRow(
                 rowName: visibleName,
                 displayName: visibleName,
