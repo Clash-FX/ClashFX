@@ -319,7 +319,9 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             plan = SelectorBenchmarkPlan.make(
                 selector: selector,
                 snapshot: response,
-                benchmarkURL: selector.testUrl ?? Settings.benchMarkUrl,
+                benchmarkURL: selector.testUrl
+                    .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                    ?? Settings.benchMarkUrl,
                 timeout: 5000
             )
             guard let plan else {
