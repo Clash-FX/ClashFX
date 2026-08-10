@@ -86,12 +86,9 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
             )
         }
 
-        let benchmarkURL: String
-        if let testURL = proxyGroup.testUrl, !testURL.isEmpty {
-            benchmarkURL = testURL
-        } else {
-            benchmarkURL = Settings.benchMarkUrl
-        }
+        let benchmarkURL = proxyGroup.testUrl
+            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+            ?? Settings.benchMarkUrl
 
         ApiRequest.getProxyGroupDelay(
             groupName: proxyGroup.name,
