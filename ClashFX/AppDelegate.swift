@@ -3520,33 +3520,34 @@ extension AppDelegate {
             return
         }
 
-        ApiRequest.getMergedProxyData { [weak self] resp in
-            guard let self = self else { return }
-            guard !session.isCancelled else {
-                self.finishSpeedTest(
-                    session: session,
-                    showNotifications: showNotifications
-                )
-                return
-            }
-            guard let resp = resp else {
-                self.finishSpeedTest(
-                    session: session,
-                    showNotifications: showNotifications
-                )
-                return
-            }
+        ApiRequest.getMergedProxyData(session: session, timeout: 10) { [weak self] resp in
+            DispatchQueue.main.async {
+                guard let self,
+                      !session.isCancelled,
+                      self.isActiveBenchmarkSession(session),
+                      let resp else {
+                    self?.finishSpeedTest(
+                        session: session,
+                        showNotifications: showNotifications
+                    )
+                    return
+                }
 
-            ApiRequest.benchmarkLeafProxies(
-                in: resp,
-                benchmarkURL: benchmarkURL,
-                timeout: timeout,
-                session: session
-            ) {
-                self.finishSpeedTest(
-                    session: session,
-                    showNotifications: showNotifications
-                )
+                ApiRequest.benchmarkLeafProxies(
+                    in: resp,
+                    benchmarkURL: benchmarkURL,
+                    timeout: timeout,
+                    session: session
+                ) { [weak self] in
+                    DispatchQueue.main.async {
+                        guard let self,
+                              self.isActiveBenchmarkSession(session) else { return }
+                        self.finishSpeedTest(
+                            session: session,
+                            showNotifications: showNotifications
+                        )
+                    }
+                }
             }
         }
     }
