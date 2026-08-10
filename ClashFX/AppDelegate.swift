@@ -1022,7 +1022,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func updateConfig(configName: String? = nil,
                       showNotification: Bool = true,
-                      completeHandler: @escaping ((ErrorString?) -> Void)? = nil) {
+                      completeHandler: ((ErrorString?) -> Void)? = nil) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
                 self?.updateConfig(
