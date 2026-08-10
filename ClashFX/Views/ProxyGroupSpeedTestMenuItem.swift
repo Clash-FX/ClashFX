@@ -180,14 +180,13 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                 userInfo: ["proxyName": row.rowName, "benchmarkRowState": state]
             )
         }
-        let publishResult: (SelectorBenchmarkMeasurementKey, Int) -> Void = { key, delay in
+        let publishResult: (SelectorBenchmarkPlan.Target, Int) -> Void = { target, delay in
             DispatchQueue.main.async {
                 guard !session.isCancelled,
-                      AppDelegate.shared.isActiveBenchmarkSession(session),
-                      let plan else {
+                      AppDelegate.shared.isActiveBenchmarkSession(session) else {
                     return
                 }
-                for row in plan.orderedRows where row.measurementKey == key {
+                for row in target.aliases {
                     let state: ProxyBenchmarkRowState = delay == 0
                         ? .failed(displayName: row.displayName)
                         : .measured(displayName: row.displayName, delay: delay)

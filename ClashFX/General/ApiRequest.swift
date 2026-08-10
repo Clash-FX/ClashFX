@@ -769,7 +769,7 @@ class ApiRequest {
     static func benchmarkSelectorPlan(
         _ plan: SelectorBenchmarkPlan,
         session: BenchmarkSession,
-        result: @escaping (SelectorBenchmarkMeasurementKey, Int) -> Void,
+        result: @escaping (SelectorBenchmarkPlan.Target, Int) -> Void,
         completion: @escaping () -> Void
     ) {
         guard !session.isCancelled else {
@@ -793,7 +793,7 @@ class ApiRequest {
                         session: session
                     ) { delay in
                         if !session.isCancelled {
-                            result(target.key, delay)
+                            result(target, delay)
                         }
                         done()
                     }
@@ -814,7 +814,7 @@ class ApiRequest {
                         session: session
                     ) { delay in
                         if !session.isCancelled {
-                            result(target.key, delay)
+                            result(target, delay)
                         }
                         done()
                     }
