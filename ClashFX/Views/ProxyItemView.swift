@@ -82,6 +82,12 @@ class ProxyItemView: MenuItemBaseView {
         }
     }
 
+    func update(name: String) {
+        nameLabel.stringValue = name
+        needsLayout = true
+        needsDisplay = true
+    }
+
     func update(selected: Bool) {
         if selected {
             if imageView == nil {

@@ -173,6 +173,13 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         speedTestItem.beginBenchmarkAction(session: session)
 
         var plan: SelectorBenchmarkPlan?
+        let publishState: (SelectorBenchmarkRow, ProxyBenchmarkRowState) -> Void = { row, state in
+            NotificationCenter.default.post(
+                name: .speedTestFinishForProxy,
+                object: nil,
+                userInfo: ["proxyName": row.rowName, "benchmarkRowState": state]
+            )
+        }
         let publishResult: (SelectorBenchmarkMeasurementKey, Int) -> Void = { key, delay in
             DispatchQueue.main.async {
                 guard !session.isCancelled,
@@ -180,13 +187,11 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                       let plan else {
                     return
                 }
-                let delayString = delay == 0 ? NSLocalizedString("fail", comment: "") : "\(delay) ms"
                 for row in plan.orderedRows where row.measurementKey == key {
-                    NotificationCenter.default.post(
-                        name: .speedTestFinishForProxy,
-                        object: nil,
-                        userInfo: ["proxyName": row.rowName, "delay": delayString, "rawValue": delay]
-                    )
+                    let state: ProxyBenchmarkRowState = delay == 0
+                        ? .failed(displayName: row.displayName)
+                        : .measured(displayName: row.displayName, delay: delay)
+                    publishState(row, state)
                 }
             }
         }
@@ -221,12 +226,26 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                 finish()
                 return
             }
-            ApiRequest.benchmarkSelectorPlan(
-                plan,
-                session: session,
-                result: publishResult,
-                completion: finish
-            )
+            DispatchQueue.main.async {
+                guard !session.isCancelled,
+                      AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                    finish()
+                    return
+                }
+                for row in plan.orderedRows {
+                    if row.measurementKey == nil {
+                        publishState(row, .unavailable(displayName: row.displayName))
+                    } else {
+                        publishState(row, .testing(displayName: row.displayName))
+                    }
+                }
+                ApiRequest.benchmarkSelectorPlan(
+                    plan,
+                    session: session,
+                    result: publishResult,
+                    completion: finish
+                )
+            }
         }
     }
 }

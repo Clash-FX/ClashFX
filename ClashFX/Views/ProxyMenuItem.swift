@@ -8,9 +8,51 @@
 
 import Cocoa
 
+enum ProxyBenchmarkRowState {
+    case testing(displayName: String)
+    case measured(displayName: String, delay: Int)
+    case failed(displayName: String)
+    case unavailable(displayName: String)
+
+    var presentationName: String {
+        switch self {
+        case let .testing(displayName),
+             let .measured(displayName, _),
+             let .failed(displayName),
+             let .unavailable(displayName):
+            return displayName
+        }
+    }
+
+    var delayDisplay: String? {
+        switch self {
+        case .testing:
+            return NSLocalizedString("Testing", comment: "")
+        case let .measured(_, delay):
+            return "\(delay) ms"
+        case .failed:
+            return NSLocalizedString("fail", comment: "")
+        case .unavailable:
+            return NSLocalizedString("Benchmark unavailable", comment: "")
+        }
+    }
+
+    var rawDelay: Int? {
+        switch self {
+        case let .measured(_, delay):
+            return delay
+        case .failed:
+            return 0
+        case .testing, .unavailable:
+            return nil
+        }
+    }
+}
+
 class ProxyMenuItem: NSMenuItem {
     let proxyName: String
     let maxProxyNameLength: CGFloat
+    private var presentationName: String
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -25,6 +67,7 @@ class ProxyMenuItem: NSMenuItem {
          action selector: Selector?,
          simpleItem: Bool = false) {
         proxyName = proxy.name
+        presentationName = proxy.name
 
         maxProxyNameLength = simpleItem ? 0 : group.maxProxyNameLength
 
@@ -62,6 +105,10 @@ class ProxyMenuItem: NSMenuItem {
         guard let name = note.userInfo?["proxyName"] as? String, name == proxyName else {
             return
         }
+        if let state = note.userInfo?["benchmarkRowState"] as? ProxyBenchmarkRowState {
+            applyBenchmarkRowState(state)
+            return
+        }
         if let delay = note.userInfo?["delay"] as? String {
             updateDelay(delay, rawValue: note.userInfo?["rawValue"] as? Int)
         }
@@ -95,10 +142,20 @@ class ProxyMenuItem: NSMenuItem {
     }
 
     private func updateDelay(_ delay: String?, rawValue: Int?) {
+        updatePresentation(name: presentationName, delay: delay, rawValue: rawValue)
+    }
+
+    func applyBenchmarkRowState(_ state: ProxyBenchmarkRowState) {
+        presentationName = state.presentationName
+        updatePresentation(name: presentationName, delay: state.delayDisplay, rawValue: state.rawDelay)
+    }
+
+    private func updatePresentation(name: String, delay: String?, rawValue: Int?) {
         if enableShowUsingView {
+            (view as? ProxyItemView)?.update(name: name)
             (view as? ProxyItemView)?.update(str: delay, value: rawValue)
         } else {
-            attributedTitle = getAttributedTitle(name: proxyName, delay: delay)
+            attributedTitle = getAttributedTitle(name: name, delay: delay)
         }
     }
 }
