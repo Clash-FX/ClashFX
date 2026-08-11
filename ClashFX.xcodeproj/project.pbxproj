@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C30100000000000000000003 /* BenchmarkRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30100000000000000000001 /* BenchmarkRegressionTests.swift */; };
+		C30100000000000000000013 /* ClashProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49C9EF63223E78F5005D8B6A /* ClashProxy.swift */; };
+		C30100000000000000000014 /* ClashProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F939724B23A4B33500FE5A3F /* ClashProvider.swift */; };
+		C30100000000000000000016 /* BenchmarkRegressionSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30100000000000000000015 /* BenchmarkRegressionSupport.swift */; };
 		03B729DE29C62F46117B82A2 /* LabSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6174820C53D16D319C2DB8E /* LabSupport.swift */; };
 		079C0498F443DE06CFD1A2E0 /* FormHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1541315BE9AC1A5200C8FDA /* FormHelpers.swift */; };
 		0AD7506B2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD7506A2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift */; };
@@ -188,6 +192,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		C30100000000000000000001 /* BenchmarkRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkRegressionTests.swift; sourceTree = "<group>"; };
+		C30100000000000000000002 /* ClashFXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClashFXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C30100000000000000000015 /* BenchmarkRegressionSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkRegressionSupport.swift; sourceTree = "<group>"; };
 		06252EC2F039BCAFB08D62E4 /* DNSConfigViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DNSConfigViewController.swift; sourceTree = "<group>"; };
 		0AD7506A2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionLeftPannelViewModel.swift; sourceTree = "<group>"; };
 		0AD7506C2A5B9B26001FFBBD /* ConnectionLeftTextCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionLeftTextCellView.swift; sourceTree = "<group>"; };
@@ -362,6 +369,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		C30100000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		49CF3B1A20CD7463001EBF94 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -383,6 +397,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		C30100000000000000000009 /* ClashFXTests */ = {
+			isa = PBXGroup;
+			children = (
+				C30100000000000000000001 /* BenchmarkRegressionTests.swift */,
+				C30100000000000000000015 /* BenchmarkRegressionSupport.swift */,
+			);
+			path = ClashFXTests;
+			sourceTree = "<group>";
+		};
 		232A151B2AB1D5455361875C /* ConfigEditor */ = {
 			isa = PBXGroup;
 			children = (
@@ -664,6 +687,7 @@
 			isa = PBXGroup;
 			children = (
 				49CF3B1F20CD7463001EBF94 /* ClashFX */,
+				C30100000000000000000009 /* ClashFXTests */,
 				F9A7C06A2306E874007163C7 /* ProxyConfigHelper */,
 				49CF3B1E20CD7463001EBF94 /* Products */,
 				76229F122B00E935D126742A /* Pods */,
@@ -675,6 +699,7 @@
 			isa = PBXGroup;
 			children = (
 				49CF3B1D20CD7463001EBF94 /* ClashFX.app */,
+				C30100000000000000000002 /* ClashFXTests.xctest */,
 				F9A7C0692306E874007163C7 /* com.clashfx.app.Helper */,
 			);
 			name = Products;
@@ -783,6 +808,22 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		C30100000000000000000006 /* ClashFXTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C30100000000000000000012 /* Build configuration list for PBXNativeTarget "ClashFXTests" */;
+			buildPhases = (
+				C30100000000000000000004 /* Sources */,
+				C30100000000000000000005 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ClashFXTests;
+			productName = ClashFXTests;
+			productReference = C30100000000000000000002 /* ClashFXTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		49CF3B1C20CD7463001EBF94 /* ClashFX */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 49CF3B2D20CD7465001EBF94 /* Build configuration list for PBXNativeTarget "ClashFX" */;
@@ -876,6 +917,7 @@
 			projectRoot = "";
 			targets = (
 				49CF3B1C20CD7463001EBF94 /* ClashFX */,
+				C30100000000000000000006 /* ClashFXTests */,
 				F9A7C0682306E874007163C7 /* com.clashfx.app.Helper */,
 			);
 		};
@@ -1000,6 +1042,17 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		C30100000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C30100000000000000000003 /* BenchmarkRegressionTests.swift in Sources */,
+				C30100000000000000000016 /* BenchmarkRegressionSupport.swift in Sources */,
+				C30100000000000000000013 /* ClashProxy.swift in Sources */,
+				C30100000000000000000014 /* ClashProvider.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		49CF3B1920CD7463001EBF94 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1399,6 +1452,68 @@
 			};
 			name = Release;
 		};
+		C30100000000000000000010 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				LIBRARY_SEARCH_PATHS = "$(inherited) $(BUILT_PRODUCTS_DIR)/SwiftyJSON";
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				PRODUCT_BUNDLE_IDENTIFIER = com.clashfx.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				OTHER_LDFLAGS = "$(inherited) -lSwiftyJSON";
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -fmodule-map-file=$(BUILT_PRODUCTS_DIR)/SwiftyJSON/SwiftyJSON.modulemap";
+				SKIP_INSTALL = YES;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				SWIFT_INCLUDE_PATHS = (
+					"$(BUILT_PRODUCTS_DIR)/Alamofire",
+					"$(BUILT_PRODUCTS_DIR)/CocoaLumberjack",
+					"$(BUILT_PRODUCTS_DIR)/FlexibleDiff",
+					"$(BUILT_PRODUCTS_DIR)/GzipSwift",
+					"$(BUILT_PRODUCTS_DIR)/LetsMove",
+					"$(BUILT_PRODUCTS_DIR)/RxCocoa",
+					"$(BUILT_PRODUCTS_DIR)/RxRelay",
+					"$(BUILT_PRODUCTS_DIR)/RxSwift",
+					"$(BUILT_PRODUCTS_DIR)/Sparkle",
+					"$(BUILT_PRODUCTS_DIR)/Starscream",
+					"$(BUILT_PRODUCTS_DIR)/SwiftyJSON",
+					"$(BUILT_PRODUCTS_DIR)/Yams",
+				);
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C30100000000000000000011 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
+				LIBRARY_SEARCH_PATHS = "$(inherited) $(BUILT_PRODUCTS_DIR)/SwiftyJSON";
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				PRODUCT_BUNDLE_IDENTIFIER = com.clashfx.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				OTHER_LDFLAGS = "$(inherited) -lSwiftyJSON";
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -fmodule-map-file=$(BUILT_PRODUCTS_DIR)/SwiftyJSON/SwiftyJSON.modulemap";
+				SKIP_INSTALL = YES;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				SWIFT_INCLUDE_PATHS = (
+					"$(BUILT_PRODUCTS_DIR)/Alamofire",
+					"$(BUILT_PRODUCTS_DIR)/CocoaLumberjack",
+					"$(BUILT_PRODUCTS_DIR)/FlexibleDiff",
+					"$(BUILT_PRODUCTS_DIR)/GzipSwift",
+					"$(BUILT_PRODUCTS_DIR)/LetsMove",
+					"$(BUILT_PRODUCTS_DIR)/RxCocoa",
+					"$(BUILT_PRODUCTS_DIR)/RxRelay",
+					"$(BUILT_PRODUCTS_DIR)/RxSwift",
+					"$(BUILT_PRODUCTS_DIR)/Sparkle",
+					"$(BUILT_PRODUCTS_DIR)/Starscream",
+					"$(BUILT_PRODUCTS_DIR)/SwiftyJSON",
+					"$(BUILT_PRODUCTS_DIR)/Yams",
+				);
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		F9A7C06E2306E874007163C7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1479,6 +1594,15 @@
 			buildConfigurations = (
 				49CF3B2E20CD7465001EBF94 /* Debug */,
 				49CF3B2F20CD7465001EBF94 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C30100000000000000000012 /* Build configuration list for PBXNativeTarget "ClashFXTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C30100000000000000000010 /* Debug */,
+				C30100000000000000000011 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

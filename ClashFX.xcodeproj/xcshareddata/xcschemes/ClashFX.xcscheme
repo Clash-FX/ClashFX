@@ -6,8 +6,22 @@
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES">
       <BuildActionEntries>
+		 <BuildActionEntry
+			buildForTesting = "YES"
+			buildForRunning = "NO"
+			buildForProfiling = "NO"
+			buildForArchiving = "NO"
+			buildForAnalyzing = "NO">
+			<BuildableReference
+				BuildableIdentifier = "primary"
+				BlueprintIdentifier = "C30100000000000000000006"
+				BuildableName = "ClashFXTests.xctest"
+				BlueprintName = "ClashFXTests"
+				ReferencedContainer = "container:ClashFX.xcodeproj">
+			</BuildableReference>
+		 </BuildActionEntry>
          <BuildActionEntry
-            buildForTesting = "YES"
+            buildForTesting = "NO"
             buildForRunning = "YES"
             buildForProfiling = "YES"
             buildForArchiving = "YES"
@@ -27,16 +41,17 @@
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
-      <MacroExpansion>
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "49CF3B1C20CD7463001EBF94"
-            BuildableName = "ClashFX.app"
-            BlueprintName = "ClashFX"
-            ReferencedContainer = "container:ClashFX.xcodeproj">
-         </BuildableReference>
-      </MacroExpansion>
       <Testables>
+		 <TestableReference
+			skipped = "NO">
+			<BuildableReference
+				BuildableIdentifier = "primary"
+				BlueprintIdentifier = "C30100000000000000000006"
+				BuildableName = "ClashFXTests.xctest"
+				BlueprintName = "ClashFXTests"
+				ReferencedContainer = "container:ClashFX.xcodeproj">
+			</BuildableReference>
+		 </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
