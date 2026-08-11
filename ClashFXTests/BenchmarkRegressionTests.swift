@@ -204,3 +204,71 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertNil(ownership.activeGeneration)
     }
 }
+
+final class StartupProxyRecoveryPolicyTests: XCTestCase {
+    private func observation(
+        wantsSystemProxy: Bool = true,
+        proxyPaused: Bool = false,
+        enhancedModeActive: Bool = false,
+        initialConfigLoaded: Bool = true,
+        coreRunning: Bool = true,
+        httpPort: Int = 7890,
+        socksPort: Int = 7891,
+        helperReady: Bool = true,
+        primaryInterfaceReady: Bool = true
+    ) -> StartupProxyRecoveryObservation {
+        StartupProxyRecoveryObservation(
+            wantsSystemProxy: wantsSystemProxy,
+            proxyPaused: proxyPaused,
+            enhancedModeActive: enhancedModeActive,
+            initialConfigLoaded: initialConfigLoaded,
+            coreRunning: coreRunning,
+            httpPort: httpPort,
+            socksPort: socksPort,
+            helperReady: helperReady,
+            primaryInterfaceReady: primaryInterfaceReady
+        )
+    }
+
+    func testRecoveryStopsWhenSystemProxyIsNoLongerDesired() {
+        XCTAssertEqual(
+            StartupProxyRecoveryPolicy.decide(observation(wantsSystemProxy: false)),
+            .stop
+        )
+        XCTAssertEqual(
+            StartupProxyRecoveryPolicy.decide(observation(proxyPaused: true)),
+            .stop
+        )
+        XCTAssertEqual(
+            StartupProxyRecoveryPolicy.decide(observation(enhancedModeActive: true)),
+            .stop
+        )
+    }
+
+    func testRecoveryWaitsForEveryStartupPrerequisite() {
+        XCTAssertEqual(
+            StartupProxyRecoveryPolicy.decide(observation(initialConfigLoaded: false)),
+            .waitForConfig
+        )
+        XCTAssertEqual(
+            StartupProxyRecoveryPolicy.decide(observation(httpPort: 0)),
+            .waitForConfig
+        )
+        XCTAssertEqual(
+            StartupProxyRecoveryPolicy.decide(observation(coreRunning: false)),
+            .waitForCore
+        )
+        XCTAssertEqual(
+            StartupProxyRecoveryPolicy.decide(observation(helperReady: false)),
+            .waitForHelper
+        )
+        XCTAssertEqual(
+            StartupProxyRecoveryPolicy.decide(observation(primaryInterfaceReady: false)),
+            .waitForNetwork
+        )
+        XCTAssertEqual(
+            StartupProxyRecoveryPolicy.decide(observation()),
+            .verifyAndApply
+        )
+    }
+}

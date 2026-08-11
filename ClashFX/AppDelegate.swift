@@ -143,7 +143,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingStreamResetWork: DispatchWorkItem?
     private var pendingEnhancedModeRefreshWork: DispatchWorkItem?
     private var pendingWakeRecoveryWork: DispatchWorkItem?
+    private var pendingStartupProxyRecoveryWork: DispatchWorkItem?
     private var pendingProxyBypassReloadWork: DispatchWorkItem?
+    private var startupProxyRecoveryGeneration = 0
+    private var startupProxyRecoveryDeadline = Date.distantPast
+    private var isStartupProxyRecoveryActive = false
+    private var isStartupProxyRecoveryHealthCheckInFlight = false
+    private var didLoadInitialConfigForProxyRecovery = false
+    private var lastStartupProxyRecoveryDecision: StartupProxyRecoveryDecision?
+    private var lastStartupProxyConfigSyncTime = Date.distantPast
     private var isWakeEnhancedModeRestarting = false
     private var enhancedModeHealthTimer: Timer?
     private var isEnhancedModeHealthCheckInFlight = false
@@ -171,6 +179,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private static let wakeRecoveryDelay: TimeInterval = 3
     private static let wakeRecoveryRetryDelay: TimeInterval = 2
     private static let wakeRecoveryMaxAttempts = 3
+    private static let startupProxyRecoveryWindow: TimeInterval = 90
+    private static let startupProxyRecoveryRetryDelay: TimeInterval = 2
+    private static let startupProxyRecoveryApplyDelay: TimeInterval = 1
     private static let wakeEnhancedModeRestartMaxAttempts = 3
     private static let enhancedModeHealthInterval: TimeInterval = 15
     private static let enhancedModeHealthFailureThreshold = 3
@@ -333,12 +344,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         initClashCore()
         Logger.log("initClashCore finish")
         setupData()
+        prepareStartupProxyRecoveryIfNeeded()
         runAfterConfigReload = { [weak self] in
             if !Settings.builtInApiMode {
                 self?.selectAllowLanWithMenory()
             }
         }
-        updateConfig(showNotification: false)
+        updateConfig(showNotification: false) { [weak self] error in
+            self?.completeInitialConfigLoadForProxyRecovery(error: error)
+        }
         updateLoggingLevel()
         restoreEnhancedModeIfNeeded()
 
@@ -374,6 +388,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ aNotification: Notification) {
         UserDefaults.standard.set(0, forKey: "launch_fail_times")
         Logger.log("ClashFX will terminate")
+        pendingStartupProxyRecoveryWork?.cancel()
+        pendingStartupProxyRecoveryWork = nil
+        isStartupProxyRecoveryActive = false
         enhancedModeHealthTimer?.invalidate()
         enhancedModeHealthTimer = nil
         // Fallback: TerminalCleanUpAction.run() already handles Enhanced Mode cleanup
@@ -652,20 +669,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             }.disposed(by: disposeBag)
 
-        if !PrivilegedHelperManager.shared.isHelperCheckFinished.value &&
-            ConfigManager.shared.proxyPortAutoSet {
-            PrivilegedHelperManager.shared.isHelperCheckFinished
-                .filter { $0 }
-                .take(1)
-                .take(while: { _ in ConfigManager.shared.proxyPortAutoSet })
-                .observe(on: MainScheduler.instance)
-                .bind(onNext: { _ in
-                    SystemProxyManager.shared.enableProxy()
-                }).disposed(by: disposeBag)
-        } else if ConfigManager.shared.proxyPortAutoSet {
-            SystemProxyManager.shared.enableProxy()
-        }
-
         LaunchAtLogin.shared
             .isEnableVirable
             .asObservable()
@@ -689,6 +692,210 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func prepareStartupProxyRecoveryIfNeeded() {
+        guard ConfigManager.shared.proxyPortAutoSet,
+              !ConfigManager.shared.proxyShouldPaused.value,
+              !Settings.enhancedMode else {
+            return
+        }
+
+        startupProxyRecoveryGeneration += 1
+        startupProxyRecoveryDeadline = Date().addingTimeInterval(Self.startupProxyRecoveryWindow)
+        isStartupProxyRecoveryActive = true
+        isStartupProxyRecoveryHealthCheckInFlight = false
+        didLoadInitialConfigForProxyRecovery = false
+        lastStartupProxyRecoveryDecision = nil
+        lastStartupProxyConfigSyncTime = .distantPast
+        Logger.log("Startup proxy recovery: waiting for initial config and network")
+        scheduleStartupProxyRecovery(after: 0)
+    }
+
+    private func completeInitialConfigLoadForProxyRecovery(error: ErrorString?) {
+        guard isStartupProxyRecoveryActive else { return }
+        if let error {
+            finishStartupProxyRecovery(
+                generation: startupProxyRecoveryGeneration,
+                success: false,
+                reason: "initial config failed: \(error)"
+            )
+            return
+        }
+
+        didLoadInitialConfigForProxyRecovery = true
+        lastStartupProxyConfigSyncTime = Date()
+        syncConfig { [weak self] in
+            self?.scheduleStartupProxyRecovery(after: 0)
+        }
+        scheduleStartupProxyRecovery(after: 0)
+    }
+
+    private func startupProxyRecoveryObservation() -> StartupProxyRecoveryObservation {
+        let config = ConfigManager.shared.currentConfig
+        return StartupProxyRecoveryObservation(
+            wantsSystemProxy: ConfigManager.shared.proxyPortAutoSet,
+            proxyPaused: ConfigManager.shared.proxyShouldPaused.value,
+            enhancedModeActive: Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive,
+            initialConfigLoaded: didLoadInitialConfigForProxyRecovery,
+            coreRunning: ConfigManager.shared.isRunning,
+            httpPort: config?.usedHttpPort ?? 0,
+            socksPort: config?.usedSocksPort ?? 0,
+            helperReady: PrivilegedHelperManager.shared.isHelperCheckFinished.value,
+            primaryInterfaceReady: NetworkChangeNotifier.getPrimaryInterface() != nil
+        )
+    }
+
+    private func scheduleStartupProxyRecovery(after delay: TimeInterval) {
+        guard isStartupProxyRecoveryActive else { return }
+        let generation = startupProxyRecoveryGeneration
+        guard Date() < startupProxyRecoveryDeadline else {
+            finishStartupProxyRecovery(
+                generation: generation,
+                success: false,
+                reason: "timed out waiting for a usable core, helper, network, and system proxy"
+            )
+            return
+        }
+
+        pendingStartupProxyRecoveryWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.attemptStartupProxyRecovery(generation: generation)
+        }
+        pendingStartupProxyRecoveryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func attemptStartupProxyRecovery(generation: Int) {
+        guard isStartupProxyRecoveryActive,
+              generation == startupProxyRecoveryGeneration else {
+            return
+        }
+        guard Date() < startupProxyRecoveryDeadline else {
+            finishStartupProxyRecovery(
+                generation: generation,
+                success: false,
+                reason: "timed out before system proxy recovery completed"
+            )
+            return
+        }
+
+        let decision = StartupProxyRecoveryPolicy.decide(startupProxyRecoveryObservation())
+        if decision != lastStartupProxyRecoveryDecision {
+            Logger.log("Startup proxy recovery: \(decision)", level: .debug)
+            lastStartupProxyRecoveryDecision = decision
+        }
+
+        switch decision {
+        case .stop:
+            finishStartupProxyRecovery(
+                generation: generation,
+                success: true,
+                reason: "system proxy is no longer requested",
+                updateVerifiedProxyState: false
+            )
+        case .waitForConfig:
+            if didLoadInitialConfigForProxyRecovery,
+               Date().timeIntervalSince(lastStartupProxyConfigSyncTime) >= 5 {
+                lastStartupProxyConfigSyncTime = Date()
+                syncConfig { [weak self] in
+                    self?.scheduleStartupProxyRecovery(after: 0)
+                }
+            }
+            scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryRetryDelay)
+        case .waitForCore, .waitForHelper, .waitForNetwork:
+            scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryRetryDelay)
+        case .verifyAndApply:
+            verifyAndApplyStartupSystemProxy(generation: generation)
+        }
+    }
+
+    private func verifyAndApplyStartupSystemProxy(generation: Int) {
+        guard !isStartupProxyRecoveryHealthCheckInFlight else {
+            scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryRetryDelay)
+            return
+        }
+        isStartupProxyRecoveryHealthCheckInFlight = true
+
+        checkCoreHealthAfterWake { [weak self] health in
+            DispatchQueue.main.async {
+                guard let self,
+                      self.isStartupProxyRecoveryActive,
+                      generation == self.startupProxyRecoveryGeneration else {
+                    return
+                }
+                self.isStartupProxyRecoveryHealthCheckInFlight = false
+
+                guard case .healthy = health else {
+                    if case let .unhealthy(reason) = health {
+                        Logger.log(
+                            "Startup proxy recovery: core not ready: \(reason)",
+                            level: .warning
+                        )
+                    }
+                    self.scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryRetryDelay)
+                    return
+                }
+
+                guard StartupProxyRecoveryPolicy.decide(
+                    self.startupProxyRecoveryObservation()
+                ) == .verifyAndApply else {
+                    self.scheduleStartupProxyRecovery(after: 0)
+                    return
+                }
+
+                if NetworkChangeNotifier.isCurrentSystemSetToClash() {
+                    self.finishStartupProxyRecovery(
+                        generation: generation,
+                        success: true,
+                        reason: "system proxy verified",
+                        updateVerifiedProxyState: true
+                    )
+                    return
+                }
+
+                guard let config = ConfigManager.shared.currentConfig else {
+                    self.scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryRetryDelay)
+                    return
+                }
+                Logger.log(
+                    "Startup proxy recovery: applying system proxy on ready network",
+                    level: .warning
+                )
+                SystemProxyManager.shared.enableProxy(
+                    port: config.usedHttpPort,
+                    socksPort: config.usedSocksPort
+                )
+                self.scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryApplyDelay)
+            }
+        }
+    }
+
+    private func finishStartupProxyRecovery(
+        generation: Int,
+        success: Bool,
+        reason: String,
+        updateVerifiedProxyState: Bool = false
+    ) {
+        guard isStartupProxyRecoveryActive,
+              generation == startupProxyRecoveryGeneration else {
+            return
+        }
+        pendingStartupProxyRecoveryWork?.cancel()
+        pendingStartupProxyRecoveryWork = nil
+        isStartupProxyRecoveryActive = false
+        isStartupProxyRecoveryHealthCheckInFlight = false
+        lastStartupProxyRecoveryDecision = nil
+
+        if success {
+            if updateVerifiedProxyState {
+                ConfigManager.shared.isProxySetByOtherVariable.accept(false)
+                refreshStatusItemViewStatus()
+            }
+            Logger.log("Startup proxy recovery completed: \(reason)")
+        } else {
+            Logger.log("Startup proxy recovery failed: \(reason)", level: .error)
+        }
+    }
+
     func setupNetworkNotifier() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             NetworkChangeNotifier.start()
@@ -700,9 +907,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .notification(.systemNetworkStatusDidChange)
             .observe(on: MainScheduler.instance)
             .delay(.milliseconds(200), scheduler: MainScheduler.instance)
-            .bind { _ in
+            .bind { [weak self] _ in
                 guard NetworkChangeNotifier.getPrimaryInterface() != nil else { return }
                 let proxySetted = NetworkChangeNotifier.isCurrentSystemSetToClash()
+                if !proxySetted,
+                   ConfigManager.shared.proxyPortAutoSet,
+                   self?.isStartupProxyRecoveryActive == true {
+                    Logger.log(
+                        "Startup proxy recovery: ignoring transient missing proxy notification",
+                        level: .debug
+                    )
+                    self?.scheduleStartupProxyRecovery(after: 0.1)
+                    return
+                }
                 ConfigManager.shared.isProxySetByOtherVariable.accept(!proxySetted)
                 if !proxySetted && ConfigManager.shared.proxyPortAutoSet {
                     let proxiesSetting = NetworkChangeNotifier.getRawProxySetting()
@@ -727,6 +944,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .filter { $0 != nil }
             .observe(on: MainScheduler.instance)
             .debounce(.seconds(5), scheduler: MainScheduler.instance).bind { [weak self] _ in
+                if self?.isStartupProxyRecoveryActive == true {
+                    self?.scheduleStartupProxyRecovery(after: 0.1)
+                }
                 self?.healthCheckOnNetworkChange()
                 if Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive {
                     Logger.log("Network change: scheduling Enhanced Mode recovery check")
