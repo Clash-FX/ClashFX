@@ -231,14 +231,56 @@ class ClashWebViewContoller: NSViewController {
             if (banner) banner.remove();
           }
 
-          function rememberRules(response) {
-            response.clone().text().then(function(text) {
+          function isMeaningfulRuleTime(count, value) {
+            if (Number(count) <= 0 || typeof value !== 'string') return false;
+            var milliseconds = Date.parse(value);
+            return isFinite(milliseconds) && milliseconds > 0;
+          }
+
+          function sanitizeRuleTimes(payload) {
+            if (!payload || !Array.isArray(payload.rules)) return false;
+            var changed = false;
+            for (var i = 0; i < payload.rules.length; i++) {
+              var rule = payload.rules[i];
+              var extra = rule && rule.extra;
+              if (!extra || typeof extra !== 'object') continue;
+              if (!isMeaningfulRuleTime(extra.hitCount, extra.hitAt) &&
+                  Object.prototype.hasOwnProperty.call(extra, 'hitAt')) {
+                delete extra.hitAt;
+                changed = true;
+              }
+              if (!isMeaningfulRuleTime(extra.missCount, extra.missAt) &&
+                  Object.prototype.hasOwnProperty.call(extra, 'missAt')) {
+                delete extra.missAt;
+                changed = true;
+              }
+            }
+            return changed;
+          }
+
+          function responseWithText(response, text) {
+            var headers = new Headers(response.headers);
+            headers.delete('content-length');
+            return new Response(text, {
+              status: response.status,
+              statusText: response.statusText,
+              headers: headers
+            });
+          }
+
+          function normalizeAndRememberRules(response) {
+            return response.clone().text().then(function(text) {
               try {
                 var payload = JSON.parse(text);
-                if (!Array.isArray(payload.rules)) return;
-                rulesSnapshot = text;
+                if (!Array.isArray(payload.rules)) return response;
+                var changed = sanitizeRuleTimes(payload);
+                var normalizedText = changed ? JSON.stringify(payload) : text;
+                rulesSnapshot = normalizedText;
                 hideStaleBanner();
-              } catch (_) {}
+                return changed ? responseWithText(response, normalizedText) : response;
+              } catch (_) {
+                return response;
+              }
             });
           }
 
@@ -262,8 +304,7 @@ class ClashWebViewContoller: NSViewController {
             var args = arguments;
             return originalFetch.apply(receiver, args).then(function(response) {
               if (response && response.ok) {
-                rememberRules(response);
-                return response;
+                return normalizeAndRememberRules(response);
               }
               if (rulesSnapshot && response && response.status >= 500) {
                 return staleRulesResponse();

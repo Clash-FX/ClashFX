@@ -191,7 +191,8 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     func beginBenchmarkAction(session: ApiRequest.BenchmarkSession) {
         benchmarkActionSession = session
         isTesting = true
-        isEnabled = false
+        // Disabling the active custom-view item can end AppKit menu tracking.
+        // Keep it enabled and let the benchmark session reject repeat clicks.
         updateViewTitle(NSLocalizedString("Testing", comment: ""))
         session.onTermination { [weak self] in
             self?.finishBenchmarkActionIfOwned(session: session)
@@ -203,7 +204,6 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         guard benchmarkActionSession === session else { return false }
         benchmarkActionSession = nil
         isTesting = false
-        isEnabled = true
         updateViewTitle(testType.title)
         return true
     }

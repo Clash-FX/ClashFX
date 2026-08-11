@@ -1,5 +1,7 @@
 ### Bug Fixes
 
+- **Delay Test Menu Stays Open on the First Click** — Starting a delay test no longer disables the active custom menu item, which could make AppKit close the proxy menu before showing progress. Repeat clicks are still rejected by the active benchmark session.
+- **Never-Matched Rules Reliably Hide Epoch Times** — Rule timestamps are now normalized in ClashFX's native Dashboard response layer, including cached snapshots, so release-time Dashboard replacement can no longer bring back “57 years ago.” (#147)
 - **Selected-Group Delay Tests Avoid Duplicate Work** — When a selector contains a URLTest group and the same leaf nodes, ClashFX now tests that automatic group once with its configured URL and skips individually retesting the nodes it already covered. Large groups finish sooner without bringing back provider-wide health checks. (#147)
 - **Automatic Groups Re-evaluate After Complete Results** — A URLTest started from the controller now clears any choice cached while candidates were still responding, then applies the configured tolerance to the complete result set. Early responses can no longer remain selected after slower candidates finish. (#147)
 
@@ -11,6 +13,8 @@
 
 ### 修复
 
+- **首次点击延迟测速时菜单不再消失** — 开始测速时不再禁用当前自定义菜单项，避免 AppKit 在显示进度前直接关闭代理菜单；测速会话仍会拦截重复点击。
+- **未命中规则会可靠隐藏纪元时间** — 规则时间现在由 ClashFX 原生控制台响应层统一处理，缓存快照也会使用清洗后的数据，发布时替换 Dashboard 资源也不会再让“57 年前”重新出现。 (#147)
 - **策略组测速不再重复测试相同节点** — 当手动选择组同时包含自动策略组及其节点时，ClashFX 现在会按自动策略组自己的地址整组测试一次，并跳过已覆盖节点的逐个重复测速；大型策略组会更快完成，也不会重新触发 Provider 全量测速。 (#147)
 - **自动策略会在完整结果返回后重新判断** — 通过控制接口触发 URLTest 时，核心现在会清除测速过程中提前缓存的选择，再基于完整结果和订阅配置的容差重新判断；较早返回的节点不会在整组测速结束后仍被错误保留。 (#147)
 
