@@ -1,8 +1,8 @@
 import Foundation
 
-// The unhosted unit-test bundle compiles the pure proxy-model sources directly.
-// These test-only shims satisfy their logging/date-format dependencies without
-// loading ClashFX's AppDelegate, controller, helper, or live configuration.
+/// The unhosted unit-test bundle compiles the pure proxy-model sources directly.
+/// These test-only shims satisfy their logging/date-format dependencies without
+/// loading ClashFX's AppDelegate, controller, helper, or live configuration.
 enum ClashLogLevel {
     case info
     case warning
@@ -13,7 +13,7 @@ enum Logger {
 }
 
 extension DateFormatter {
-    static let js: DateFormatter = DateFormatter()
+    static let js: DateFormatter = .init()
 }
 
 final class IsolatedBenchmarkSession {

@@ -46,8 +46,8 @@ final class BenchmarkRegressionTests: XCTestCase {
         let nilMembers = snapshot([
             ["name": "Selector", "type": "Selector", "history": []]
         ])
-        XCTAssertTrue(SelectorBenchmarkPlan.make(
-            selector: try XCTUnwrap(nilMembers.proxiesMap["Selector"]),
+        XCTAssertTrue(try SelectorBenchmarkPlan.make(
+            selector: XCTUnwrap(nilMembers.proxiesMap["Selector"]),
             snapshot: nilMembers,
             benchmarkURL: "https://benchmark.example.test",
             timeout: 5
@@ -56,8 +56,8 @@ final class BenchmarkRegressionTests: XCTestCase {
         let emptyMembers = snapshot([
             ["name": "Selector", "type": "Selector", "all": [], "history": []]
         ])
-        XCTAssertTrue(SelectorBenchmarkPlan.make(
-            selector: try XCTUnwrap(emptyMembers.proxiesMap["Selector"]),
+        XCTAssertTrue(try SelectorBenchmarkPlan.make(
+            selector: XCTUnwrap(emptyMembers.proxiesMap["Selector"]),
             snapshot: emptyMembers,
             benchmarkURL: "https://benchmark.example.test",
             timeout: 5
@@ -67,8 +67,8 @@ final class BenchmarkRegressionTests: XCTestCase {
             ["name": "Selector", "type": "Selector", "all": ["Direct"], "now": "Direct", "history": []],
             ["name": "Direct", "type": "Direct", "history": []]
         ])
-        let plan = SelectorBenchmarkPlan.make(
-            selector: try XCTUnwrap(singleLeaf.proxiesMap["Selector"]),
+        let plan = try SelectorBenchmarkPlan.make(
+            selector: XCTUnwrap(singleLeaf.proxiesMap["Selector"]),
             snapshot: singleLeaf,
             benchmarkURL: "https://benchmark.example.test",
             timeout: 5
@@ -77,7 +77,7 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(plan.targets.count, 1)
     }
 
-    func testResolutionReportsCycleMissingNowAndUnknownTarget() throws {
+    func testResolutionReportsCycleMissingNowAndUnknownTarget() {
         let cycle = snapshot([
             ["name": "A", "type": "Selector", "all": ["B"], "now": "B", "history": []],
             ["name": "B", "type": "URLTest", "all": ["A"], "now": "A", "history": []]
@@ -111,14 +111,14 @@ final class BenchmarkRegressionTests: XCTestCase {
             ["name": "First", "type": "Direct", "history": []],
             ["name": "Second", "type": "Reject", "history": []]
         ])
-        let plan = SelectorBenchmarkPlan.make(
-            selector: try XCTUnwrap(response.proxiesMap["Selector"]),
+        let plan = try SelectorBenchmarkPlan.make(
+            selector: XCTUnwrap(response.proxiesMap["Selector"]),
             snapshot: response,
             benchmarkURL: "https://benchmark.example.test",
             timeout: 5
         )
         XCTAssertEqual(plan.orderedRows.map(\.rowName), ["First", "Second", "First"])
-        XCTAssertEqual(plan.targets.map { $0.key.proxyName }, ["First", "Second"])
+        XCTAssertEqual(plan.targets.map(\.key.proxyName), ["First", "Second"])
         XCTAssertEqual(plan.targets[0].aliases.map(\.rowName), ["First", "First"])
         XCTAssertNotEqual(plan.targets[0].key, plan.targets[1].key)
         XCTAssertEqual(plan.targets[0].key.endpoint, .inline)
