@@ -1,5 +1,7 @@
 ### Bug Fixes
 
+- **Large Strategy-Group Benchmarks Stay Responsive** — Large Selector menus now use more conservative benchmark concurrency so the local connection pool and test endpoint are not flooded, reducing uniformly inflated delays and widespread failures. Nested automatic rows keep stable names, long labels truncate cleanly, and delay badges remain readable without resizing the open menu. (#147)
+- **System Proxy Recovers After a Cold Startup** — After a reboot or unexpected shutdown, ClashFX now waits for the configuration, core, privileged helper, and network to become ready before verifying and restoring the macOS System Proxy. Recovery is bounded and stops immediately if the user disables System Proxy or switches to Enhanced Mode. (#147)
 - **Delay Test Menu Stays Open on the First Click** — Starting a delay test no longer disables the active custom menu item, which could make AppKit close the proxy menu before showing progress. Repeat clicks are still rejected by the active benchmark session.
 - **Never-Matched Rules Reliably Hide Epoch Times** — Rule timestamps are now normalized in ClashFX's native Dashboard response layer, including cached snapshots, so release-time Dashboard replacement can no longer bring back “57 years ago.” (#147)
 - **Selected-Group Delay Tests Avoid Duplicate Work** — When a selector contains a URLTest group and the same leaf nodes, ClashFX now tests that automatic group once with its configured URL and skips individually retesting the nodes it already covered. Large groups finish sooner without bringing back provider-wide health checks. (#147)
@@ -13,6 +15,8 @@
 
 ### 修复
 
+- **大型策略组测速更加稳定** — 大型 Selector 菜单现在会采用更保守的测速并发，避免挤满本地连接池或测速服务，减少所有延迟一起偏高及大面积失败。嵌套自动策略行会保持原名称，长文案自动截断，延迟标签也不会再因菜单变宽而重叠。 (#147)
+- **冷启动后会自动恢复系统代理** — 重启或异常关机后，ClashFX 会等待配置、核心、特权 Helper 和网络全部就绪，再检查并恢复 macOS 系统代理。恢复过程有时间上限；如果用户关闭系统代理或切换到增强模式，会立即停止。 (#147)
 - **首次点击延迟测速时菜单不再消失** — 开始测速时不再禁用当前自定义菜单项，避免 AppKit 在显示进度前直接关闭代理菜单；测速会话仍会拦截重复点击。
 - **未命中规则会可靠隐藏纪元时间** — 规则时间现在由 ClashFX 原生控制台响应层统一处理，缓存快照也会使用清洗后的数据，发布时替换 Dashboard 资源也不会再让“57 年前”重新出现。 (#147)
 - **策略组测速不再重复测试相同节点** — 当手动选择组同时包含自动策略组及其节点时，ClashFX 现在会按自动策略组自己的地址整组测试一次，并跳过已覆盖节点的逐个重复测速；大型策略组会更快完成，也不会重新触发 Provider 全量测速。 (#147)
