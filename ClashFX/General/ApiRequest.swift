@@ -1015,9 +1015,9 @@ class ApiRequest {
 
         Logger.log(
             "[Proxy Delay] Starting Selector benchmark: \(tasks.count) unique target(s), "
-                + "max concurrency \(benchmarkMaxConcurrent)"
+                + "max concurrency \(plan.maxConcurrentRequests)"
         )
-        LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: benchmarkMaxConcurrent)
+        LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: plan.maxConcurrentRequests)
             .start(completion: completion)
     }
 

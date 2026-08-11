@@ -40,6 +40,7 @@ class ProxyItemView: MenuItemBaseView {
             delayLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
         }
         nameLabel.alignment = .left
+        nameLabel.lineBreakMode = .byTruncatingTail
         delayLabel.alignment = .right
 
         delayLabel.wantsLayer = true
@@ -53,25 +54,36 @@ class ProxyItemView: MenuItemBaseView {
         super.layout()
         nameLabel.sizeToFit()
         delayLabel.sizeToFit()
+        let fullNameWidth = nameLabel.bounds.width
+        let delayWidth = delayLabel.bounds.width
+        let nameOriginX: CGFloat = 18
+        let interLabelSpacing: CGFloat = delayLabel.stringValue.isEmpty ? 0 : 8
+        let delayOriginX = effectView.bounds.width - delayWidth - 8
+        let availableNameWidth = max(0, delayOriginX - interLabelSpacing - nameOriginX)
+        let visibleNameWidth = min(fullNameWidth, availableNameWidth)
         imageView?.frame = CGRect(x: 5, y: effectView.bounds.height / 2 - 6, width: 12, height: 12)
-        nameLabel.frame = CGRect(x: 18,
+        nameLabel.frame = CGRect(x: nameOriginX,
                                  y: (effectView.bounds.height - nameLabel.bounds.height) / 2,
-                                 width: nameLabel.bounds.width,
+                                 width: visibleNameWidth,
                                  height: nameLabel.bounds.height)
-        delayLabel.frame = CGRect(x: effectView.bounds.width - delayLabel.bounds.width - 8,
+        delayLabel.frame = CGRect(x: delayOriginX,
                                   y: (effectView.bounds.height - delayLabel.bounds.height) / 2,
-                                  width: delayLabel.bounds.width,
+                                  width: delayWidth,
                                   height: delayLabel.bounds.height)
+        nameLabel.toolTip = fullNameWidth > availableNameWidth ? nameLabel.stringValue : nil
     }
 
     func update(str: String?, value: Int?) {
         delayLabel.stringValue = str ?? ""
         needsLayout = true
+        needsDisplay = true
 
         guard let delay = value, str != nil else {
+            delayLabel.textColor = NSColor.labelColor
             delayLabel.layer?.backgroundColor = NSColor.clear.cgColor
             return
         }
+        delayLabel.textColor = NSColor.white
         switch delay {
         case 0:
             delayLabel.layer?.backgroundColor = CGColor.fail

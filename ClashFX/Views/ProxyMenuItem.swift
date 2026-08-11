@@ -188,7 +188,10 @@ class ProxyMenuItem: NSMenuItem {
             return
         }
 
-        let displayName = leaf.name == proxyName ? proxyName : "\(proxyName) → \(leaf.name)"
+        // Keep the Selector row label stable while the resolved leaf changes.
+        // The fresh leaf remains authoritative for choosing the measurement,
+        // but displaying the full path here can resize an already-open menu.
+        let displayName = proxyName
         if let history = leaf.history.last,
            let updatedAt = benchmarkRowStateUpdatedAt,
            history.time > updatedAt {

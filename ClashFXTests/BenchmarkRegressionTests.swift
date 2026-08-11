@@ -25,10 +25,11 @@ final class BenchmarkRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        XCTAssertEqual(plan.orderedRows.map(\.displayName), ["Direct", "Automatic → Direct"])
+        XCTAssertEqual(plan.orderedRows.map(\.displayName), ["Direct", "Automatic"])
         XCTAssertEqual(plan.targets.count, 1)
         XCTAssertEqual(plan.targets.first?.aliases.map(\.rowName), ["Direct", "Automatic"])
         XCTAssertEqual(plan.targets.first?.key.proxyName, "Direct")
+        XCTAssertEqual(plan.maxConcurrentRequests, 1)
 
         let automatic = AutomaticGroupRetestSnapshot.make(
             groupName: "Automatic",
@@ -125,6 +126,26 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertNil(plan.targets[0].key.providerName)
         XCTAssertEqual(plan.targets[0].key.benchmarkURL, "https://benchmark.example.test")
         XCTAssertEqual(plan.targets[0].key.timeout, 5)
+    }
+
+    func testSelectorConcurrencyStaysConservativeForLargeMenus() throws {
+        let names = (1 ... 25).map { "Proxy \($0)" }
+        var proxies: [[String: Any]] = [
+            ["name": "Selector", "type": "Selector", "all": names, "now": names[0], "history": []]
+        ]
+        proxies.append(contentsOf: names.map {
+            ["name": $0, "type": "Direct", "history": []]
+        })
+        let response = snapshot(proxies)
+        let plan = try SelectorBenchmarkPlan.make(
+            selector: XCTUnwrap(response.proxiesMap["Selector"]),
+            snapshot: response,
+            benchmarkURL: "https://benchmark.example.test",
+            timeout: 5
+        )
+
+        XCTAssertEqual(plan.targets.count, 25)
+        XCTAssertEqual(plan.maxConcurrentRequests, 4)
     }
 
     func testAutomaticSnapshotsMapOnlyFreshPathEvidence() {

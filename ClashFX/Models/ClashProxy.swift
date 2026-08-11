@@ -157,6 +157,10 @@ struct SelectorBenchmarkRow {
 }
 
 struct SelectorBenchmarkPlan {
+    private static let smallPlanConcurrency = 6
+    private static let largePlanConcurrency = 4
+    private static let largePlanThreshold = 24
+
     struct Target {
         let key: SelectorBenchmarkMeasurementKey
         let aliases: [SelectorBenchmarkRow]
@@ -164,6 +168,17 @@ struct SelectorBenchmarkPlan {
 
     let orderedRows: [SelectorBenchmarkRow]
     let targets: [Target]
+
+    /// Large menus can otherwise saturate the benchmark destination or the
+    /// local connection pool and inflate every measured delay. Small plans
+    /// keep a little more parallelism so their total completion time stays low.
+    var maxConcurrentRequests: Int {
+        guard !targets.isEmpty else { return 1 }
+        let limit = targets.count > Self.largePlanThreshold
+            ? Self.largePlanConcurrency
+            : Self.smallPlanConcurrency
+        return min(targets.count, limit)
+    }
 
     static func make(selector: ClashProxy,
                      snapshot: ClashProxyResp,
@@ -214,9 +229,10 @@ struct SelectorBenchmarkPlan {
             }
             return SelectorBenchmarkRow(
                 rowName: visibleName,
-                displayName: proxy.name == visibleName
-                    ? visibleName
-                    : "\(visibleName) → \(proxy.name)",
+                // Keep the visible Selector row stable. Expanding a nested
+                // policy path here makes AppKit resize the open menu and can
+                // overlap the delay badge on long node names.
+                displayName: visibleName,
                 measurementKey: SelectorBenchmarkMeasurementKey(
                     endpoint: endpoint,
                     providerName: providerName,
