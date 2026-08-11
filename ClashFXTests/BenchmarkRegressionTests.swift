@@ -41,4 +41,145 @@ final class BenchmarkRegressionTests: XCTestCase {
         }
         XCTAssertEqual(delay, 42)
     }
+
+    func testSelectorPlanHandlesNilEmptyAndSingleLeafMembers() throws {
+        let nilMembers = snapshot([
+            ["name": "Selector", "type": "Selector", "history": []]
+        ])
+        XCTAssertTrue(SelectorBenchmarkPlan.make(
+            selector: try XCTUnwrap(nilMembers.proxiesMap["Selector"]),
+            snapshot: nilMembers,
+            benchmarkURL: "https://benchmark.example.test",
+            timeout: 5
+        ).orderedRows.isEmpty)
+
+        let emptyMembers = snapshot([
+            ["name": "Selector", "type": "Selector", "all": [], "history": []]
+        ])
+        XCTAssertTrue(SelectorBenchmarkPlan.make(
+            selector: try XCTUnwrap(emptyMembers.proxiesMap["Selector"]),
+            snapshot: emptyMembers,
+            benchmarkURL: "https://benchmark.example.test",
+            timeout: 5
+        ).targets.isEmpty)
+
+        let singleLeaf = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["Direct"], "now": "Direct", "history": []],
+            ["name": "Direct", "type": "Direct", "history": []]
+        ])
+        let plan = SelectorBenchmarkPlan.make(
+            selector: try XCTUnwrap(singleLeaf.proxiesMap["Selector"]),
+            snapshot: singleLeaf,
+            benchmarkURL: "https://benchmark.example.test",
+            timeout: 5
+        )
+        XCTAssertEqual(plan.orderedRows.map(\.rowName), ["Direct"])
+        XCTAssertEqual(plan.targets.count, 1)
+    }
+
+    func testResolutionReportsCycleMissingNowAndUnknownTarget() throws {
+        let cycle = snapshot([
+            ["name": "A", "type": "Selector", "all": ["B"], "now": "B", "history": []],
+            ["name": "B", "type": "URLTest", "all": ["A"], "now": "A", "history": []]
+        ])
+        guard case let .unavailable(_, .cycle(name)) = cycle.resolveSelectedPath(from: "A") else {
+            return XCTFail("expected cycle")
+        }
+        XCTAssertEqual(name, "A")
+
+        let missingNow = snapshot([
+            ["name": "A", "type": "Selector", "all": ["Direct"], "history": []],
+            ["name": "Direct", "type": "Direct", "history": []]
+        ])
+        guard case let .unavailable(_, .missingSelection(name)) = missingNow.resolveSelectedPath(from: "A") else {
+            return XCTFail("expected missingNow")
+        }
+        XCTAssertEqual(name, "A")
+
+        let unknownTarget = snapshot([
+            ["name": "A", "type": "Selector", "all": ["Ghost"], "now": "Ghost", "history": []]
+        ])
+        guard case let .unavailable(_, .unknownTarget(name)) = unknownTarget.resolveSelectedPath(from: "A") else {
+            return XCTFail("expected unknownTarget")
+        }
+        XCTAssertEqual(name, "Ghost")
+    }
+
+    func testDistinctLeavesDoNotCoalesceAndRowsKeepStableOrder() throws {
+        let response = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["First", "Second", "First"], "now": "First", "history": []],
+            ["name": "First", "type": "Direct", "history": []],
+            ["name": "Second", "type": "Reject", "history": []]
+        ])
+        let plan = SelectorBenchmarkPlan.make(
+            selector: try XCTUnwrap(response.proxiesMap["Selector"]),
+            snapshot: response,
+            benchmarkURL: "https://benchmark.example.test",
+            timeout: 5
+        )
+        XCTAssertEqual(plan.orderedRows.map(\.rowName), ["First", "Second", "First"])
+        XCTAssertEqual(plan.targets.map { $0.key.proxyName }, ["First", "Second"])
+        XCTAssertEqual(plan.targets[0].aliases.map(\.rowName), ["First", "First"])
+        XCTAssertNotEqual(plan.targets[0].key, plan.targets[1].key)
+        XCTAssertEqual(plan.targets[0].key.endpoint, .inline)
+        XCTAssertNil(plan.targets[0].key.providerName)
+        XCTAssertEqual(plan.targets[0].key.benchmarkURL, "https://benchmark.example.test")
+        XCTAssertEqual(plan.targets[0].key.timeout, 5)
+    }
+
+    func testAutomaticSnapshotsMapOnlyFreshPathEvidence() {
+        let response = snapshot([
+            ["name": "Automatic", "type": "URLTest", "all": ["Final", "LowerSibling"], "now": "Final", "history": []],
+            ["name": "Final", "type": "Direct", "history": []],
+            ["name": "LowerSibling", "type": "Direct", "history": []]
+        ])
+        let measured = AutomaticGroupRetestSnapshot.make(
+            groupName: "Automatic",
+            candidateDelays: ["Final": 50, "LowerSibling": 1],
+            snapshot: response
+        )
+        XCTAssertEqual(measured.finalLeaf, "Final")
+        guard case let .measured(delay) = measured.evidence else {
+            return XCTFail("expected fresh final evidence")
+        }
+        XCTAssertEqual(delay, 50)
+
+        let noMatchingCandidate = AutomaticGroupRetestSnapshot.make(
+            groupName: "Automatic",
+            candidateDelays: ["LowerSibling": 1],
+            snapshot: response
+        )
+        guard case .noMatchingCandidate = noMatchingCandidate.evidence else {
+            return XCTFail("expected noMatchingCandidate")
+        }
+
+        let zeroDelay = AutomaticGroupRetestSnapshot.make(
+            groupName: "Automatic",
+            candidateDelays: ["Final": 0],
+            snapshot: response
+        )
+        guard case let .zeroDelay(node) = zeroDelay.evidence else {
+            return XCTFail("expected zeroDelay")
+        }
+        XCTAssertEqual(node, "Final")
+    }
+
+    func testCancelTerminatesObserversOnceAndRejectsObsoleteGeneration() {
+        let session = IsolatedBenchmarkSession()
+        var terminationCount = 0
+        session.onTermination { terminationCount += 1 }
+        session.cancel()
+        session.cancel()
+        session.terminate()
+        XCTAssertTrue(session.isCancelled)
+        XCTAssertEqual(terminationCount, 1)
+
+        var ownership = IsolatedBenchmarkOwnership()
+        let obsoleteSession = ownership.begin()
+        let replacementSession = ownership.begin()
+        XCTAssertFalse(ownership.finish(obsoleteSession))
+        XCTAssertEqual(ownership.activeGeneration, replacementSession)
+        XCTAssertTrue(ownership.finish(replacementSession))
+        XCTAssertNil(ownership.activeGeneration)
+    }
 }

@@ -15,3 +15,47 @@ enum Logger {
 extension DateFormatter {
     static let js: DateFormatter = DateFormatter()
 }
+
+final class IsolatedBenchmarkSession {
+    private var terminated = false
+    private var observers = [() -> Void]()
+
+    var isCancelled = false
+
+    func onTermination(_ observer: @escaping () -> Void) {
+        if terminated {
+            observer()
+        } else {
+            observers.append(observer)
+        }
+    }
+
+    func cancel() {
+        isCancelled = true
+        terminate()
+    }
+
+    func terminate() {
+        guard !terminated else { return }
+        terminated = true
+        let callbacks = observers
+        observers.removeAll()
+        callbacks.forEach { $0() }
+    }
+}
+
+struct IsolatedBenchmarkOwnership {
+    private(set) var activeGeneration: Int?
+
+    mutating func begin() -> Int {
+        let generation = (activeGeneration ?? 0) + 1
+        activeGeneration = generation
+        return generation
+    }
+
+    mutating func finish(_ generation: Int) -> Bool {
+        guard activeGeneration == generation else { return false }
+        activeGeneration = nil
+        return true
+    }
+}
