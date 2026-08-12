@@ -26,7 +26,12 @@ class DebugSettingViewController: NSViewController {
     }
 
     @IBAction func actionOpenLogFolder(_ sender: Any) {
-        NSWorkspace.shared.openFile(Logger.shared.logFolder())
+        let latestLogPath = Logger.shared.logFilePath()
+        guard !latestLogPath.isEmpty else {
+            NSWorkspace.shared.openFile(Logger.shared.logFolder())
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: latestLogPath)])
     }
 
     @IBAction func actionOpenLocalConfig(_ sender: Any) {

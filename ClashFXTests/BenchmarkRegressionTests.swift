@@ -1,5 +1,53 @@
 import XCTest
 
+final class DiagnosticFormattingTests: XCTestCase {
+    func testRedactorSanitizesReportMetadataAndLogLines() {
+        let input = """
+        - Primary IP: 192.168.3.22
+        - DNS Servers: 198.18.0.2
+        - Config: /Users/example/.config/clashfx/config.yaml
+        - Interface: aa:bb:cc:dd:ee:ff
+        [Info] ApiRequest.swift request --> api.example.com:443
+        - URL: https://cp.cloudflare.com/generate_204?token=private-token
+        - Authorization: Bearer private-credential
+        """
+
+        let output = DiagnosticRedactor.redact(input, homeDirectory: "/Users/example")
+
+        XCTAssertFalse(output.contains("example/.config"))
+        XCTAssertFalse(output.contains("192.168.3.22"))
+        XCTAssertFalse(output.contains("198.18.0.2"))
+        XCTAssertFalse(output.contains("aa:bb:cc:dd:ee:ff"))
+        XCTAssertFalse(output.contains("api.example.com"))
+        XCTAssertFalse(output.contains("cp.cloudflare.com"))
+        XCTAssertFalse(output.contains("private-token"))
+        XCTAssertFalse(output.contains("private-credential"))
+        XCTAssertTrue(output.contains("<redacted-home>"))
+        XCTAssertTrue(output.contains("<redacted-ipv4>"))
+        XCTAssertTrue(output.contains("<redacted-mac>"))
+        XCTAssertTrue(output.contains("<redacted-host>"))
+        XCTAssertTrue(output.contains("ApiRequest.swift"))
+    }
+
+    func testLogTimestampsUseLocalTimeAndExplicitOffset() throws {
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 8 * 60 * 60))
+        let date = Date(timeIntervalSince1970: 0)
+
+        XCTAssertEqual(
+            LogTimestampFormatting.lineDateFormatter(timeZone: timeZone).string(from: date),
+            "1970/01/01 08:00:00.000 +08:00"
+        )
+        XCTAssertEqual(
+            LogTimestampFormatting.fileName(
+                appName: "com.clashfx.app",
+                date: date,
+                timeZone: timeZone
+            ),
+            "com.clashfx.app 1970-01-01--08-00-00-000-+0800.log"
+        )
+    }
+}
+
 final class BenchmarkRegressionTests: XCTestCase {
     private func snapshot(_ proxyJSON: [[String: Any]]) -> ClashProxyResp {
         let proxies = Dictionary(uniqueKeysWithValues: proxyJSON.compactMap { proxy -> (String, Any)? in

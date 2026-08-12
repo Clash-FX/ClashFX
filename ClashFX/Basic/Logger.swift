@@ -9,6 +9,13 @@
 import CocoaLumberjack
 import Foundation
 
+private final class ClashFXLogFileManager: DDLogFileManagerDefault {
+    override var newLogFileName: String {
+        let appName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        return LogTimestampFormatting.fileName(appName: appName)
+    }
+}
+
 enum CoreLogRecoveryReason {
     case closedTunSocket
     case outboundInterfaceUnavailable
@@ -175,17 +182,17 @@ private final class CoreLogGuard {
 
 class Logger {
     static let shared = Logger()
-    var fileLogger: DDFileLogger = .init()
+    var fileLogger: DDFileLogger
     private let coreLogGuard = CoreLogGuard()
 
     private init() {
+        fileLogger = DDFileLogger(logFileManager: ClashFXLogFileManager())
         #if DEBUG
             DDLog.add(DDOSLogger.sharedInstance)
         #endif
-        // default time zone is "UTC"
-        let dataFormatter = DateFormatter()
-        dataFormatter.setLocalizedDateFormatFromTemplate("YYYY/MM/dd HH:mm:ss:SSS")
-        fileLogger.logFormatter = DDLogFileFormatterDefault(dateFormatter: dataFormatter)
+        fileLogger.logFormatter = DDLogFileFormatterDefault(
+            dateFormatter: LogTimestampFormatting.lineDateFormatter()
+        )
         fileLogger.rollingFrequency = TimeInterval(60 * 60 * 24) // 24 hours
         fileLogger.logFileManager.maximumNumberOfLogFiles = 3
         DDLog.add(fileLogger)

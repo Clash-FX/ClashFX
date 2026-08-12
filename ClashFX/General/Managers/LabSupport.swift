@@ -52,7 +52,7 @@ enum LabSupport {
         lines.append("```")
         lines.append(fileTailLines(path: kConfigFolderPath + ".mihomo_core.log", count: 30))
         lines.append("```")
-        return lines.joined(separator: "\n")
+        return redact(lines.joined(separator: "\n"))
     }
 
     static func hardwareArchitecture() -> String {
@@ -118,23 +118,7 @@ enum LabSupport {
     }
 
     static func redact(_ input: String) -> String {
-        var output = input
-        let patterns: [(String, String)] = [
-            (#"\b(?:\d{1,3}\.){3}\d{1,3}\b"#, "<redacted-ipv4>"),
-            (#"(?i)\b([a-z][a-z0-9+.-]*://)(?:[^@\s/]+@)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)(?=[:/?#\s]|$)"#, "$1<redacted-host>"),
-            (#"(?i)\b((?:server|host|hostname|dns|nameserver|url|endpoint|proxy|sni)\s*[:=]\s*)([a-z0-9-]+(?:\.[a-z0-9-]+)+)(?=[:/\s]|$)"#, "$1<redacted-host>"),
-            (#"(?i)(?<![:/@])\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#, "<redacted-email>"),
-            (#"(?<![0-9a-fA-F:])(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}(?![0-9a-fA-F:])"#, "<redacted-ipv6>"),
-            (#"(?<![0-9a-fA-F:])[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{1,4}){0,6}::[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{1,4}){0,6}(?![0-9a-fA-F:])"#, "<redacted-ipv6>"),
-            (#"(?i)\b(authorization|bearer|token|password|secret|auth|key|cookie)\s*[:=]?\s+\S+"#, "$1 <redacted>"),
-            (#"(?i)\b(authorization|bearer|token|password|secret|auth|key|cookie)\s*[:=]\s*\S+"#, "$1=<redacted>")
-        ]
-        for (pattern, replacement) in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { continue }
-            let range = NSRange(output.startIndex ..< output.endIndex, in: output)
-            output = regex.stringByReplacingMatches(in: output, options: [], range: range, withTemplate: replacement)
-        }
-        return output
+        return DiagnosticRedactor.redact(input)
     }
 
     // MARK: - Actions
