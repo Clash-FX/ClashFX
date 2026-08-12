@@ -1,5 +1,29 @@
 ### Bug Fixes
 
+- **Diagnostic Reports Protect Local Details** — The complete diagnostic report now removes macOS home paths and usernames, local IP and MAC addresses, hostnames, credentials, and other machine-specific details before it is copied for sharing. (#147)
+- **Log Times and the Latest Log Are Easier to Find** — Log lines and filenames now use local time with an explicit UTC offset. “Open Log Folder” also selects the newest log directly instead of relying on Finder's current sort order. (#147)
+
+### Contributors
+
+- @a51095 — Reported the confusing log timestamps and ordering, and provided the diagnostic file that exposed incomplete redaction. (#147)
+
+---
+
+### 修复
+
+- **诊断信息会更完整地保护本机隐私** — 复制诊断信息时，现在会对整份内容统一脱敏，移除 macOS 用户名和主目录路径、局域网 IP、MAC 地址、主机名、凭据等本机信息。 (#147)
+- **日志时间与最新日志更容易辨认** — 日志内容和文件名现在使用本地时间并明确标注 UTC 偏移；点击“打开日志文件夹”时也会直接选中最新的日志，不再依赖 Finder 当前的排序方式。 (#147)
+
+### 贡献者
+
+- @a51095 — 反馈日志时间和排序容易误解，并提供诊断文件帮助发现脱敏不完整的问题。 (#147)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Large Strategy-Group Benchmarks Stay Responsive** — Large Selector menus now use more conservative benchmark concurrency so the local connection pool and test endpoint are not flooded, reducing uniformly inflated delays and widespread failures. Nested automatic rows keep stable names, long labels truncate cleanly, and delay badges remain readable without resizing the open menu. (#147)
 - **System Proxy Recovers After a Cold Startup** — After a reboot or unexpected shutdown, ClashFX now waits for the configuration, core, privileged helper, and network to become ready before verifying and restoring the macOS System Proxy. Recovery is bounded and stops immediately if the user disables System Proxy or switches to Enhanced Mode. (#147)
 - **Delay Test Menu Stays Open on the First Click** — Starting a delay test no longer disables the active custom menu item, which could make AppKit close the proxy menu before showing progress. Repeat clicks are still rejected by the active benchmark session.
