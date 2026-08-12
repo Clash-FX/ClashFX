@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.9.9 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.9 (Lab)</h2><ul><li><strong>Diagnostic Reports Protect Local Details</strong> — The complete diagnostic report now removes macOS home paths and usernames, local IP and MAC addresses, hostnames, credentials, and other machine-specific details before it is copied for sharing. (#147)</li><li><strong>Log Times and the Latest Log Are Easier to Find</strong> — Log lines and filenames now use local time with an explicit UTC offset. “Open Log Folder” also selects the newest log directly instead of relying on Finder's current sort order. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Wed, 12 Aug 2026 11:28:07 +0000</pubDate>
+  <sparkle:version>1001009009</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.9</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.9/ClashFX.dmg"
+    sparkle:version="1001009009"
+    sparkle:shortVersionString="1.1.9.9"
+    sparkle:edSignature="N+uatxGsr0GQD1ZC1t5nvKh6dariDliNIHqWtiHWpToyLtfZPfCZFGLCSbaMWcoHlSt/Xxl2q+M0dyqN5vWCAg=="
+    length="95075544"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.9.8 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.9.8 (Lab)</h2><ul><li><strong>Large Strategy-Group Benchmarks Stay Responsive</strong> — Large Selector menus now use more conservative benchmark concurrency so the local connection pool and test endpoint are not flooded, reducing uniformly inflated delays and widespread failures. Nested automatic rows keep stable names, long labels truncate cleanly, and delay badges remain readable without resizing the open menu. (#147)</li><li><strong>System Proxy Recovers After a Cold Startup</strong> — After a reboot or unexpected shutdown, ClashFX now waits for the configuration, core, privileged helper, and network to become ready before verifying and restoring the macOS System Proxy. Recovery is bounded and stops immediately if the user disables System Proxy or switches to Enhanced Mode. (#147)</li><li><strong>Delay Test Menu Stays Open on the First Click</strong> — Starting a delay test no longer disables the active custom menu item, which could make AppKit close the proxy menu before showing progress. Repeat clicks are still rejected by the active benchmark session.</li><li><strong>Never-Matched Rules Reliably Hide Epoch Times</strong> — Rule timestamps are now normalized in ClashFX's native Dashboard response layer, including cached snapshots, so release-time Dashboard replacement can no longer bring back “57 years ago.” (#147)</li><li><strong>Selected-Group Delay Tests Avoid Duplicate Work</strong> — When a selector contains a URLTest group and the same leaf nodes, ClashFX now tests that automatic group once with its configured URL and skips individually retesting the nodes it already covered. Large groups finish sooner without bringing back provider-wide health checks. (#147)</li><li><strong>Automatic Groups Re-evaluate After Complete Results</strong> — A URLTest started from the controller now clears any choice cached while candidates were still responding, then applies the configured tolerance to the complete result set. Early responses can no longer remain selected after slower candidates finish. (#147)</li></ul>
