@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10</h2><ul><li><strong>Diagnostic Reports Protect Local Details</strong> — The complete diagnostic report now removes macOS home paths and usernames, local IP and MAC addresses, hostnames, credentials, and other machine-specific details before it is copied for sharing. (#147)</li><li><strong>Log Times and the Latest Log Are Easier to Find</strong> — Log lines and filenames now use local time with an explicit UTC offset. “Open Log Folder” also selects the newest log directly instead of relying on Finder's current sort order. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Thu, 13 Aug 2026 07:08:29 +0000</pubDate>
+  <sparkle:version>1001010000</sparkle:version>
+  <sparkle:shortVersionString>1.1.10</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10/ClashFX.dmg"
+    sparkle:version="1001010000"
+    sparkle:shortVersionString="1.1.10"
+    sparkle:edSignature="Q8NfK6Eht+pW+R51lGFuOUchYl31YcZMXyRJ/XoSRBQp/Z9Ybb0fnLegivRcaUkS0rV+rQ5GBzFqxPCyjvJyBA=="
+    length="95073680"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.9.9 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.9.9 (Lab)</h2><ul><li><strong>Diagnostic Reports Protect Local Details</strong> — The complete diagnostic report now removes macOS home paths and usernames, local IP and MAC addresses, hostnames, credentials, and other machine-specific details before it is copied for sharing. (#147)</li><li><strong>Log Times and the Latest Log Are Easier to Find</strong> — Log lines and filenames now use local time with an explicit UTC offset. “Open Log Folder” also selects the newest log directly instead of relying on Finder's current sort order. (#147)</li></ul>
