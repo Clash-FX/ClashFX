@@ -48,6 +48,43 @@ final class DiagnosticFormattingTests: XCTestCase {
     }
 }
 
+final class BenchmarkURLSettingsTests: XCTestCase {
+    func testValidBenchmarkURLIsTrimmedAndPreserved() {
+        XCTAssertEqual(
+            BenchmarkURLSettings.normalizedURL(
+                "  https://www.gstatic.com/generate_204  ",
+                defaultURL: "https://cp.cloudflare.com/generate_204"
+            ),
+            "https://www.gstatic.com/generate_204"
+        )
+    }
+
+    func testEmptyBenchmarkURLRestoresDefault() {
+        XCTAssertEqual(
+            BenchmarkURLSettings.normalizedURL(
+                "  ",
+                defaultURL: "https://cp.cloudflare.com/generate_204"
+            ),
+            "https://cp.cloudflare.com/generate_204"
+        )
+    }
+
+    func testInvalidBenchmarkURLDoesNotReplaceSavedValue() {
+        XCTAssertNil(
+            BenchmarkURLSettings.normalizedURL(
+                "gstatic.com/generate_204",
+                defaultURL: "https://cp.cloudflare.com/generate_204"
+            )
+        )
+        XCTAssertNil(
+            BenchmarkURLSettings.normalizedURL(
+                "file:///tmp/generate_204",
+                defaultURL: "https://cp.cloudflare.com/generate_204"
+            )
+        )
+    }
+}
+
 final class BenchmarkRegressionTests: XCTestCase {
     private func snapshot(_ proxyJSON: [[String: Any]]) -> ClashProxyResp {
         let proxies = Dictionary(uniqueKeysWithValues: proxyJSON.compactMap { proxy -> (String, Any)? in

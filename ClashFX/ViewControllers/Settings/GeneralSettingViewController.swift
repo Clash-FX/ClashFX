@@ -29,6 +29,7 @@ class GeneralSettingViewController: NSViewController {
 
     @IBOutlet var ipv6Button: NSButton!
     @IBOutlet var speedTestUrlField: NSTextField!
+    @IBOutlet var benchmarkURLSaveButton: NSButton!
 
     var disposeBag = DisposeBag()
     override func viewDidLoad() {
@@ -36,6 +37,14 @@ class GeneralSettingViewController: NSViewController {
         installDockIconToggle()
         speedTestUrlField.stringValue = Settings.benchMarkUrl
         speedTestUrlField.placeholderString = Settings.defaultBenchmarkUrl
+        benchmarkURLSaveButton.title = NSLocalizedString("Save", comment: "")
+        speedTestUrlField.rx.text
+            .compactMap { $0 }
+            .distinctUntilChanged()
+            .subscribe(onNext: { [weak self] _ in
+                self?.persistBenchmarkURL()
+            })
+            .disposed(by: disposeBag)
         ignoreListTextView.string = Settings.proxyIgnoreList.joined(separator: ",")
         let tunRouteExcludes = Settings.normalizeAndPersistTunRouteExcludeList()
         tunRouteExcludeTextView.string = Settings.tunRouteExcludeRawText.isEmpty
@@ -207,13 +216,35 @@ class GeneralSettingViewController: NSViewController {
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
-        let url = speedTestUrlField.stringValue
-        if url.isUrlVaild() || url.isEmpty {
-            Settings.benchMarkUrl = url
-        }
+        persistBenchmarkURL()
         SSIDSuspendTool.shared.showNoticeOnNotPermission = true
         SSIDSuspendTool.shared.requestPermissionIfNeed()
         SSIDSuspendTool.shared.update()
+    }
+
+    @IBAction func actionSaveBenchmarkURL(_: Any) {
+        guard persistBenchmarkURL() else {
+            NSSound.beep()
+            return
+        }
+        speedTestUrlField.stringValue = Settings.benchMarkUrl
+        view.window?.makeFirstResponder(nil)
+    }
+
+    @discardableResult
+    private func persistBenchmarkURL() -> Bool {
+        guard let url = BenchmarkURLSettings.normalizedURL(
+            speedTestUrlField.stringValue,
+            defaultURL: Settings.defaultBenchmarkUrl
+        ) else {
+            speedTestUrlField.textColor = .systemRed
+            benchmarkURLSaveButton.isEnabled = false
+            return false
+        }
+        Settings.benchMarkUrl = url
+        speedTestUrlField.textColor = .controlTextColor
+        benchmarkURLSaveButton.isEnabled = true
+        return true
     }
 
     @IBAction func actionResetIgnoreList(_: Any) {
