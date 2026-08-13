@@ -1,5 +1,27 @@
 ### Bug Fixes
 
+- **Custom Benchmark URLs Save Reliably** — The proxy delay-test URL field now accepts HTTP and HTTPS addresses correctly and saves valid changes immediately, with an explicit Save button for confirmation. Clearing the field restores the default endpoint, while invalid input no longer overwrites the last working URL. (#147)
+
+### Contributors
+
+- @a51095 — Reported that changing the proxy delay-test URL reverted after leaving Settings. (#147)
+
+---
+
+### 修复
+
+- **自定义测速地址现在可以正常保存** — 代理延迟测速地址输入框现在会正确接受 HTTP 和 HTTPS 地址，合法修改会立即保存，也可以点击“保存”确认。清空输入框会恢复默认地址，无效内容不会覆盖上一次可用的设置。 (#147)
+
+### 贡献者
+
+- @a51095 — 反馈修改代理延迟测速地址后离开设置页面会恢复原值的问题。 (#147)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Diagnostic Reports Protect Local Details** — The complete diagnostic report now removes macOS home paths and usernames, local IP and MAC addresses, hostnames, credentials, and other machine-specific details before it is copied for sharing. (#147)
 - **Log Times and the Latest Log Are Easier to Find** — Log lines and filenames now use local time with an explicit UTC offset. “Open Log Folder” also selects the newest log directly instead of relying on Finder's current sort order. (#147)
 
