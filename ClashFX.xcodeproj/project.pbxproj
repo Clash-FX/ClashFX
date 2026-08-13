@@ -15,6 +15,8 @@
 		C30200000000000000000003 /* StartupProxyRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30200000000000000000001 /* StartupProxyRecoveryPolicy.swift */; };
 		C30300000000000000000002 /* DiagnosticFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30300000000000000000001 /* DiagnosticFormatting.swift */; };
 		C30300000000000000000003 /* DiagnosticFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30300000000000000000001 /* DiagnosticFormatting.swift */; };
+		C30400000000000000000002 /* BenchmarkURLSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30400000000000000000001 /* BenchmarkURLSettings.swift */; };
+		C30400000000000000000003 /* BenchmarkURLSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30400000000000000000001 /* BenchmarkURLSettings.swift */; };
 		03B729DE29C62F46117B82A2 /* LabSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6174820C53D16D319C2DB8E /* LabSupport.swift */; };
 		079C0498F443DE06CFD1A2E0 /* FormHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1541315BE9AC1A5200C8FDA /* FormHelpers.swift */; };
 		0AD7506B2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD7506A2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift */; };
@@ -201,6 +203,7 @@
 		C30100000000000000000015 /* BenchmarkRegressionSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkRegressionSupport.swift; sourceTree = "<group>"; };
 		C30200000000000000000001 /* StartupProxyRecoveryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupProxyRecoveryPolicy.swift; sourceTree = "<group>"; };
 		C30300000000000000000001 /* DiagnosticFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticFormatting.swift; sourceTree = "<group>"; };
+		C30400000000000000000001 /* BenchmarkURLSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkURLSettings.swift; sourceTree = "<group>"; };
 		06252EC2F039BCAFB08D62E4 /* DNSConfigViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DNSConfigViewController.swift; sourceTree = "<group>"; };
 		0AD7506A2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionLeftPannelViewModel.swift; sourceTree = "<group>"; };
 		0AD7506C2A5B9B26001FFBBD /* ConnectionLeftTextCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionLeftTextCellView.swift; sourceTree = "<group>"; };
@@ -475,6 +478,7 @@
 				49CF3B6420CEE06C001EBF94 /* ConfigManager.swift */,
 				C30200000000000000000001 /* StartupProxyRecoveryPolicy.swift */,
 				C30300000000000000000001 /* DiagnosticFormatting.swift */,
+				C30400000000000000000001 /* BenchmarkURLSettings.swift */,
 				495BFB8721919B9800C8779D /* RemoteConfigManager.swift */,
 				4952C3BE2115C7CA004A4FA8 /* MenuItemFactory.swift */,
 				F935B2FB23085515009E4D33 /* SystemProxyManager.swift */,
@@ -1060,6 +1064,7 @@
 				C30100000000000000000014 /* ClashProvider.swift in Sources */,
 				C30200000000000000000003 /* StartupProxyRecoveryPolicy.swift in Sources */,
 				C30300000000000000000003 /* DiagnosticFormatting.swift in Sources */,
+				C30400000000000000000003 /* BenchmarkURLSettings.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1116,6 +1121,7 @@
 				49CF3B6520CEE06C001EBF94 /* ConfigManager.swift in Sources */,
 				C30200000000000000000002 /* StartupProxyRecoveryPolicy.swift in Sources */,
 				C30300000000000000000002 /* DiagnosticFormatting.swift in Sources */,
+				C30400000000000000000002 /* BenchmarkURLSettings.swift in Sources */,
 				49870ADB2AA75DC7002B106B /* TerminalCleanUpAction.swift in Sources */,
 				F9E754D0239CC21F00CEE7CC /* WebPortalManager.swift in Sources */,
 				495BFB8821919B9800C8779D /* RemoteConfigManager.swift in Sources */,
