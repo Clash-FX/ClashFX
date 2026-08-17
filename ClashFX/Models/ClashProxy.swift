@@ -68,6 +68,89 @@ enum ClashProxyType: String, Codable {
 typealias ClashProxyName = String
 typealias ClashProviderName = String
 
+enum ProxyBenchmarkRowState {
+    case testing(displayName: String)
+    case measured(displayName: String, delay: Int)
+    case failed(displayName: String)
+    case unavailable(displayName: String)
+
+    var presentationName: String {
+        switch self {
+        case let .testing(displayName),
+             let .measured(displayName, _),
+             let .failed(displayName),
+             let .unavailable(displayName):
+            return displayName
+        }
+    }
+
+    var delayDisplay: String? {
+        switch self {
+        case .testing:
+            return NSLocalizedString("Testing", comment: "")
+        case let .measured(_, delay):
+            return "\(delay) ms"
+        case .failed:
+            return NSLocalizedString("fail", comment: "")
+        case .unavailable:
+            return NSLocalizedString("Benchmark unavailable", comment: "")
+        }
+    }
+
+    var rawDelay: Int? {
+        switch self {
+        case let .measured(_, delay):
+            return delay
+        case .failed:
+            return 0
+        case .testing, .unavailable:
+            return nil
+        }
+    }
+}
+
+struct SelectorBenchmarkPresentation {
+    let selectorName: ClashProxyName
+    let rowName: ClashProxyName
+    let resolvedLeafName: ClashProxyName?
+    let benchmarkURL: String
+    let sessionIdentifier: UUID
+    let rowState: ProxyBenchmarkRowState
+
+    func reconciled(
+        with snapshot: ClashProxyResp,
+        currentBenchmarkURL: String
+    ) -> SelectorBenchmarkPresentation {
+        guard benchmarkURL == currentBenchmarkURL else {
+            return unavailable()
+        }
+        guard let resolvedLeafName else {
+            return self
+        }
+        guard case let .resolved(_, leaf) = snapshot.resolveSelectedPath(from: rowName),
+              leaf.name == resolvedLeafName else {
+            return unavailable()
+        }
+        return self
+    }
+
+    private func unavailable() -> SelectorBenchmarkPresentation {
+        switch rowState {
+        case .unavailable:
+            return self
+        case .testing, .measured, .failed:
+            return SelectorBenchmarkPresentation(
+                selectorName: selectorName,
+                rowName: rowName,
+                resolvedLeafName: resolvedLeafName,
+                benchmarkURL: benchmarkURL,
+                sessionIdentifier: sessionIdentifier,
+                rowState: .unavailable(displayName: rowName)
+            )
+        }
+    }
+}
+
 enum SelectorBenchmarkEndpoint: Hashable {
     case inline
     case provider
@@ -290,6 +373,11 @@ class ClashProxySpeedHistory: Codable {
     lazy var displayString: String = "\(dateDisplay) \(delayDisplay)"
 }
 
+struct ClashProxyTestState: Codable {
+    let alive: Bool
+    let history: [ClashProxySpeedHistory]
+}
+
 class ClashProxy: Codable {
     let name: ClashProxyName
     let type: ClashProxyType
@@ -297,6 +385,7 @@ class ClashProxy: Codable {
     let history: [ClashProxySpeedHistory]
     let now: ClashProxyName?
     let alive: Bool?
+    let extra: [String: ClashProxyTestState]?
     let hidden: Bool?
     let testUrl: String?
     let expectedStatus: String?
@@ -331,7 +420,22 @@ class ClashProxy: Codable {
     lazy var isSpeedTestable: Bool = !speedtestAble.isEmpty
 
     private enum CodingKeys: String, CodingKey {
-        case type, all, history, now, name, alive, hidden, testUrl, expectedStatus
+        case type, all, history, now, name, alive, extra, hidden, testUrl, expectedStatus
+    }
+
+    func testState(for benchmarkURL: String) -> ClashProxyTestState? {
+        let normalizedURL = benchmarkURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedURL.isEmpty else { return nil }
+        return extra?[normalizedURL]
+    }
+
+    func effectiveBenchmarkURL(fallback: String) -> String {
+        testUrl
+            .flatMap {
+                let value = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty ? nil : value
+            }
+            ?? fallback
     }
 
     lazy var maxProxyNameLength: CGFloat = {

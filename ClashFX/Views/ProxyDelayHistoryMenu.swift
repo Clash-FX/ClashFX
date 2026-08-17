@@ -11,8 +11,10 @@ import FlexibleDiff
 
 class ProxyDelayHistoryMenu: NSMenu {
     var currentHistory: [ClashProxySpeedHistory]?
+    private let benchmarkURL: String
 
-    init(proxy: ClashProxy) {
+    init(proxy: ClashProxy, benchmarkURL: String) {
+        self.benchmarkURL = benchmarkURL
         super.init(title: "")
         updateHistoryMenu(proxy: proxy)
         NotificationCenter.default.addObserver(self, selector: #selector(proxyInfoDidUpdate(note:)), name: .proxyUpdate(for: proxy.name), object: nil)
@@ -33,7 +35,9 @@ class ProxyDelayHistoryMenu: NSMenu {
     }
 
     private func updateHistoryMenu(proxy: ClashProxy) {
-        let historys = Array(proxy.history.reversed())
+        let historys = Array(
+            (proxy.testState(for: benchmarkURL)?.history ?? []).reversed()
+        )
         let change = Changeset(previous: currentHistory, current: historys, identifier: { $0.time })
         currentHistory = historys
         if change.moves.isEmpty && change.mutations.isEmpty {

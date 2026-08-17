@@ -8,53 +8,76 @@
 
 import Cocoa
 
-enum ProxyBenchmarkRowState {
-    case testing(displayName: String)
-    case measured(displayName: String, delay: Int)
-    case failed(displayName: String)
-    case unavailable(displayName: String)
+enum SelectorBenchmarkPresentationStore {
+    private struct Key: Hashable {
+        let selectorName: ClashProxyName
+        let rowName: ClashProxyName
+    }
 
-    var presentationName: String {
-        switch self {
-        case let .testing(displayName),
-             let .measured(displayName, _),
-             let .failed(displayName),
-             let .unavailable(displayName):
-            return displayName
+    private static var presentations = [Key: SelectorBenchmarkPresentation]()
+
+    static func publish(_ presentation: SelectorBenchmarkPresentation) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let key = Key(
+            selectorName: presentation.selectorName,
+            rowName: presentation.rowName
+        )
+        presentations[key] = presentation
+        NotificationCenter.default.post(
+            name: .speedTestFinishForProxy,
+            object: presentation
+        )
+    }
+
+    static func presentation(
+        selectorName: ClashProxyName,
+        rowName: ClashProxyName,
+        currentBenchmarkURL: String,
+        snapshot: ClashProxyResp
+    ) -> SelectorBenchmarkPresentation? {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let key = Key(selectorName: selectorName, rowName: rowName)
+        guard let current = presentations[key] else { return nil }
+        let reconciled = current.reconciled(
+            with: snapshot,
+            currentBenchmarkURL: currentBenchmarkURL
+        )
+        presentations[key] = reconciled
+        return reconciled
+    }
+
+    static func clear(selectorName: ClashProxyName) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        presentations = presentations.filter { $0.key.selectorName != selectorName }
+    }
+
+    static func prune(using snapshot: ClashProxyResp) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        presentations = presentations.filter { key, _ in
+            guard let selector = snapshot.proxiesMap[key.selectorName],
+                  selector.type == .select else { return false }
+            return selector.all?.contains(key.rowName) == true
         }
     }
 
-    var delayDisplay: String? {
-        switch self {
-        case .testing:
-            return NSLocalizedString("Testing", comment: "")
-        case let .measured(_, delay):
-            return "\(delay) ms"
-        case .failed:
-            return NSLocalizedString("fail", comment: "")
-        case .unavailable:
-            return NSLocalizedString("Benchmark unavailable", comment: "")
-        }
-    }
-
-    var rawDelay: Int? {
-        switch self {
-        case let .measured(_, delay):
-            return delay
-        case .failed:
-            return 0
-        case .testing, .unavailable:
-            return nil
-        }
+    static func clearAll() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        presentations.removeAll()
     }
 }
 
 class ProxyMenuItem: NSMenuItem {
     let proxyName: String
     let maxProxyNameLength: CGFloat
+    private let parentGroupName: ClashProxyName
+    private let parentGroupType: ClashProxyType
+    private let parentConfiguredBenchmarkURL: String?
     private var presentationName: String
-    private var benchmarkRowState: ProxyBenchmarkRowState?
-    private var benchmarkRowStateUpdatedAt: Date?
+    private var selectorBenchmarkPresentation: SelectorBenchmarkPresentation?
+
+    private var parentBenchmarkURL: String {
+        parentConfiguredBenchmarkURL ?? Settings.benchMarkUrl
+    }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -69,6 +92,12 @@ class ProxyMenuItem: NSMenuItem {
          action selector: Selector?,
          simpleItem: Bool = false) {
         proxyName = proxy.name
+        parentGroupName = group.name
+        parentGroupType = group.type
+        parentConfiguredBenchmarkURL = group.testUrl.flatMap {
+            let value = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
         presentationName = proxy.name
 
         maxProxyNameLength = simpleItem ? 0 : group.maxProxyNameLength
@@ -82,6 +111,10 @@ class ProxyMenuItem: NSMenuItem {
         }
         let selected = group.now == proxy.name
         updateSelected(selected)
+
+        if !simpleItem, group.type == .select {
+            updateSelectorBenchmarkPresentation(from: proxy)
+        }
 
         NotificationCenter.default.addObserver(self, selector: #selector(proxyGroupInfoUpdate(note:)), name: .proxyUpdate(for: group.name), object: nil)
 
@@ -110,16 +143,10 @@ class ProxyMenuItem: NSMenuItem {
             }
             return
         }
-        guard let name = note.userInfo?["proxyName"] as? String, name == proxyName else {
-            return
-        }
-        if let state = note.userInfo?["benchmarkRowState"] as? ProxyBenchmarkRowState {
-            applyBenchmarkRowState(state)
-            return
-        }
-        if let delay = note.userInfo?["delay"] as? String {
-            updateDelay(delay, rawValue: note.userInfo?["rawValue"] as? Int)
-        }
+        guard let presentation = note.object as? SelectorBenchmarkPresentation,
+              presentation.selectorName == parentGroupName,
+              presentation.rowName == proxyName else { return }
+        applySelectorBenchmarkPresentation(presentation)
     }
 
     @objc private func proxyInfoUpdate(note: Notification) {
@@ -133,8 +160,8 @@ class ProxyMenuItem: NSMenuItem {
             assertionFailure()
             return
         }
-        if benchmarkRowState != nil {
-            applyFreshBenchmarkPresentation(from: info)
+        if parentGroupType == .select {
+            updateSelectorBenchmarkPresentation(from: info)
             return
         }
         if info.alive == false {
@@ -169,60 +196,61 @@ class ProxyMenuItem: NSMenuItem {
         updatePresentation(name: presentationName, delay: delay, rawValue: rawValue)
     }
 
-    func applyBenchmarkRowState(_ state: ProxyBenchmarkRowState) {
-        benchmarkRowState = state
-        benchmarkRowStateUpdatedAt = Date()
-        presentationName = state.presentationName
-        updatePresentation(name: presentationName, delay: state.delayDisplay, rawValue: state.rawDelay)
+    private func applySelectorBenchmarkPresentation(
+        _ presentation: SelectorBenchmarkPresentation
+    ) {
+        selectorBenchmarkPresentation = presentation
+        presentationName = presentation.rowState.presentationName
+        updatePresentation(
+            name: presentationName,
+            delay: presentation.rowState.delayDisplay,
+            rawValue: presentation.rowState.rawDelay
+        )
     }
 
-    private func applyFreshBenchmarkPresentation(from info: ClashProxy) {
-        guard let currentState = benchmarkRowState else { return }
-
-        guard let leaf = finalLeaf(from: info) else {
-            Logger.log(
-                "[Proxy Delay] Selector row '\(proxyName)' became unavailable while refreshing its benchmark presentation",
-                level: .warning
-            )
-            applyBenchmarkRowState(.unavailable(displayName: proxyName))
+    private func updateSelectorBenchmarkPresentation(from info: ClashProxy) {
+        guard let snapshot = info.enclosingResp else {
+            updatePresentation(name: proxyName, delay: nil, rawValue: nil)
             return
         }
 
-        // Keep the Selector row label stable while the resolved leaf changes.
-        // The fresh leaf remains authoritative for choosing the measurement,
-        // but displaying the full path here can resize an already-open menu.
-        let displayName = proxyName
-        if let history = leaf.history.last,
-           let updatedAt = benchmarkRowStateUpdatedAt,
-           history.time > updatedAt {
-            if leaf.alive == false || history.delay == 0 {
-                applyBenchmarkRowState(.failed(displayName: displayName))
-            } else {
-                applyBenchmarkRowState(.measured(displayName: displayName, delay: history.delay))
+        if let presentation = SelectorBenchmarkPresentationStore.presentation(
+            selectorName: parentGroupName,
+            rowName: proxyName,
+            currentBenchmarkURL: parentBenchmarkURL,
+            snapshot: snapshot
+        ) {
+            if selectorBenchmarkPresentation?.rowState.rawDelay != nil,
+               presentation.rowState.rawDelay == nil {
+                Logger.log(
+                    "[Proxy Delay] Selector row '\(proxyName)' invalidated because its path or benchmark URL changed",
+                    level: .warning
+                )
             }
+            applySelectorBenchmarkPresentation(presentation)
             return
         }
 
-        guard displayName != currentState.presentationName else {
+        selectorBenchmarkPresentation = nil
+        presentationName = proxyName
+        guard let leaf = finalLeaf(from: info),
+              let state = leaf.testState(for: parentBenchmarkURL),
+              let history = state.history.last else {
+            updatePresentation(name: proxyName, delay: nil, rawValue: nil)
+            return
+        }
+        if !state.alive || history.delay == 0 {
             updatePresentation(
-                name: currentState.presentationName,
-                delay: currentState.delayDisplay,
-                rawValue: currentState.rawDelay
+                name: proxyName,
+                delay: NSLocalizedString("fail", comment: ""),
+                rawValue: 0
             )
-            return
-        }
-
-        switch currentState {
-        case .testing:
-            applyBenchmarkRowState(.testing(displayName: displayName))
-        case .failed:
-            applyBenchmarkRowState(.failed(displayName: displayName))
-        case .unavailable, .measured:
-            Logger.log(
-                "[Proxy Delay] Selector row '\(proxyName)' resolved to a new leaf without a newer measurement",
-                level: .warning
+        } else {
+            updatePresentation(
+                name: proxyName,
+                delay: history.delayDisplay,
+                rawValue: history.delay
             )
-            applyBenchmarkRowState(.unavailable(displayName: displayName))
         }
     }
 

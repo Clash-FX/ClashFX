@@ -13,7 +13,12 @@ enum Logger {
 }
 
 extension DateFormatter {
-    static let js: DateFormatter = .init()
+    static let js: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: NSCalendar.Identifier.ISO8601.rawValue)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SZ"
+        return formatter
+    }()
 }
 
 final class IsolatedBenchmarkSession {

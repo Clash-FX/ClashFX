@@ -233,6 +233,117 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(plan.maxConcurrentRequests, 4)
     }
 
+    func testProxyHistoryIsScopedToExactBenchmarkURL() throws {
+        let firstURL = "https://first.example.test/generate_204"
+        let secondURL = "https://second.example.test/generate_204"
+        let response = snapshot([
+            [
+                "name": "Node",
+                "type": "Hysteria2",
+                "alive": true,
+                "history": [
+                    ["time": "2026-08-17T10:00:00.000+0000", "delay": 999]
+                ],
+                "extra": [
+                    firstURL: [
+                        "alive": true,
+                        "history": [
+                            ["time": "2026-08-17T10:01:00.000+0000", "delay": 120]
+                        ]
+                    ],
+                    secondURL: [
+                        "alive": false,
+                        "history": [
+                            ["time": "2026-08-17T10:02:00.000+0000", "delay": 0]
+                        ]
+                    ]
+                ]
+            ]
+        ])
+        let proxy = try XCTUnwrap(response.proxiesMap["Node"])
+
+        XCTAssertEqual(proxy.history.last?.delay, 999)
+        XCTAssertEqual(proxy.testState(for: "  \(firstURL)  ")?.history.last?.delay, 120)
+        XCTAssertEqual(proxy.testState(for: secondURL)?.history.last?.delay, 0)
+        XCTAssertEqual(proxy.testState(for: secondURL)?.alive, false)
+        XCTAssertNil(proxy.testState(for: "https://unknown.example.test/generate_204"))
+    }
+
+    func testEffectiveBenchmarkURLUsesExplicitNonEmptyValue() throws {
+        let response = snapshot([
+            [
+                "name": "Explicit",
+                "type": "URLTest",
+                "history": [],
+                "url": "unused",
+                "testUrl": "  https://group.example.test/generate_204  "
+            ],
+            [
+                "name": "Fallback",
+                "type": "Selector",
+                "history": [],
+                "testUrl": "   "
+            ]
+        ])
+
+        XCTAssertEqual(
+            try XCTUnwrap(response.proxiesMap["Explicit"]).effectiveBenchmarkURL(
+                fallback: "https://fallback.example.test"
+            ),
+            "https://group.example.test/generate_204"
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(response.proxiesMap["Fallback"]).effectiveBenchmarkURL(
+                fallback: "https://fallback.example.test"
+            ),
+            "https://fallback.example.test"
+        )
+    }
+
+    func testSelectorPresentationRejectsChangedPathOrBenchmarkURL() {
+        let original = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["Automatic"], "now": "Automatic", "history": []],
+            ["name": "Automatic", "type": "URLTest", "all": ["Leaf A", "Leaf B"], "now": "Leaf A", "history": []],
+            ["name": "Leaf A", "type": "Hysteria2", "history": []],
+            ["name": "Leaf B", "type": "Hysteria2", "history": []]
+        ])
+        let presentation = SelectorBenchmarkPresentation(
+            selectorName: "Selector",
+            rowName: "Automatic",
+            resolvedLeafName: "Leaf A",
+            benchmarkURL: "https://benchmark.example.test",
+            sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Automatic", delay: 241)
+        )
+
+        XCTAssertEqual(
+            presentation.reconciled(
+                with: original,
+                currentBenchmarkURL: "https://benchmark.example.test"
+            ).rowState.rawDelay,
+            241
+        )
+
+        let changedPath = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["Automatic"], "now": "Automatic", "history": []],
+            ["name": "Automatic", "type": "URLTest", "all": ["Leaf A", "Leaf B"], "now": "Leaf B", "history": []],
+            ["name": "Leaf A", "type": "Hysteria2", "history": []],
+            ["name": "Leaf B", "type": "Hysteria2", "history": []]
+        ])
+        XCTAssertNil(
+            presentation.reconciled(
+                with: changedPath,
+                currentBenchmarkURL: "https://benchmark.example.test"
+            ).rowState.rawDelay
+        )
+        XCTAssertNil(
+            presentation.reconciled(
+                with: original,
+                currentBenchmarkURL: "https://changed.example.test"
+            ).rowState.rawDelay
+        )
+    }
+
     func testAutomaticSnapshotsMapOnlyFreshPathEvidence() {
         let response = snapshot([
             ["name": "Automatic", "type": "URLTest", "all": ["Final", "LowerSibling"], "now": "Final", "history": []],

@@ -28,6 +28,7 @@ class MenuItemFactory {
                 return
             }
             AutomaticGroupBenchmarkPresentationStore.prune(using: info)
+            SelectorBenchmarkPresentationStore.prune(using: info)
             if info.proxiesMap.keys != cachedProxyData?.proxiesMap.keys {
                 cachedProxyData = info
                 refreshMenuItems(mergedData: info)
@@ -43,6 +44,7 @@ class MenuItemFactory {
     static func recreateProxyMenuItems() {
         let recreate = {
             AutomaticGroupBenchmarkPresentationStore.clearAll()
+            SelectorBenchmarkPresentationStore.clearAll()
             ApiRequest.getMergedProxyData {
                 proxyInfo in
                 guard let proxyInfo, !proxyInfo.proxiesMap.isEmpty else {
@@ -207,7 +209,12 @@ class MenuItemFactory {
                 proxyMenuItem.state = .on
             }
 
-            proxyMenuItem.submenu = ProxyDelayHistoryMenu(proxy: proxy)
+            proxyMenuItem.submenu = ProxyDelayHistoryMenu(
+                proxy: proxy,
+                benchmarkURL: proxyGroup.effectiveBenchmarkURL(
+                    fallback: Settings.benchMarkUrl
+                )
+            )
 
             submenu.addItem(proxyMenuItem)
         }

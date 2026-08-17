@@ -105,18 +105,6 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
                 }
 
                 let candidateDelays = result.candidateDelays
-                var publishedCandidates = Set<ClashProxyName>()
-                for candidateName in self.proxyGroup.all ?? [] where publishedCandidates.insert(candidateName).inserted {
-                    guard let delay = candidateDelays[candidateName] else { continue }
-                    let state: ProxyBenchmarkRowState = delay > 0
-                        ? .measured(displayName: candidateName, delay: delay)
-                        : .failed(displayName: candidateName)
-                    NotificationCenter.default.post(
-                        name: .speedTestFinishForProxy,
-                        object: nil,
-                        userInfo: ["proxyName": candidateName, "benchmarkRowState": state]
-                    )
-                }
 
                 ApiRequest.getFreshProxyGroupList(session: session) { snapshot in
                     DispatchQueue.main.async {
@@ -272,11 +260,18 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
 
         var plan: SelectorBenchmarkPlan?
         var pendingRows = Set<ClashProxyName>()
+        var selectorBenchmarkURL = Settings.benchMarkUrl
+        let sessionIdentifier = UUID()
         let publishState: (SelectorBenchmarkRow, ProxyBenchmarkRowState) -> Void = { row, state in
-            NotificationCenter.default.post(
-                name: .speedTestFinishForProxy,
-                object: nil,
-                userInfo: ["proxyName": row.rowName, "benchmarkRowState": state]
+            SelectorBenchmarkPresentationStore.publish(
+                SelectorBenchmarkPresentation(
+                    selectorName: group.name,
+                    rowName: row.rowName,
+                    resolvedLeafName: row.measurementKey?.proxyName,
+                    benchmarkURL: row.measurementKey?.benchmarkURL ?? selectorBenchmarkURL,
+                    sessionIdentifier: sessionIdentifier,
+                    rowState: state
+                )
             )
         }
         let publishResult: (SelectorBenchmarkPlan.Target, Int) -> Void = { target, delay in
@@ -315,12 +310,13 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                 finish()
                 return
             }
+            selectorBenchmarkURL = selector.effectiveBenchmarkURL(
+                fallback: Settings.benchMarkUrl
+            )
             plan = SelectorBenchmarkPlan.make(
                 selector: selector,
                 snapshot: response,
-                benchmarkURL: selector.testUrl
-                    .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-                    ?? Settings.benchMarkUrl,
+                benchmarkURL: selectorBenchmarkURL,
                 timeout: 5000
             )
             guard let plan else {
@@ -333,6 +329,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                     finish()
                     return
                 }
+                SelectorBenchmarkPresentationStore.clear(selectorName: group.name)
                 pendingRows = Set(plan.orderedRows.compactMap { row in
                     row.measurementKey == nil ? nil : row.rowName
                 })
