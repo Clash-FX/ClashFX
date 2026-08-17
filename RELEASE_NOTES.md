@@ -1,5 +1,31 @@
 ### Bug Fixes
 
+- **Manual Delay Results Stay With the Correct Strategy Row** — Selector benchmarks now keep each settled result tied to its strategy row, resolved leaf, test URL, and benchmark session. Later provider health checks can no longer overwrite the displayed result, and automatic groups show history from their own effective test URL. (#147)
+- **Shortcuts No Longer Interfere With Other Apps by Default** — Action shortcuts now work only while the ClashFX menu is open unless global shortcuts are explicitly enabled in Settings. “Open Menu” remains global, and global action handlers pause while the menu is open to prevent duplicate or delayed actions. (#209)
+
+### Contributors
+
+- @a51095 — Reported strategy rows showing stale or misleading delay results after manual benchmarks. (#147)
+- @AndDevMK — Reported that ClashFX shortcuts could conflict with standard shortcuts in other macOS applications and suggested configurable scope. (#209)
+
+---
+
+### 修复
+
+- **手动测速结果会保持在正确的策略行** — Selector 测速结果现在会绑定到对应策略行、最终节点、测速地址和本次测速会话；后续 Provider 健康检查不会再覆盖界面结果，自动策略组也会按自身实际测速地址显示历史。 (#147)
+- **快捷键默认不再干扰其他应用** — 动作快捷键默认仅在 ClashFX 菜单打开时生效；如需在其他应用中使用，可在设置中明确启用全局快捷键。“打开菜单”始终保持全局，菜单打开期间会暂停全局动作监听，避免重复或延迟执行。 (#209)
+
+### 贡献者
+
+- @a51095 — 反馈手动测速后策略行可能显示过期或不准确的延迟结果。 (#147)
+- @AndDevMK — 反馈 ClashFX 快捷键可能与其他 macOS 应用的标准快捷键冲突，并建议提供可配置的作用范围。 (#209)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Custom Benchmark URLs Save Reliably** — The proxy delay-test URL field now accepts HTTP and HTTPS addresses correctly and saves valid changes immediately, with an explicit Save button for confirmation. Clearing the field restores the default endpoint, while invalid input no longer overwrites the last working URL. (#147)
 
 ### Contributors
