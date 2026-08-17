@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.2 (Lab)</h2><ul><li><strong>Manual Delay Results Stay With the Correct Strategy Row</strong> — Selector benchmarks now keep each settled result tied to its strategy row, resolved leaf, test URL, and benchmark session. Later provider health checks can no longer overwrite the displayed result, and automatic groups show history from their own effective test URL. (#147)</li><li><strong>Shortcuts No Longer Interfere With Other Apps by Default</strong> — Action shortcuts now work only while the ClashFX menu is open unless global shortcuts are explicitly enabled in Settings. “Open Menu” remains global, and global action handlers pause while the menu is open to prevent duplicate or delayed actions. (#209)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 17 Aug 2026 12:28:21 +0000</pubDate>
+  <sparkle:version>1001010002</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.2/ClashFX.dmg"
+    sparkle:version="1001010002"
+    sparkle:shortVersionString="1.1.10.2"
+    sparkle:edSignature="KvG5kZaD0j8+0YUPvJre/x7FXL7x7nDg2WouyaOqlkIJcRbTz3obtX2x1cvQMDPsSu9piaBBzWZVizSUl9SHBg=="
+    length="95130096"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.1 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.1 (Lab)</h2><ul><li><strong>Custom Benchmark URLs Save Reliably</strong> — The proxy delay-test URL field now accepts HTTP and HTTPS addresses correctly and saves valid changes immediately, with an explicit Save button for confirmation. Clearing the field restores the default endpoint, while invalid input no longer overwrites the last working URL. (#147)</li></ul>
