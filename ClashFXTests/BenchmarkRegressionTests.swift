@@ -1,5 +1,34 @@
 import XCTest
 
+final class ShortcutScopePolicyTests: XCTestCase {
+    func testActionShortcutsDefaultToMenuOnly() {
+        XCTAssertEqual(ShortcutRegistrationPolicy.defaultActionScope, .menuOnly)
+        XCTAssertFalse(ShortcutRegistrationPolicy.shouldRegisterGlobally(.action, scope: .menuOnly))
+        XCTAssertTrue(ShortcutRegistrationPolicy.shouldRegisterGlobally(.action, scope: .global))
+    }
+
+    func testOpenMenuIsAlwaysGlobal() {
+        XCTAssertTrue(ShortcutRegistrationPolicy.shouldRegisterGlobally(.openMenu, scope: .menuOnly))
+        XCTAssertTrue(ShortcutRegistrationPolicy.shouldRegisterGlobally(.openMenu, scope: .global))
+    }
+
+    func testMenuTrackingSuppressesGlobalActionRegistration() {
+        XCTAssertTrue(ShortcutRegistrationPolicy.shouldRegisterActionShortcutsGlobally(
+            scope: .global,
+            isMenuTracking: false
+        ))
+        XCTAssertFalse(ShortcutRegistrationPolicy.shouldRegisterActionShortcutsGlobally(
+            scope: .global,
+            isMenuTracking: true
+        ))
+    }
+
+    func testPersistedScopeFallsBackSafely() {
+        XCTAssertEqual(ShortcutRegistrationPolicy.actionScope(from: ShortcutScope.global.rawValue), .global)
+        XCTAssertEqual(ShortcutRegistrationPolicy.actionScope(from: -1), .menuOnly)
+    }
+}
+
 final class DiagnosticFormattingTests: XCTestCase {
     func testRedactorSanitizesReportMetadataAndLogLines() {
         let input = """

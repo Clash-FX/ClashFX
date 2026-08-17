@@ -580,6 +580,9 @@
 /* Settings sidebar */
 "Settings" = "Настройки";
 "Global Shortcut" = "Сочетания";
+"Shortcut Scope" = "Область сочетаний";
+"Enable Global Shortcuts" = "Включить глобальные сочетания";
+"Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global." = "Сочетания работают, пока открыто меню ClashFX. Включите глобальные сочетания, чтобы использовать их в других приложениях. «Открыть меню» всегда работает глобально.";
 "Debug" = "Отладка";
 "Application Settings" = "Настройки приложения";
 "Network Automation" = "Автоматизация сети";

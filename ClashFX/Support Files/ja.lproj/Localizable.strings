@@ -580,6 +580,9 @@
 /* Settings sidebar */
 "Settings" = "設定";
 "Global Shortcut" = "ショートカット";
+"Shortcut Scope" = "ショートカットの範囲";
+"Enable Global Shortcuts" = "グローバルショートカットを有効にする";
+"Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global." = "ショートカットは ClashFX メニューを開いている間だけ動作します。ほかのアプリでも使うには、グローバルショートカットを有効にしてください。「メニューを開く」は常にグローバルです。";
 "Debug" = "デバッグ";
 "Application Settings" = "アプリ設定";
 "Network Automation" = "ネットワーク自動化";

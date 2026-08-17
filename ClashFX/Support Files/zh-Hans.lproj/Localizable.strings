@@ -619,7 +619,10 @@
 
 /* Settings sidebar */
 "Settings" = "设置";
-"Global Shortcut" = "全局快捷键";
+"Global Shortcut" = "快捷键";
+"Shortcut Scope" = "快捷键作用范围";
+"Enable Global Shortcuts" = "启用全局快捷键";
+"Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global." = "快捷键默认仅在 ClashFX 菜单打开时生效。启用全局快捷键后，可在其他应用中使用。“打开菜单”始终为全局快捷键。";
 "Debug" = "调试";
 "Application Settings" = "应用设置";
 "Network Automation" = "网络自动化";

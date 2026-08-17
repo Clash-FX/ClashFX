@@ -579,7 +579,10 @@
 
 /* Settings sidebar */
 "Settings" = "設定";
-"Global Shortcut" = "全域快捷鍵";
+"Global Shortcut" = "快速鍵";
+"Shortcut Scope" = "快速鍵作用範圍";
+"Enable Global Shortcuts" = "啟用全域快速鍵";
+"Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global." = "快速鍵預設僅在 ClashFX 選單開啟時生效。啟用全域快速鍵後，可在其他 App 中使用。「開啟選單」始終為全域快速鍵。";
 "Debug" = "偵錯";
 "Application Settings" = "應用程式設定";
 "Network Automation" = "網路自動化";

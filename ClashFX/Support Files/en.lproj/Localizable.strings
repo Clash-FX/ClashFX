@@ -587,6 +587,9 @@
 /* Settings sidebar */
 "Settings" = "Settings";
 "Global Shortcut" = "Shortcuts";
+"Shortcut Scope" = "Shortcut Scope";
+"Enable Global Shortcuts" = "Enable Global Shortcuts";
+"Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global." = "Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global.";
 "Debug" = "Debug";
 "Application Settings" = "Application Settings";
 "Network Automation" = "Network Automation";

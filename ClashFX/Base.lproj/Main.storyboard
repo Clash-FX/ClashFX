@@ -2143,6 +2143,7 @@
                         <outlet property="modeBoxView" destination="kTK-fR-GhL" id="D5n-YX-aya"/>
                         <outlet property="otherBoxView" destination="lP6-io-wrz" id="7w1-En-MEl"/>
                         <outlet property="proxyBox" destination="BFE-Qq-B2H" id="IG2-Fa-v80"/>
+                        <outlet property="scopeDescriptionTextField" destination="b4I-7R-wVz" id="r2F-sC-oPe"/>
                     </connections>
                 </viewController>
                 <customObject id="dgl-Fi-8yX" userLabel="First Responder" customClass="NSResponder" sceneMemberID="firstResponder"/>

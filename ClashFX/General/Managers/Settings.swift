@@ -10,6 +10,21 @@ import Foundation
 import Network
 
 enum Settings {
+    @UserDefault(
+        "actionShortcutScope",
+        defaultValue: ShortcutRegistrationPolicy.defaultActionScope.rawValue
+    )
+    private static var actionShortcutScopeRawValue: Int
+
+    static var actionShortcutScope: ShortcutScope {
+        get {
+            ShortcutRegistrationPolicy.actionScope(from: actionShortcutScopeRawValue)
+        }
+        set {
+            actionShortcutScopeRawValue = newValue.rawValue
+        }
+    }
+
     /// Must be MaxMind MMDB format (verifyGEOIPDataBase uses oschwald/geoip2-golang, which rejects mihomo's proprietary .metadb).
     static let defaultMmdbDownloadUrl = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/country.mmdb"
     @UserDefault("mmdbDownloadUrl", defaultValue: defaultMmdbDownloadUrl)

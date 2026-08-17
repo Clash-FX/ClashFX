@@ -492,6 +492,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         enhancedModeMenuItem.setShortcut(for: .toggleEnhancedMode)
         showLogMenuItem.setShortcut(for: .log)
         dashboardMenuItem.setShortcut(for: .dashboard)
+        benchmarkMenuItem.setShortcut(for: .benchmark)
         connectionsMenuItem.setShortcut(for: .nativeDashboard)
     }
 
@@ -4205,6 +4206,11 @@ extension AppDelegate {
 // MARK: NSMenuDelegate
 
 extension AppDelegate: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu === statusMenu else { return }
+        KeyboardShortCutManager.statusMenuWillOpen()
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         ensureMenuTargets(in: menu)
         MenuItemFactory.refreshExistingMenuItems()
@@ -4236,6 +4242,9 @@ extension AppDelegate: NSMenuDelegate {
     func menuDidClose(_ menu: NSMenu) {
         for element in menu.items {
             (element.view as? ProxyGroupMenuHighlightDelegate)?.highlight(item: nil)
+        }
+        if menu === statusMenu {
+            KeyboardShortCutManager.statusMenuDidClose()
         }
     }
 }

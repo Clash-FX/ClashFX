@@ -41,11 +41,75 @@ enum KeyboardShortCutManager {
     private static let unsafeCommandShortcutMigrationKey = "kUnsafeCommandShortcutMigrationV1"
     private static let defaultProxyModeShortcutMigrationKey =
         "kDefaultProxyModeShortcutMigrationV1"
+    private static let actionShortcutNames: [KeyboardShortcuts.Name] = [
+        .toggleSystemProxyMode,
+        .copyShellCommand,
+        .copyExternalShellCommand,
+        .modeDirect,
+        .modeRule,
+        .modeGlobal,
+        .toggleEnhancedMode,
+        .log,
+        .dashboard,
+        .benchmark,
+        .nativeDashboard
+    ]
+    private static var didSetup = false
+    private static var didInstallActionHandlers = false
+    private static var isStatusMenuTracking = false
 
     static func setup() {
+        guard !didSetup else { return }
+        didSetup = true
+
         migrateUnsafeCopyShortcutsIfNeeded()
         migrateUnsafeCommandShortcutsIfNeeded()
         migrateDefaultProxyModeShortcutsIfNeeded()
+
+        KeyboardShortcuts.onKeyUp(for: .openMenu) {
+            AppDelegate.shared.statusItem.button?.performClick(nil)
+        }
+        syncActionShortcutRegistration()
+    }
+
+    static func setActionScope(_ scope: ShortcutScope) {
+        Settings.actionShortcutScope = scope
+        syncActionShortcutRegistration()
+    }
+
+    static func shortcutDidChange(_ name: KeyboardShortcuts.Name) {
+        guard actionShortcutNames.contains(name) else { return }
+        syncActionShortcutRegistration()
+    }
+
+    static func statusMenuWillOpen() {
+        isStatusMenuTracking = true
+        syncActionShortcutRegistration()
+    }
+
+    static func statusMenuDidClose() {
+        isStatusMenuTracking = false
+        syncActionShortcutRegistration()
+    }
+
+    private static func syncActionShortcutRegistration() {
+        let shouldRegisterGlobally = ShortcutRegistrationPolicy.shouldRegisterActionShortcutsGlobally(
+            scope: Settings.actionShortcutScope,
+            isMenuTracking: isStatusMenuTracking
+        )
+
+        guard shouldRegisterGlobally else {
+            KeyboardShortcuts.disable(actionShortcutNames)
+            return
+        }
+
+        installActionHandlersIfNeeded()
+        KeyboardShortcuts.enable(actionShortcutNames)
+    }
+
+    private static func installActionHandlersIfNeeded() {
+        guard !didInstallActionHandlers else { return }
+        didInstallActionHandlers = true
 
         KeyboardShortcuts.onKeyUp(for: .toggleSystemProxyMode) {
             AppDelegate.shared.actionSetSystemProxy(nil)
@@ -85,10 +149,6 @@ enum KeyboardShortCutManager {
 
         KeyboardShortcuts.onKeyUp(for: .benchmark) {
             AppDelegate.shared.actionSpeedTest(AppDelegate.shared)
-        }
-
-        KeyboardShortcuts.onKeyUp(for: .openMenu) {
-            AppDelegate.shared.statusItem.button?.performClick(nil)
         }
         if #available(macOS 10.15, *) {
             KeyboardShortcuts.onKeyUp(for: .nativeDashboard) {
@@ -198,6 +258,7 @@ class GlobalShortCutViewController: NSViewController {
     @IBOutlet var proxyBox: NSBox!
     @IBOutlet var modeBoxView: NSView!
     @IBOutlet var otherBoxView: NSView!
+    @IBOutlet var scopeDescriptionTextField: NSTextField!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -218,6 +279,7 @@ class GlobalShortCutViewController: NSViewController {
         ])
 
         var otherItems: [[NSView]] = [
+            [NSTextField(labelWithString: NSLocalizedString("Shortcut Scope", comment: "")), makeGlobalShortcutsCheckbox()],
             [NSTextField(labelWithString: NSLocalizedString("Benchmark", comment: "")), getRecoder(for: .benchmark)],
             [NSTextField(labelWithString: NSLocalizedString("Open Menu", comment: "")), getRecoder(for: .openMenu)],
             [NSTextField(labelWithString: NSLocalizedString("Open Log", comment: "")), getRecoder(for: .log)],
@@ -227,12 +289,33 @@ class GlobalShortCutViewController: NSViewController {
             otherItems.append([NSTextField(labelWithString: NSLocalizedString("Open Connection Details", comment: "")), getRecoder(for: .nativeDashboard)])
         }
         addGridView(in: otherBoxView, with: otherItems)
+        scopeDescriptionTextField.stringValue = NSLocalizedString(
+            "Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global.",
+            comment: ""
+        )
     }
 
     private func getRecoder(for name: KeyboardShortcuts.Name) -> KeyboardShortcuts.RecorderCocoa {
-        let view = KeyboardShortcuts.RecorderCocoa(for: name)
+        let view = KeyboardShortcuts.RecorderCocoa(for: name) { _ in
+            KeyboardShortCutManager.shortcutDidChange(name)
+        }
         view.setContentCompressionResistancePriority(.required, for: .vertical)
         return view
+    }
+
+    private func makeGlobalShortcutsCheckbox() -> NSButton {
+        let checkbox = NSButton(
+            checkboxWithTitle: NSLocalizedString("Enable Global Shortcuts", comment: ""),
+            target: self,
+            action: #selector(toggleGlobalShortcuts(_:))
+        )
+        checkbox.state = Settings.actionShortcutScope == .global ? .on : .off
+        return checkbox
+    }
+
+    @objc private func toggleGlobalShortcuts(_ sender: NSButton) {
+        let scope: ShortcutScope = sender.state == .on ? .global : .menuOnly
+        KeyboardShortCutManager.setActionScope(scope)
     }
 
     private func addGridView(in superView: NSView, with views: [[NSView]]) {
