@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10.4 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.4 (Lab)</h2><ul><li><strong>Manual Benchmark Default Matches ClashX Again</strong> — The default is again the ClashX-compatible `http://cp.cloudflare.com/generate_204`. Only the superseded built-in `https://cp.cloudflare.com/generate_204` value is corrected once; custom HTTP/HTTPS URLs remain unchanged, and a later explicit HTTPS choice stays valid. An isolated comparison produced green HTTP results while HTTPS produced none. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Sun, 23 Aug 2026 15:43:01 +0000</pubDate>
+  <sparkle:version>1001010004</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.4</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.4/ClashFX.dmg"
+    sparkle:version="1001010004"
+    sparkle:shortVersionString="1.1.10.4"
+    sparkle:edSignature="wlJ6VMPPrhFIDziZp78+s2pUu4+e8BrRjyKciHEpmTum8DEKM/Mhk6r9/y86SfPyXjnA9cEZYbiXbXfgJPiwDw=="
+    length="95099723"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.3 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.3 (Lab)</h2><ul><li><strong>System Proxy Settings Restore Exactly After Disable or Quit</strong> — Before taking over, ClashFX now captures each existing network service's complete HTTP, HTTPS, SOCKS, PAC, exception, and partially enabled proxy state. Turning System Proxy off or quitting restores that exact state once; services created later stay untouched, and Helper failures are reported instead of being treated as success. (#147)</li><li><strong>Managed Configuration Updates Always Settle</strong> — Remote subscription updates now have bounded cancellation and one serialized completion path. A failed or stalled request can no longer leave the configuration row stuck at “Updating,” and late callbacks cannot overwrite a newer result. (#147)</li><li><strong>Benchmark Paths and Automatic Results Are Release-Verified</strong> — Selector benchmarks retain ordered visible rows while sharing equivalent path measurements; nested rows show the fresh selected leaf and result without re-evaluating automatic policy. Explicit automatic retests use the group's own settings and display Mihomo's fresh final path/result, while failures and cancellation settle without stale UI or repeated terminal refreshes. Automatic groups are not forced to choose the smallest displayed latency. (#147)</li></ul>
