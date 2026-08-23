@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.3 (Lab)</h2><ul><li><strong>System Proxy Settings Restore Exactly After Disable or Quit</strong> — Before taking over, ClashFX now captures each existing network service's complete HTTP, HTTPS, SOCKS, PAC, exception, and partially enabled proxy state. Turning System Proxy off or quitting restores that exact state once; services created later stay untouched, and Helper failures are reported instead of being treated as success. (#147)</li><li><strong>Managed Configuration Updates Always Settle</strong> — Remote subscription updates now have bounded cancellation and one serialized completion path. A failed or stalled request can no longer leave the configuration row stuck at “Updating,” and late callbacks cannot overwrite a newer result. (#147)</li><li><strong>Benchmark Paths and Automatic Results Are Release-Verified</strong> — Selector benchmarks retain ordered visible rows while sharing equivalent path measurements; nested rows show the fresh selected leaf and result without re-evaluating automatic policy. Explicit automatic retests use the group's own settings and display Mihomo's fresh final path/result, while failures and cancellation settle without stale UI or repeated terminal refreshes. Automatic groups are not forced to choose the smallest displayed latency. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Sun, 23 Aug 2026 08:22:52 +0000</pubDate>
+  <sparkle:version>1001010003</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.3/ClashFX.dmg"
+    sparkle:version="1001010003"
+    sparkle:shortVersionString="1.1.10.3"
+    sparkle:edSignature="fpaidjcJ5/2tj+eF8+/cT+s9OIll8UyEJ/oVd2tn45tXhB6tnVgPt5zrc62RTqxokkUxZkRBm/ZmyAts560JDQ=="
+    length="95102421"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.2 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.2 (Lab)</h2><ul><li><strong>Manual Delay Results Stay With the Correct Strategy Row</strong> — Selector benchmarks now keep each settled result tied to its strategy row, resolved leaf, test URL, and benchmark session. Later provider health checks can no longer overwrite the displayed result, and automatic groups show history from their own effective test URL. (#147)</li><li><strong>Shortcuts No Longer Interfere With Other Apps by Default</strong> — Action shortcuts now work only while the ClashFX menu is open unless global shortcuts are explicitly enabled in Settings. “Open Menu” remains global, and global action handlers pause while the menu is open to prevent duplicate or delayed actions. (#209)</li></ul>
