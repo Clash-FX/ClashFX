@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10.5 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.5 (Lab)</h2><ul><li><strong>Large Selector Benchmarks Adapt to Current Conditions</strong> — Selector tests now begin with eight requests, grow through twelve to a maximum of sixteen after healthy current-run results, and fall back toward four when failures cluster. On the supplied 49-target configuration, two isolated adaptive runs completed in 7.4–9.0 seconds with 37 successes, versus about 25–26 seconds and 35–36 successes at fixed concurrency four. A Clash Party-style 50-request burst was faster but reduced the number of sub-300 ms results from roughly 9–11 to 1. Test URLs, timeouts, returned delays, and color thresholds are unchanged. (#147)</li><li><strong>Manual Benchmark Default Matches ClashX Again</strong> — The default is again the ClashX-compatible `http://cp.cloudflare.com/generate_204`. Only the superseded built-in `https://cp.cloudflare.com/generate_204` value is corrected once; custom HTTP/HTTPS URLs remain unchanged, and a later explicit HTTPS choice stays valid. An isolated comparison produced green HTTP results while HTTPS produced none. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 24 Aug 2026 11:34:24 +0000</pubDate>
+  <sparkle:version>1001010005</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.5</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.5/ClashFX.dmg"
+    sparkle:version="1001010005"
+    sparkle:shortVersionString="1.1.10.5"
+    sparkle:edSignature="xPwIRGw/IlRd3RP0etKuNXtFX4AGbYkeqajS0AGK5R8cpl8SIAXkd27T8CIG2jS1RyczRawu6vI6XdQUeO1HAg=="
+    length="95175225"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.4 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.4 (Lab)</h2><ul><li><strong>Manual Benchmark Default Matches ClashX Again</strong> — The default is again the ClashX-compatible `http://cp.cloudflare.com/generate_204`. Only the superseded built-in `https://cp.cloudflare.com/generate_204` value is corrected once; custom HTTP/HTTPS URLs remain unchanged, and a later explicit HTTPS choice stays valid. An isolated comparison produced green HTTP results while HTTPS produced none. (#147)</li></ul>
