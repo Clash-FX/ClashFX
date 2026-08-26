@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10.6 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.6 (Lab)</h2><ul><li><strong>Large Menus Stay Responsive While Opening or Switching Configurations</strong> — Proxy snapshots are decoded away from the main thread, overlapping refreshes are coalesced, and nested proxy rows are created only when their submenu opens. This removes repeated full-menu construction from the critical path while preserving current selections and live delay updates. (#216)</li><li><strong>Subscription Information No Longer Widens the Entire Menu</strong> — The top subscription row now bounds each line by rendered width and keeps the complete name and quota details in its tooltip. It remains enabled by default and can be hidden entirely from Settings → Appearance → Tray Menu → Show Subscription Information. (#215)</li><li><strong>Selector Benchmarks Avoid Ordered Connection Bursts</strong> — Visible rows keep their subscription order, while background requests are interleaved across protocol/provider cohorts and concurrency changes wait for each cohort to finish. First-pass failures receive one conservative retry before a single final result is shown, reducing transient bulk failures without flashing stale states. (#147)</li><li><strong>The Selected Automatic Group Re-evaluates After Leaf Tests</strong> — When a Selector currently uses an automatic group, that row stays in testing until the leaf pass completes. ClashFX then retests that group once with its configured settings and displays Mihomo's fresh final `now` path; other automatic rows remain measurement-only, and ClashFX never substitutes its own lowest-latency choice. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Wed, 26 Aug 2026 13:08:22 +0000</pubDate>
+  <sparkle:version>1001010006</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.6</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.6/ClashFX.dmg"
+    sparkle:version="1001010006"
+    sparkle:shortVersionString="1.1.10.6"
+    sparkle:edSignature="XgOxiL7W6EByCDfO0S1iivSLvh2/x/qfJzM2Vgh/ASzJsIEXqHlv9b7RalvddZA1/8/hj2pLBcFN082w+jYoDg=="
+    length="95199390"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.5 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.5 (Lab)</h2><ul><li><strong>Large Selector Benchmarks Adapt to Current Conditions</strong> — Selector tests now begin with eight requests, grow through twelve to a maximum of sixteen after healthy current-run results, and fall back toward four when failures cluster. On the supplied 49-target configuration, two isolated adaptive runs completed in 7.4–9.0 seconds with 37 successes, versus about 25–26 seconds and 35–36 successes at fixed concurrency four. A Clash Party-style 50-request burst was faster but reduced the number of sub-300 ms results from roughly 9–11 to 1. Test URLs, timeouts, returned delays, and color thresholds are unchanged. (#147)</li><li><strong>Manual Benchmark Default Matches ClashX Again</strong> — The default is again the ClashX-compatible `http://cp.cloudflare.com/generate_204`. Only the superseded built-in `https://cp.cloudflare.com/generate_204` value is corrected once; custom HTTP/HTTPS URLs remain unchanged, and a later explicit HTTPS choice stays valid. An isolated comparison produced green HTTP results while HTTPS produced none. (#147)</li></ul>
