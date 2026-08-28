@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10.7 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.7 (Lab)</h2><ul><li><strong>Large Selector Benchmarks Stream Results Without Connection Bursts</strong> — A continuously replenished, bounded request pool now publishes successful rows as soon as they finish instead of waiting for a whole batch or the complete test. Only first-pass failures receive one conservative retry, so large nested groups finish sooner and no longer appear frozen for roughly 50 seconds. (#147, #219)</li><li><strong>Delay Results Remain Useful Without Distorting Automatic Groups</strong> — Recent measurements survive menu reconstruction and remain visible after reopening the menu; older results fade before expiring. Automatic rows keep stable names, expose the final leaf separately, and use Mihomo's fresh `now` after an explicit group retest rather than inventing a UI-side selection. (#147, #219)</li><li><strong>Sleep/Wake Recovery Is Bounded, Generation-Safe, and Diagnosable</strong> — Delayed callbacks from an earlier wake can no longer keep the menu in a loading state or overwrite a newer recovery. Wake checks use bounded backoff, preserve failure evidence, and add a lightweight diagnostic breadcrumb/watchdog without taking destructive action in the background. (#147, #210)</li><li><strong>Restart and Settings State Stay Stable</strong> — Self-restart waits for the old process to exit before launching its replacement, preserves Enhanced Mode on helper failure, and gives the status item a persistent identity so its menu-bar position is retained. Configured proxy ports are no longer replaced by runtime auto-port values, automatic ports are explained in place, and Settings group titles no longer clip. (#219)</li><li><strong>Custom Shortcuts Distinguish Real Duplicates From Warnings</strong> — Shortcuts already assigned inside ClashFX remain blocked, while menu or common system conflicts such as Command-E are shown as warnings and can still be accepted. Function keys remain available without modifiers, and failed registrations roll back cleanly. (#218)</li></ul>
+  ]]></description>
+  <pubDate>Fri, 28 Aug 2026 04:02:08 +0000</pubDate>
+  <sparkle:version>1001010007</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.7</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.7/ClashFX.dmg"
+    sparkle:version="1001010007"
+    sparkle:shortVersionString="1.1.10.7"
+    sparkle:edSignature="TI5njETfiZHyuxBcMjZWoFKrWfkM1pO5O5oqAS2y7YBQrax85cnib3bzNsEhfC4zG9YSTbHA41aY27R0f8eVDQ=="
+    length="95217235"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.6 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.6 (Lab)</h2><ul><li><strong>Large Menus Stay Responsive While Opening or Switching Configurations</strong> — Proxy snapshots are decoded away from the main thread, overlapping refreshes are coalesced, and nested proxy rows are created only when their submenu opens. This removes repeated full-menu construction from the critical path while preserving current selections and live delay updates. (#216)</li><li><strong>Subscription Information No Longer Widens the Entire Menu</strong> — The top subscription row now bounds each line by rendered width and keeps the complete name and quota details in its tooltip. It remains enabled by default and can be hidden entirely from Settings → Appearance → Tray Menu → Show Subscription Information. (#215)</li><li><strong>Selector Benchmarks Avoid Ordered Connection Bursts</strong> — Visible rows keep their subscription order, while background requests are interleaved across protocol/provider cohorts and concurrency changes wait for each cohort to finish. First-pass failures receive one conservative retry before a single final result is shown, reducing transient bulk failures without flashing stale states. (#147)</li><li><strong>The Selected Automatic Group Re-evaluates After Leaf Tests</strong> — When a Selector currently uses an automatic group, that row stays in testing until the leaf pass completes. ClashFX then retests that group once with its configured settings and displays Mihomo's fresh final `now` path; other automatic rows remain measurement-only, and ClashFX never substitutes its own lowest-latency choice. (#147)</li></ul>
