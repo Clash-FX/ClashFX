@@ -1444,6 +1444,20 @@ final class SubscriptionStatusPresentationTests: XCTestCase {
 }
 
 final class StartupProxyRecoveryPolicyTests: XCTestCase {
+    private func cpuSample(
+        launchID: String = "launch-a",
+        processIdentifier: Int = 42,
+        cpuTime: TimeInterval,
+        uptime: TimeInterval
+    ) -> CoreCPUWatchdogSample {
+        CoreCPUWatchdogSample(
+            launchID: launchID,
+            processIdentifier: processIdentifier,
+            cpuTime: cpuTime,
+            sampleUptime: uptime
+        )
+    }
+
     private func observation(
         wantsSystemProxy: Bool = true,
         proxyPaused: Bool = false,
@@ -1531,6 +1545,86 @@ final class StartupProxyRecoveryPolicyTests: XCTestCase {
                 outcome: .confirmedCoreFailure
             ),
             3
+        )
+    }
+
+    func testCoreCPUWatchdogCapturesThenRecoversAfterSustainedSingleCoreLoad() {
+        var policy = CoreCPUWatchdogPolicy(
+            utilizationThreshold: 0.9,
+            diagnosticSampleCount: 2,
+            recoverySampleCount: 3,
+            maximumSampleInterval: 20
+        )
+
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 10, uptime: 100)),
+            .baseline
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 19.5, uptime: 110)),
+            .elevated(utilization: 0.95, consecutiveSamples: 1)
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 29, uptime: 120)),
+            .captureDiagnostic(utilization: 0.95, consecutiveSamples: 2)
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 38.5, uptime: 130)),
+            .recover(utilization: 0.95, consecutiveSamples: 3)
+        )
+    }
+
+    func testCoreCPUWatchdogResetsOnNormalLoadCoreReplacementAndLongGap() {
+        var policy = CoreCPUWatchdogPolicy(
+            utilizationThreshold: 0.9,
+            diagnosticSampleCount: 2,
+            recoverySampleCount: 3,
+            maximumSampleInterval: 20
+        )
+
+        XCTAssertEqual(policy.observe(cpuSample(cpuTime: 0, uptime: 0)), .baseline)
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 9.5, uptime: 10)),
+            .elevated(utilization: 0.95, consecutiveSamples: 1)
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 10.5, uptime: 20)),
+            .normal(utilization: 0.1)
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(
+                launchID: "launch-b",
+                processIdentifier: 84,
+                cpuTime: 2,
+                uptime: 30
+            )),
+            .baseline
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(
+                launchID: "launch-b",
+                processIdentifier: 84,
+                cpuTime: 40,
+                uptime: 70
+            )),
+            .baseline
+        )
+    }
+
+    func testCoreCPUWatchdogRejectsInvalidTelemetry() {
+        var policy = CoreCPUWatchdogPolicy()
+
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: .infinity, uptime: 100)),
+            .invalid
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 1, uptime: -1)),
+            .invalid
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 1, uptime: 100)),
+            .baseline
         )
     }
 

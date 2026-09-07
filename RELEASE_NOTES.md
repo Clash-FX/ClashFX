@@ -4,6 +4,7 @@
 - **Automatic-Group Leaf Delays Are Visible and Generation-Safe** — Automatic-group submenus now render URL-scoped delay badges for every direct candidate. Results carry group membership, benchmark URL, expected status, session identity, and expiry metadata, so provider changes and late callbacks cannot leave misleading group or leaf values behind. Mihomo's fresh `now` remains the only authority for the selected path. (#219)
 - **Dashboard Themes Persist and Legacy WebKit Renders Safely** — Opening or upgrading the dashboard now clears only volatile caches and preserves local storage, cookies, and IndexedDB. A capability-gated compatibility layer replaces unsupported `color-mix()` transparency on older WebKit and supplies cached theme preview colors without forcing layout for every theme. (#221, #223)
 - **Global Delay Results Remain Visible in Node Lists** — The top-level benchmark now retains each inline and provider leaf result with its test URL and session identity. Reopening a Selector keeps the newest applicable measurement even when that Selector uses a different configured test URL, while newer group-scoped evidence still wins. (#225)
+- **Runaway Enhanced-Mode Cores Are Captured and Recovered** — ClashFX now measures the managed Mihomo process's CPU time by launch identity and PID. Sustained near-single-core usage first saves a thread sample, then rebuilds Enhanced Mode if the condition continues, with startup grace, active-traffic suppression, and a recovery cooldown to avoid reacting to legitimate or short-lived work. The diagnostic report records the watchdog state. (#226)
 
 ---
 
@@ -13,6 +14,7 @@
 - **自动策略子节点延迟现在可见且不会串代** — 自动策略子菜单会为每个直接候选节点显示按该组 URL 测得的延迟。结果会携带成员列表、测速 URL、expected status、session 身份及过期信息，因此 provider 变化或旧回调不会留下误导性的策略组或节点数值；选中路径仍只以 Mihomo 最新 `now` 为准。 (#219)
 - **控制台主题可以持久保存，旧 WebKit 也能安全渲染** — 打开或升级控制台时只清理易失缓存，保留 local storage、Cookie 与 IndexedDB。能力检测兼容层会在旧 WebKit 上替代不支持的 `color-mix()` 透明效果，并使用缓存的主题预览色，避免为每个主题强制触发布局计算。 (#221, #223)
 - **全局测速结果会持续显示在节点列表中** — 顶部延迟测速现在会按节点来源、provider、测速 URL 和 session 保留每个叶子节点结果。即使 Selector 配置了不同测速地址，重新打开节点列表仍会显示最新适用结果；之后产生的分组测速证据仍会优先。 (#225)
+- **增强模式核心持续高占用时会先取证再恢复** — ClashFX 现在会按启动身份和 PID 计算受管 Mihomo 进程的 CPU 占用。接近单核满载持续一段时间后会先保存线程采样；异常继续存在时再重建增强模式，并通过启动宽限、活跃流量避让和恢复冷却避免响应正常或短时负载。诊断报告也会记录监测状态。 (#226)
 
 <!-- Previous release notes -->
 

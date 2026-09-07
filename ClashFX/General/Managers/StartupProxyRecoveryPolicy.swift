@@ -69,6 +69,119 @@ enum RuntimeDataPlaneFailurePolicy {
     }
 }
 
+struct CoreCPUWatchdogSample: Equatable {
+    let launchID: String
+    let processIdentifier: Int
+    let cpuTime: TimeInterval
+    let sampleUptime: TimeInterval
+}
+
+enum CoreCPUWatchdogDecision: Equatable {
+    case invalid
+    case baseline
+    case normal(utilization: Double)
+    case elevated(utilization: Double, consecutiveSamples: Int)
+    case captureDiagnostic(utilization: Double, consecutiveSamples: Int)
+    case recover(utilization: Double, consecutiveSamples: Int)
+}
+
+/// Detects a process consuming approximately one complete CPU core over a
+/// sustained period. Samples are tied to the helper launch identity and PID so
+/// delayed replies from an older core cannot accumulate toward recovery.
+struct CoreCPUWatchdogPolicy {
+    let utilizationThreshold: Double
+    let diagnosticSampleCount: Int
+    let recoverySampleCount: Int
+    let maximumSampleInterval: TimeInterval
+
+    private var previousSample: CoreCPUWatchdogSample?
+    private var consecutiveElevatedSamples = 0
+    private var didRequestDiagnostic = false
+
+    init(utilizationThreshold: Double = 0.90,
+         diagnosticSampleCount: Int = 8,
+         recoverySampleCount: Int = 12,
+         maximumSampleInterval: TimeInterval = 45) {
+        let validatedDiagnosticSampleCount = max(1, diagnosticSampleCount)
+        self.utilizationThreshold = utilizationThreshold
+        self.diagnosticSampleCount = validatedDiagnosticSampleCount
+        self.recoverySampleCount = max(
+            validatedDiagnosticSampleCount + 1,
+            recoverySampleCount
+        )
+        self.maximumSampleInterval = maximumSampleInterval
+    }
+
+    mutating func reset() {
+        previousSample = nil
+        consecutiveElevatedSamples = 0
+        didRequestDiagnostic = false
+    }
+
+    mutating func observe(_ sample: CoreCPUWatchdogSample) -> CoreCPUWatchdogDecision {
+        guard sample.processIdentifier > 0,
+              !sample.launchID.isEmpty,
+              sample.cpuTime.isFinite,
+              sample.sampleUptime.isFinite,
+              sample.cpuTime >= 0,
+              sample.sampleUptime >= 0 else {
+            reset()
+            return .invalid
+        }
+
+        guard let previousSample,
+              previousSample.launchID == sample.launchID,
+              previousSample.processIdentifier == sample.processIdentifier else {
+            reset()
+            previousSample = sample
+            return .baseline
+        }
+
+        let elapsed = sample.sampleUptime - previousSample.sampleUptime
+        let consumedCPU = sample.cpuTime - previousSample.cpuTime
+        self.previousSample = sample
+        guard elapsed > 0,
+              elapsed <= maximumSampleInterval,
+              consumedCPU >= 0,
+              consumedCPU.isFinite else {
+            consecutiveElevatedSamples = 0
+            didRequestDiagnostic = false
+            return .baseline
+        }
+
+        let utilization = consumedCPU / elapsed
+        guard utilization.isFinite, utilization >= 0 else {
+            reset()
+            return .invalid
+        }
+        guard utilization >= utilizationThreshold else {
+            consecutiveElevatedSamples = 0
+            didRequestDiagnostic = false
+            return .normal(utilization: utilization)
+        }
+
+        consecutiveElevatedSamples += 1
+        if consecutiveElevatedSamples >= recoverySampleCount {
+            let count = consecutiveElevatedSamples
+            consecutiveElevatedSamples = 0
+            didRequestDiagnostic = false
+            return .recover(utilization: utilization, consecutiveSamples: count)
+        }
+        if consecutiveElevatedSamples >= diagnosticSampleCount,
+           !didRequestDiagnostic {
+            didRequestDiagnostic = true
+            return .captureDiagnostic(
+                utilization: utilization,
+                consecutiveSamples: consecutiveElevatedSamples
+            )
+        }
+        return .elevated(
+            utilization: utilization,
+            consecutiveSamples: consecutiveElevatedSamples
+        )
+    }
+}
+
 enum WakeRecoveryRetryPolicy {
     static func delay(
         baseDelay: TimeInterval,

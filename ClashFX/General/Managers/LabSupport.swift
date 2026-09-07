@@ -42,6 +42,7 @@ enum LabSupport {
         lines.append("- DNS Servers: \(NetworkChangeNotifier.getCurrentDns().joined(separator: ", "))")
         lines.append("- TUN Interfaces: \(tunInterfaceSummary())")
         lines.append("- Enhanced Runtime Health: \(AppDelegate.shared.enhancedModeRuntimeHealthSummary)")
+        lines.append("- Core CPU Watchdog: \(AppDelegate.shared.coreCPUWatchdogSummary)")
         lines.append("- Wake Recovery: \(AppDelegate.shared.wakeRecoveryDiagnosticSummary)")
         lines.append("")
         lines.append("### Recent log (last 50 lines, sensitive data redacted)")
