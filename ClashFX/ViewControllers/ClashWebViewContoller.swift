@@ -36,7 +36,16 @@ enum WebCacheCleaner {
 }
 
 class ClashWebViewContoller: NSViewController {
-    let webview: CustomWKWebView = .init()
+    let webview: CustomWKWebView = {
+        let configuration = WKWebViewConfiguration()
+        // `customUserAgent` replaces the complete WebKit UA, which removes the
+        // Safari/WebKit version diagnostics needed for legacy compatibility.
+        // This configuration property appends an app identifier while retaining
+        // the system-provided, version-bearing User-Agent string.
+        configuration.applicationNameForUserAgent = "ClashFX Runtime"
+        return CustomWKWebView(frame: .zero, configuration: configuration)
+    }()
+
     var bridge: JSBridge?
     let disposeBag = DisposeBag()
     let minSize = NSSize(width: 920, height: 580)
@@ -406,7 +415,6 @@ class ClashWebViewContoller: NSViewController {
         webview.uiDelegate = self
         webview.navigationDelegate = self
 
-        webview.customUserAgent = "ClashFX Runtime"
         if #available(macOS 13.3, *) {
             webview.isInspectable = true
         }
