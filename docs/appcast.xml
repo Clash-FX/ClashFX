@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10.8 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.8 (Lab)</h2><ul><li><strong>Selected Automatic Results Arrive Before the Selector Retry Tail</strong> — A selected automatic group is now retested first with its own URL and expected status, then published from Mihomo's fresh `now` before leaf rows begin. Selector concurrency grows only after complete launch cohorts settle, is capped at twelve, and retries at most four failed targets, preventing a long failure tail from hiding the result users asked for. (#147)</li><li><strong>Automatic-Group Leaf Delays Are Visible and Generation-Safe</strong> — Automatic-group submenus now render URL-scoped delay badges for every direct candidate. Results carry group membership, benchmark URL, expected status, session identity, and expiry metadata, so provider changes and late callbacks cannot leave misleading group or leaf values behind. Mihomo's fresh `now` remains the only authority for the selected path. (#219)</li><li><strong>Dashboard Themes Persist and Legacy WebKit Renders Safely</strong> — Opening or upgrading the dashboard now clears only volatile caches and preserves local storage, cookies, and IndexedDB. A capability-gated compatibility layer replaces unsupported `color-mix()` transparency on older WebKit and supplies cached theme preview colors without forcing layout for every theme. (#221, #223)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 31 Aug 2026 13:24:56 +0000</pubDate>
+  <sparkle:version>1001010008</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.8</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.8/ClashFX.dmg"
+    sparkle:version="1001010008"
+    sparkle:shortVersionString="1.1.10.8"
+    sparkle:edSignature="A2LNNWe2htiewk/dbisHr5Yt4D5M2wkk0ZqYT+oyBZ1dopQAr9qSWwQMeI7RtSiI4OXcgg5TBNomVecIrqTvBw=="
+    length="95290220"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.7 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.7 (Lab)</h2><ul><li><strong>Large Selector Benchmarks Stream Results Without Connection Bursts</strong> — A continuously replenished, bounded request pool now publishes successful rows as soon as they finish instead of waiting for a whole batch or the complete test. Only first-pass failures receive one conservative retry, so large nested groups finish sooner and no longer appear frozen for roughly 50 seconds. (#147, #219)</li><li><strong>Delay Results Remain Useful Without Distorting Automatic Groups</strong> — Recent measurements survive menu reconstruction and remain visible after reopening the menu; older results fade before expiring. Automatic rows keep stable names, expose the final leaf separately, and use Mihomo's fresh `now` after an explicit group retest rather than inventing a UI-side selection. (#147, #219)</li><li><strong>Sleep/Wake Recovery Is Bounded, Generation-Safe, and Diagnosable</strong> — Delayed callbacks from an earlier wake can no longer keep the menu in a loading state or overwrite a newer recovery. Wake checks use bounded backoff, preserve failure evidence, and add a lightweight diagnostic breadcrumb/watchdog without taking destructive action in the background. (#147, #210)</li><li><strong>Restart and Settings State Stay Stable</strong> — Self-restart waits for the old process to exit before launching its replacement, preserves Enhanced Mode on helper failure, and gives the status item a persistent identity so its menu-bar position is retained. Configured proxy ports are no longer replaced by runtime auto-port values, automatic ports are explained in place, and Settings group titles no longer clip. (#219)</li><li><strong>Custom Shortcuts Distinguish Real Duplicates From Warnings</strong> — Shortcuts already assigned inside ClashFX remain blocked, while menu or common system conflicts such as Command-E are shown as warnings and can still be accepted. Function keys remain available without modifiers, and failed registrations roll back cleanly. (#218)</li></ul>
