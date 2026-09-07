@@ -1,8 +1,27 @@
 (function () {
   'use strict';
 
-  if (window.__CLASHFX_DASHBOARD_COMPAT__) return;
-  window.__CLASHFX_DASHBOARD_COMPAT__ = true;
+  var COMPATIBILITY_REVISION = '2026.09.07.1';
+  var existingDiagnostics = window.__CLASHFX_DASHBOARD_COMPAT__;
+  if (existingDiagnostics && existingDiagnostics.revision) return;
+
+  var diagnostics = {
+    revision: COMPATIBILITY_REVISION,
+    syntaxSupport: false,
+    renderedProbe: false,
+    expectedProbe: { red: 64, green: 128, blue: 192, alpha: 0.5 },
+    observedProbe: null,
+    fallbackInstalled: false,
+    themeProbe: {
+      startMs: null,
+      endMs: null,
+      count: 0,
+      durationMs: null,
+      totalCount: 0,
+      batches: 0
+    }
+  };
+  window.__CLASHFX_DASHBOARD_COMPAT__ = diagnostics;
 
   var themePalette = {
     light: { base: '#fff', primary: '#422ad5', content: '#18181b' },
@@ -42,9 +61,33 @@
     silk: { base: '#f7f5f3', primary: '#1c1c29', content: '#4b4743' }
   };
 
-  // MetaCubeXD used to synchronously force style calculation for every theme
-  // whenever the picker opened. Return its build-time palette without layout.
+  // MetaCubeXD synchronously asks for three colors for every hidden theme
+  // preview. Return its build-time palette without a layout round-trip.
   var nativeGetComputedStyle = window.getComputedStyle.bind(window);
+  var themeProbeTimer = null;
+  var activeThemeProbeStart = null;
+  var activeThemeProbeCount = 0;
+
+  function recordThemeProbe() {
+    var now = Date.now();
+    if (activeThemeProbeCount === 0) activeThemeProbeStart = now;
+    activeThemeProbeCount += 1;
+
+    if (themeProbeTimer) window.clearTimeout(themeProbeTimer);
+    themeProbeTimer = window.setTimeout(function () {
+      var end = Date.now();
+      diagnostics.themeProbe.startMs = activeThemeProbeStart;
+      diagnostics.themeProbe.endMs = end;
+      diagnostics.themeProbe.count = activeThemeProbeCount;
+      diagnostics.themeProbe.durationMs = Math.max(0, end - activeThemeProbeStart);
+      diagnostics.themeProbe.totalCount += activeThemeProbeCount;
+      diagnostics.themeProbe.batches += 1;
+      activeThemeProbeStart = null;
+      activeThemeProbeCount = 0;
+      themeProbeTimer = null;
+    }, 0);
+  }
+
   window.getComputedStyle = function (element, pseudoElement) {
     var themeName = element && element.getAttribute && element.getAttribute('data-theme');
     var palette = themeName && themePalette[themeName];
@@ -52,6 +95,7 @@
       element.style.position === 'absolute' && element.style.visibility === 'hidden' &&
       element.style.pointerEvents === 'none';
     if (isThemeProbe) {
+      recordThemeProbe();
       return {
         getPropertyValue: function (propertyName) {
           if (propertyName === '--color-base-100') return palette.base;
@@ -64,13 +108,73 @@
     return nativeGetComputedStyle(element, pseudoElement);
   };
 
-  var supportsColorMix = window.CSS && window.CSS.supports &&
-    window.CSS.supports('color', 'color-mix(in oklab, currentColor 50%, transparent)');
-  if (supportsColorMix) return;
+  diagnostics.syntaxSupport = !!(window.CSS && window.CSS.supports &&
+    window.CSS.supports('color', 'color-mix(in srgb, currentColor 50%, transparent)'));
+
+  function parseRenderedColor(value) {
+    if (!value || typeof value !== 'string') return null;
+    var rgba = value.match(/^rgba\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/i);
+    if (rgba) {
+      return {
+        red: Number(rgba[1]),
+        green: Number(rgba[2]),
+        blue: Number(rgba[3]),
+        alpha: Number(rgba[4]),
+        serialization: 'rgba'
+      };
+    }
+    var srgb = value.match(/^color\(\s*srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\/\s*([\d.]+)\s*\)$/i);
+    if (srgb) {
+      return {
+        red: Number(srgb[1]) * 255,
+        green: Number(srgb[2]) * 255,
+        blue: Number(srgb[3]) * 255,
+        alpha: Number(srgb[4]),
+        serialization: 'color(srgb)'
+      };
+    }
+    return null;
+  }
+
+  function supportsRenderedColorMix() {
+    var root = document.documentElement || document.body;
+    if (!root) return false;
+
+    var container = document.createElement('span');
+    var probe = document.createElement('span');
+    container.setAttribute('aria-hidden', 'true');
+    container.style.position = 'absolute';
+    container.style.left = '-9999px';
+    container.style.visibility = 'hidden';
+    container.style.pointerEvents = 'none';
+    probe.style.color = 'rgb(64, 128, 192)';
+    container.appendChild(probe);
+    root.appendChild(container);
+
+    var observed = null;
+    try {
+      // Assign after mounting so WebKit must resolve currentColor in a real tree.
+      probe.style.backgroundColor = 'color-mix(in srgb, currentColor 50%, transparent)';
+      observed = parseRenderedColor(nativeGetComputedStyle(probe).backgroundColor || '');
+      diagnostics.observedProbe = observed;
+    } catch (_) {
+      diagnostics.observedProbe = null;
+    }
+    if (container.parentNode) container.parentNode.removeChild(container);
+
+    if (!observed) return false;
+    var expected = diagnostics.expectedProbe;
+    return Math.abs(observed.red - expected.red) <= 1 &&
+      Math.abs(observed.green - expected.green) <= 1 &&
+      Math.abs(observed.blue - expected.blue) <= 1 &&
+      Math.abs(observed.alpha - expected.alpha) <= 0.02;
+  }
 
   function installLegacyColorFallbacks() {
     var root = document.documentElement;
     if (!root) return;
+
+    diagnostics.fallbackInstalled = true;
 
     var styleID = 'clashfx-legacy-color-fallbacks';
     var utilityClasses = {};
@@ -189,9 +293,14 @@
     });
   }
 
+  function activateCompatibility() {
+    diagnostics.renderedProbe = supportsRenderedColorMix();
+    if (!diagnostics.renderedProbe) installLegacyColorFallbacks();
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', installLegacyColorFallbacks);
+    document.addEventListener('DOMContentLoaded', activateCompatibility);
   } else {
-    installLegacyColorFallbacks();
+    activateCompatibility();
   }
 })();

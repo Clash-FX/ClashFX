@@ -74,6 +74,7 @@
 		49722FF0211F338B00650A41 /* EventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49722FEB211F338B00650A41 /* EventStream.swift */; };
 		49722FF1211F338B00650A41 /* Witness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49722FEC211F338B00650A41 /* Witness.swift */; };
 		49761DA721C9497000AE13EF /* dashboard in Resources */ = {isa = PBXBuildFile; fileRef = 49761DA621C9497000AE13EF /* dashboard */; };
+		CF221001DA5A000000000001 /* DashboardCompatibility in Resources */ = {isa = PBXBuildFile; fileRef = CF221002DA5A000000000001 /* DashboardCompatibility */; };
 		49769FB427E9B3E400E3D664 /* LoginKitWrapper.m in Sources */ = {isa = PBXBuildFile; fileRef = 49D8276727E9B01700159D93 /* LoginKitWrapper.m */; };
 		4981C88B216BAE4A008CC14A /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 4981C88D216BAE4A008CC14A /* Localizable.strings */; };
 		4982F51F2344A216008804B0 /* Cgo+Convert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4982F51E2344A216008804B0 /* Cgo+Convert.swift */; };
@@ -270,6 +271,7 @@
 		49722FEC211F338B00650A41 /* Witness.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Witness.swift; sourceTree = "<group>"; };
 		49722FED211F338B00650A41 /* Witness.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Witness.h; sourceTree = "<group>"; };
 		49761DA621C9497000AE13EF /* dashboard */ = {isa = PBXFileReference; lastKnownFileType = folder; path = dashboard; sourceTree = "<group>"; };
+		CF221002DA5A000000000001 /* DashboardCompatibility */ = {isa = PBXFileReference; lastKnownFileType = folder; path = DashboardCompatibility; sourceTree = "<group>"; };
 		4981C887216BAB8A008CC14A /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Main.strings"; sourceTree = "<group>"; };
 		4981C88C216BAE4A008CC14A /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		4981C88E216BAE4D008CC14A /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
@@ -612,6 +614,7 @@
 				49A1C0F02F00000000000001 /* AppIcons */,
 				49A1C0F22F00000000000001 /* MenuIcons */,
 				49761DA621C9497000AE13EF /* dashboard */,
+				CF221002DA5A000000000001 /* DashboardCompatibility */,
 				4989F98D20D0AE990001E564 /* sampleConfig.yaml */,
 			);
 			path = Resources;
@@ -970,6 +973,7 @@
 			files = (
 				4969E73D2A5E3CB20012E005 /* ConnectionDetailInfoGeneralView.xib in Resources */,
 				49761DA721C9497000AE13EF /* dashboard in Resources */,
+				CF221001DA5A000000000001 /* DashboardCompatibility in Resources */,
 				4929F677258CD89B00A435F6 /* Country.mmdb.gz in Resources */,
 				CF000001AAAA000000000001 /* geosite.dat.gz in Resources */,
 				4981C88B216BAE4A008CC14A /* Localizable.strings in Resources */,

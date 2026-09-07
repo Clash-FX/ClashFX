@@ -533,7 +533,8 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
     dispatch_async(dispatch_get_main_queue(), ^{
         NSTask *task = self.mihomoTask;
         NSMutableDictionary *status = [NSMutableDictionary dictionary];
-        status[@"running"] = @(task && task.isRunning);
+        BOOL running = task && task.isRunning;
+        status[@"running"] = @(running);
         status[@"pid"] = @(self.mihomoProcessID);
         if (self.mihomoLaunchID.length > 0) {
             status[@"launchID"] = self.mihomoLaunchID;
@@ -550,6 +551,22 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         }
         if (self.mihomoLastTerminationSummary.length > 0) {
             status[@"lastTermination"] = self.mihomoLastTerminationSummary;
+        }
+        if (running && self.mihomoProcessID > 0) {
+            struct rusage_info_v2 usage = {0};
+            int result = proc_pid_rusage(
+                self.mihomoProcessID,
+                RUSAGE_INFO_V2,
+                (rusage_info_t *)&usage
+            );
+            status[@"sampleUptime"] = @(NSProcessInfo.processInfo.systemUptime);
+            if (result == 0) {
+                uint64_t cpuTimeNanoseconds = usage.ri_user_time + usage.ri_system_time;
+                status[@"cpuTimeNanoseconds"] = @(cpuTimeNanoseconds);
+            } else {
+                status[@"cpuSampleError"] = [NSString stringWithFormat:
+                    @"proc_pid_rusage failed: %s", strerror(errno)];
+            }
         }
         reply(status);
     });

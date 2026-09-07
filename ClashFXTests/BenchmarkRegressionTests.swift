@@ -898,6 +898,100 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertNil(proxy.testState(for: "https://unknown.example.test/generate_204"))
     }
 
+    func testGlobalLeafPresentationFillsSelectorURLGapAfterRefresh() throws {
+        let globalURL = "https://global.example.test/generate_204"
+        let selectorURL = "https://selector.example.test/generate_204"
+        let response = snapshot([
+            [
+                "name": "All Nodes",
+                "type": "Selector",
+                "all": ["Provider Node"],
+                "now": "Provider Node",
+                "history": [],
+                "testUrl": selectorURL
+            ],
+            [
+                "name": "Provider Node",
+                "type": "Vless",
+                "history": [],
+                "extra": [
+                    globalURL: [
+                        "alive": true,
+                        "history": [
+                            ["time": "2026-09-03T09:17:32.000+0000", "delay": 118]
+                        ]
+                    ]
+                ]
+            ]
+        ])
+        let proxy = try XCTUnwrap(response.proxiesMap["Provider Node"])
+        let publishedAt = Date(timeIntervalSince1970: 1_788_427_852)
+        let presentation = GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: proxy),
+            benchmarkURL: globalURL,
+            sessionIdentifier: UUID(),
+            rowState: .measured(displayName: proxy.name, delay: 118),
+            publishedAt: publishedAt
+        )
+
+        XCTAssertNil(proxy.testState(for: selectorURL))
+        XCTAssertEqual(
+            presentation.reconciled(
+                with: proxy,
+                now: publishedAt.addingTimeInterval(1)
+            )?.rowState.rawDelay,
+            118
+        )
+        XCTAssertTrue(presentation.isNewer(than: proxy.testState(for: selectorURL)))
+    }
+
+    func testGlobalLeafPresentationYieldsToNewerSelectorEvidenceAndRejectsWrongIdentity() throws {
+        let selectorURL = "https://selector.example.test/generate_204"
+        let response = snapshot([
+            [
+                "name": "Node",
+                "type": "Vless",
+                "history": [],
+                "extra": [
+                    selectorURL: [
+                        "alive": true,
+                        "history": [
+                            ["time": "2026-09-03T09:20:00.000+0000", "delay": 95]
+                        ]
+                    ]
+                ]
+            ]
+        ])
+        let proxy = try XCTUnwrap(response.proxiesMap["Node"])
+        let selectorState = try XCTUnwrap(proxy.testState(for: selectorURL))
+        let selectorMeasurementTime = try XCTUnwrap(selectorState.history.last?.time)
+        let presentation = GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: proxy),
+            benchmarkURL: "https://global.example.test/generate_204",
+            sessionIdentifier: UUID(),
+            rowState: .measured(displayName: proxy.name, delay: 118),
+            publishedAt: selectorMeasurementTime.addingTimeInterval(-1)
+        )
+
+        XCTAssertFalse(presentation.isNewer(than: selectorState))
+
+        let wrongProviderPresentation = GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(
+                endpoint: .provider,
+                providerName: "Different Provider",
+                proxyName: proxy.name
+            ),
+            benchmarkURL: selectorURL,
+            sessionIdentifier: UUID(),
+            rowState: .measured(displayName: proxy.name, delay: 72),
+            publishedAt: selectorMeasurementTime
+        )
+        XCTAssertNil(wrongProviderPresentation.reconciled(
+            with: proxy,
+            now: selectorMeasurementTime
+        ))
+    }
+
     func testEffectiveBenchmarkURLUsesExplicitNonEmptyValue() throws {
         let response = snapshot([
             [
@@ -1350,6 +1444,20 @@ final class SubscriptionStatusPresentationTests: XCTestCase {
 }
 
 final class StartupProxyRecoveryPolicyTests: XCTestCase {
+    private func cpuSample(
+        launchID: String = "launch-a",
+        processIdentifier: Int = 42,
+        cpuTime: TimeInterval,
+        uptime: TimeInterval
+    ) -> CoreCPUWatchdogSample {
+        CoreCPUWatchdogSample(
+            launchID: launchID,
+            processIdentifier: processIdentifier,
+            cpuTime: cpuTime,
+            sampleUptime: uptime
+        )
+    }
+
     private func observation(
         wantsSystemProxy: Bool = true,
         proxyPaused: Bool = false,
@@ -1437,6 +1545,86 @@ final class StartupProxyRecoveryPolicyTests: XCTestCase {
                 outcome: .confirmedCoreFailure
             ),
             3
+        )
+    }
+
+    func testCoreCPUWatchdogCapturesThenRecoversAfterSustainedSingleCoreLoad() {
+        var policy = CoreCPUWatchdogPolicy(
+            utilizationThreshold: 0.9,
+            diagnosticSampleCount: 2,
+            recoverySampleCount: 3,
+            maximumSampleInterval: 20
+        )
+
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 10, uptime: 100)),
+            .baseline
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 19.5, uptime: 110)),
+            .elevated(utilization: 0.95, consecutiveSamples: 1)
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 29, uptime: 120)),
+            .captureDiagnostic(utilization: 0.95, consecutiveSamples: 2)
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 38.5, uptime: 130)),
+            .recover(utilization: 0.95, consecutiveSamples: 3)
+        )
+    }
+
+    func testCoreCPUWatchdogResetsOnNormalLoadCoreReplacementAndLongGap() {
+        var policy = CoreCPUWatchdogPolicy(
+            utilizationThreshold: 0.9,
+            diagnosticSampleCount: 2,
+            recoverySampleCount: 3,
+            maximumSampleInterval: 20
+        )
+
+        XCTAssertEqual(policy.observe(cpuSample(cpuTime: 0, uptime: 0)), .baseline)
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 9.5, uptime: 10)),
+            .elevated(utilization: 0.95, consecutiveSamples: 1)
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 10.5, uptime: 20)),
+            .normal(utilization: 0.1)
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(
+                launchID: "launch-b",
+                processIdentifier: 84,
+                cpuTime: 2,
+                uptime: 30
+            )),
+            .baseline
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(
+                launchID: "launch-b",
+                processIdentifier: 84,
+                cpuTime: 40,
+                uptime: 70
+            )),
+            .baseline
+        )
+    }
+
+    func testCoreCPUWatchdogRejectsInvalidTelemetry() {
+        var policy = CoreCPUWatchdogPolicy()
+
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: .infinity, uptime: 100)),
+            .invalid
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 1, uptime: -1)),
+            .invalid
+        )
+        XCTAssertEqual(
+            policy.observe(cpuSample(cpuTime: 1, uptime: 100)),
+            .baseline
         )
     }
 

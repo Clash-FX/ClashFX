@@ -25,6 +25,7 @@ class MenuItemFactory {
 
     static func recreateProxyMenuItems() {
         let recreate = {
+            GlobalLeafBenchmarkPresentationStore.clearAll()
             AutomaticGroupBenchmarkPresentationStore.clearAll()
             AutomaticChildBenchmarkStore.clearAll()
             // Selector presentations reconcile against the new snapshot and are
@@ -71,6 +72,7 @@ class MenuItemFactory {
             return
         }
 
+        GlobalLeafBenchmarkPresentationStore.prune(using: info)
         AutomaticGroupBenchmarkPresentationStore.prune(using: info)
         AutomaticChildBenchmarkStore.prune(using: info)
         SelectorBenchmarkPresentationStore.prune(using: info)

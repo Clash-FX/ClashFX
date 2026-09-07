@@ -105,6 +105,7 @@ jobs:
 
         echo "Found app at: $APP_PATH"
         cp -R "$APP_PATH" ./ClashFX.app
+        bash scripts/verify-dashboard-compatibility-bundle.sh ./ClashFX.app
 
         DSYM_PATH=$(find ./build_derived_data/Build/Products/Release -name "ClashFX.app.dSYM" -type d | head -n 1)
         if [ -n "$DSYM_PATH" ]; then
@@ -132,6 +133,20 @@ jobs:
         ln -s /Applications /tmp/dmg_temp/Applications
         hdiutil create -volname "ClashFX" -srcfolder /tmp/dmg_temp -ov -format UDZO -imagekey zlib-level=6 -fs HFS+ -size 300m ClashFX.dmg
         rm -rf /tmp/dmg_temp
+        hdiutil verify ClashFX.dmg
+        DMG_VERIFY_DIR=$(mktemp -d /tmp/clashfx-dmg-verify.XXXXXX)
+        DMG_MOUNT_POINT="$DMG_VERIFY_DIR/mount"
+        mkdir "$DMG_MOUNT_POINT"
+        cleanup_dmg_verification() {
+          hdiutil detach "$DMG_MOUNT_POINT" -quiet 2>/dev/null || true
+          rmdir "$DMG_MOUNT_POINT" "$DMG_VERIFY_DIR" 2>/dev/null || true
+        }
+        trap cleanup_dmg_verification EXIT
+        hdiutil attach ClashFX.dmg -nobrowse -readonly -mountpoint "$DMG_MOUNT_POINT"
+        bash scripts/verify-dashboard-compatibility-bundle.sh "$DMG_MOUNT_POINT/ClashFX.app"
+        hdiutil detach "$DMG_MOUNT_POINT" -quiet
+        trap - EXIT
+        rmdir "$DMG_MOUNT_POINT" "$DMG_VERIFY_DIR"
         echo "DMG created: $(ls -lh ClashFX.dmg)"
 
     - name: sign dmg with sparkle

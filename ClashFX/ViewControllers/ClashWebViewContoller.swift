@@ -36,7 +36,16 @@ enum WebCacheCleaner {
 }
 
 class ClashWebViewContoller: NSViewController {
-    let webview: CustomWKWebView = .init()
+    let webview: CustomWKWebView = {
+        let configuration = WKWebViewConfiguration()
+        // `customUserAgent` replaces the complete WebKit UA, which removes the
+        // Safari/WebKit version diagnostics needed for legacy compatibility.
+        // This configuration property appends an app identifier while retaining
+        // the system-provided, version-bearing User-Agent string.
+        configuration.applicationNameForUserAgent = "ClashFX Runtime"
+        return CustomWKWebView(frame: .zero, configuration: configuration)
+    }()
+
     var bridge: JSBridge?
     let disposeBag = DisposeBag()
     let minSize = NSSize(width: 920, height: 580)
@@ -47,7 +56,7 @@ class ClashWebViewContoller: NSViewController {
         guard let scriptURL = Bundle.main.url(
             forResource: "clashfx-compat",
             withExtension: "js",
-            subdirectory: "dashboard"
+            subdirectory: "DashboardCompatibility"
         ) else {
             Logger.log("[dashboard] compatibility script missing", level: .warning)
             return nil
@@ -98,6 +107,48 @@ class ClashWebViewContoller: NSViewController {
         }
         return origSend.apply(this, arguments);
       };
+    })();
+    """
+
+    private static let dashboardCompatibilityDiagnosticsJS: String = """
+    (function() {
+      var compatibility = window.__CLASHFX_DASHBOARD_COMPAT__;
+      if (!compatibility || typeof compatibility !== 'object') return null;
+      function number(value) {
+        return typeof value === 'number' && isFinite(value) ? Math.max(-9000000000000000, Math.min(9000000000000000, value)) : null;
+      }
+      function probe(value) {
+        if (!value || typeof value !== 'object') return null;
+        return {
+          red: number(value.red), green: number(value.green), blue: number(value.blue),
+          alpha: number(value.alpha), serialization: String(value.serialization || '').slice(0, 32)
+        };
+      }
+      var ua = String(navigator.userAgent || '').slice(0, 512);
+      var safari = ua.match(/Version\\/(\\d+(?:\\.\\d+){0,2}).*Safari\\//i);
+      var webKit = ua.match(/AppleWebKit\\/(\\d+(?:\\.\\d+){0,4})/i);
+      return JSON.stringify({
+        compatibility: {
+          revision: String(compatibility.revision || '').slice(0, 64),
+          syntaxSupport: compatibility.syntaxSupport === true,
+          renderedProbe: compatibility.renderedProbe === true,
+          expectedProbe: probe(compatibility.expectedProbe),
+          observedProbe: probe(compatibility.observedProbe),
+          fallbackInstalled: compatibility.fallbackInstalled === true,
+          themeProbe: compatibility.themeProbe ? {
+            startMs: number(compatibility.themeProbe.startMs),
+            endMs: number(compatibility.themeProbe.endMs),
+            count: number(compatibility.themeProbe.count),
+            durationMs: number(compatibility.themeProbe.durationMs),
+            totalCount: number(compatibility.themeProbe.totalCount),
+            batches: number(compatibility.themeProbe.batches)
+          } : null
+        },
+        safariVersion: safari ? safari[1] : null,
+        webKitVersion: webKit ? webKit[1] : null,
+        normalizedBrowserVersion: safari ? 'Safari ' + safari[1] + (webKit ? ' / WebKit ' + webKit[1] : '') : (webKit ? 'WebKit ' + webKit[1] : null),
+        userAgent: ua
+      });
     })();
     """
 
@@ -364,7 +415,6 @@ class ClashWebViewContoller: NSViewController {
         webview.uiDelegate = self
         webview.navigationDelegate = self
 
-        webview.customUserAgent = "ClashFX Runtime"
         if #available(macOS 13.3, *) {
             webview.isInspectable = true
         }
@@ -487,6 +537,17 @@ extension ClashWebViewContoller: WKUIDelegate, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Logger.log("[dashboard] didFinish \(String(describing: navigation))", level: .info)
+        webView.evaluateJavaScript(Self.dashboardCompatibilityDiagnosticsJS) { result, error in
+            if let error = error {
+                Logger.log("[dashboard] compatibility diagnostics unavailable: \(error)", level: .warning)
+                return
+            }
+            guard let diagnostics = result as? String, diagnostics.utf8.count <= 2048 else {
+                Logger.log("[dashboard] compatibility diagnostics unavailable", level: .warning)
+                return
+            }
+            Logger.log("[dashboard] compatibility diagnostics \(diagnostics)", level: .info)
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

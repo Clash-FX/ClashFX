@@ -92,6 +92,12 @@ class ApiRequest {
         let proxyName: ClashProxyName
     }
 
+    struct LeafProxyBenchmarkResult {
+        let identity: LeafProxyBenchmarkIdentity
+        let benchmarkURL: String
+        let delay: Int
+    }
+
     final class BenchmarkSession {
         private let lock = NSLock()
         private var requests: [UUID: DataRequest] = [:]
@@ -818,6 +824,7 @@ class ApiRequest {
                                      timeout: Int,
                                      maxConcurrent: Int = benchmarkMaxConcurrent,
                                      session: BenchmarkSession? = nil,
+                                     result: @escaping (LeafProxyBenchmarkResult) -> Void = { _ in },
                                      completion: @escaping () -> Void) {
         guard session?.isCancelled != true else {
             completion()
@@ -855,7 +862,16 @@ class ApiRequest {
                     benchmarkURL: benchmarkURL,
                     timeout: timeout,
                     session: session
-                ) { _ in
+                ) { delay in
+                    result(LeafProxyBenchmarkResult(
+                        identity: LeafProxyBenchmarkIdentity(
+                            endpoint: .inline,
+                            providerName: nil,
+                            proxyName: proxy.name
+                        ),
+                        benchmarkURL: benchmarkURL,
+                        delay: delay
+                    ))
                     done()
                 }
             }
@@ -883,7 +899,16 @@ class ApiRequest {
                         benchmarkURL: benchmarkURL,
                         timeout: timeout,
                         session: session
-                    ) { _ in
+                    ) { delay in
+                        result(LeafProxyBenchmarkResult(
+                            identity: LeafProxyBenchmarkIdentity(
+                                endpoint: .provider,
+                                providerName: provider.name,
+                                proxyName: proxy.name
+                            ),
+                            benchmarkURL: benchmarkURL,
+                            delay: delay
+                        ))
                         done()
                     }
                 }

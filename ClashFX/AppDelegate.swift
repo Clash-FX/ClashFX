@@ -159,13 +159,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var isWakeEnhancedModeRestarting = false
     private var enhancedModeHealthTimer: Timer?
     private var isEnhancedModeHealthCheckInFlight = false
+    private var isCoreCPUStatusCheckInFlight = false
+    private var coreCPUStatusRequestGeneration = 0
+    private var coreCPUWatchdogPolicy = CoreCPUWatchdogPolicy()
+    private var latestTrafficBytesPerSecond = 0
+    private var latestTrafficUpdateTime = Date.distantPast
     private var consecutiveEnhancedModeHealthFailures = 0
     private var consecutiveEnhancedModeDataPlaneFailures = 0
     private var enhancedModeHealthGraceUntil = Date.distantPast
     private var lastEnhancedModeDataPlaneProbeAt = Date.distantPast
     private var lastEnhancedModeDataPlaneRecoveryTime = Date.distantPast
+    private var lastCoreCPURecoveryTime = Date.distantPast
     private var isEnhancedModeRuntimeRecoveryPending = false
     private(set) var enhancedModeRuntimeHealthSummary = "not checked"
+    private(set) var coreCPUWatchdogSummary = "not checked"
     private(set) var wakeRecoveryDiagnosticSummary = "idle"
     private var lastCoreLogRecoveryTime = Date.distantPast
     private var didCompleteStaleEnhancedCoreCleanup = false
@@ -197,6 +204,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private static let enhancedModeDataPlaneProbeRequestTimeout: TimeInterval = 8
     private static let enhancedModeDataPlaneFailureThreshold = 3
     private static let enhancedModeDataPlaneRecoveryCooldown: TimeInterval = 10 * 60
+    private static let coreCPURecoveryCooldown: TimeInterval = 30 * 60
+    private static let coreCPUActiveTrafficThreshold = 64 * 1024
+    private static let coreCPUActiveTrafficFreshness: TimeInterval = 30
     /// Literal-IP endpoints keep the system-direct baseline independent from
     /// Mihomo DNS. Each endpoint is tested through core DIRECT first and, only
     /// on failure, through ClashFX Networking's generated DIRECT exemption.
@@ -1611,6 +1621,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard Settings.enhancedMode,
               ConfigManager.shared.isEnhancedModeActive,
               enhancedModeMenuItem.isEnabled else {
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary = Settings.enhancedMode
+                ? "enabled preference; runtime not active"
+                : "inactive"
             consecutiveEnhancedModeHealthFailures = 0
             consecutiveEnhancedModeDataPlaneFailures = 0
             enhancedModeRuntimeHealthSummary = Settings.enhancedMode
@@ -1621,10 +1635,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard !isWakeEnhancedModeRestarting,
               !isEnhancedModeRuntimeRecoveryPending else { return }
         guard Date() >= enhancedModeHealthGraceUntil else {
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary = "startup grace period"
             consecutiveEnhancedModeHealthFailures = 0
             consecutiveEnhancedModeDataPlaneFailures = 0
             return
         }
+        checkEnhancedModeCoreCPU()
         guard !isEnhancedModeHealthCheckInFlight else { return }
 
         isEnhancedModeHealthCheckInFlight = true
@@ -1678,6 +1695,159 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         "\(Self.enhancedModeHealthFailureThreshold) checks: \(reason)"
                 )
             }
+        }
+    }
+
+    private func checkEnhancedModeCoreCPU() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard !isCoreCPUStatusCheckInFlight else { return }
+        guard !isSpeedTesting, !isConfigUpdating else {
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary = "paused during benchmark or configuration update"
+            return
+        }
+        let trafficAge = Date().timeIntervalSince(latestTrafficUpdateTime)
+        guard trafficAge < 0 ||
+            trafficAge > Self.coreCPUActiveTrafficFreshness ||
+            latestTrafficBytesPerSecond < Self.coreCPUActiveTrafficThreshold else {
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary =
+                "paused during active traffic: \(latestTrafficBytesPerSecond) B/s"
+            return
+        }
+        guard let helper = PrivilegedHelperManager.shared.helper() else {
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary = "helper unavailable"
+            return
+        }
+
+        isCoreCPUStatusCheckInFlight = true
+        coreCPUStatusRequestGeneration += 1
+        let requestGeneration = coreCPUStatusRequestGeneration
+        let invocation: Void? = helper.getMihomoCoreStatus? { [weak self] optionalStatus in
+            DispatchQueue.main.async {
+                guard let self = self,
+                      requestGeneration == self.coreCPUStatusRequestGeneration else { return }
+                self.isCoreCPUStatusCheckInFlight = false
+                guard Settings.enhancedMode,
+                      ConfigManager.shared.isEnhancedModeActive,
+                      self.enhancedModeMenuItem.isEnabled,
+                      !self.isWakeEnhancedModeRestarting,
+                      !self.isEnhancedModeRuntimeRecoveryPending else {
+                    self.coreCPUWatchdogPolicy.reset()
+                    return
+                }
+
+                let status = optionalStatus ?? [:]
+                guard (status["running"] as? NSNumber)?.boolValue == true,
+                      let launchID = status["launchID"] as? String,
+                      let processIdentifier = (status["pid"] as? NSNumber)?.intValue,
+                      let cpuTimeNanoseconds = (status["cpuTimeNanoseconds"] as? NSNumber)?.doubleValue,
+                      let sampleUptime = (status["sampleUptime"] as? NSNumber)?.doubleValue else {
+                    self.coreCPUWatchdogPolicy.reset()
+                    self.coreCPUWatchdogSummary = status["cpuSampleError"] as? String
+                        ?? "CPU telemetry unavailable"
+                    return
+                }
+
+                let sample = CoreCPUWatchdogSample(
+                    launchID: launchID,
+                    processIdentifier: processIdentifier,
+                    cpuTime: cpuTimeNanoseconds / 1_000_000_000,
+                    sampleUptime: sampleUptime
+                )
+                self.handleCoreCPUWatchdogDecision(
+                    self.coreCPUWatchdogPolicy.observe(sample),
+                    sample: sample
+                )
+            }
+        }
+        if invocation == nil {
+            coreCPUStatusRequestGeneration += 1
+            isCoreCPUStatusCheckInFlight = false
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary = "installed helper lacks CPU telemetry"
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.enhancedModeHelperRequestTimeout
+        ) { [weak self] in
+            guard let self = self,
+                  self.isCoreCPUStatusCheckInFlight,
+                  requestGeneration == self.coreCPUStatusRequestGeneration else { return }
+            self.coreCPUStatusRequestGeneration += 1
+            self.isCoreCPUStatusCheckInFlight = false
+            self.coreCPUWatchdogPolicy.reset()
+            self.coreCPUWatchdogSummary = "helper CPU telemetry timed out"
+            Logger.log(
+                "Enhanced Mode core CPU telemetry timed out",
+                level: .warning
+            )
+        }
+    }
+
+    private func handleCoreCPUWatchdogDecision(
+        _ decision: CoreCPUWatchdogDecision,
+        sample: CoreCPUWatchdogSample
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+
+        func percentage(_ utilization: Double) -> Int {
+            Int((utilization * 100).rounded())
+        }
+
+        switch decision {
+        case .invalid:
+            coreCPUWatchdogSummary = "invalid CPU telemetry"
+        case .baseline:
+            coreCPUWatchdogSummary = "baseline pid=\(sample.processIdentifier)"
+        case let .normal(utilization):
+            coreCPUWatchdogSummary = "normal: \(percentage(utilization))% of one core"
+        case let .elevated(utilization, consecutiveSamples):
+            coreCPUWatchdogSummary =
+                "elevated: \(percentage(utilization))% of one core " +
+                "for \(consecutiveSamples) sample(s)"
+            if consecutiveSamples == 1 {
+                Logger.log(
+                    "Enhanced Mode core CPU is elevated: \(coreCPUWatchdogSummary)",
+                    level: .warning
+                )
+            }
+        case let .captureDiagnostic(utilization, consecutiveSamples):
+            coreCPUWatchdogSummary =
+                "diagnostic capture: \(percentage(utilization))% of one core " +
+                "for \(consecutiveSamples) sample(s)"
+            Logger.log(
+                "Enhanced Mode core CPU remained elevated; capturing diagnostic: " +
+                    coreCPUWatchdogSummary,
+                level: .error
+            )
+            captureExternalCoreDiagnostic(reason: coreCPUWatchdogSummary) {}
+        case let .recover(utilization, consecutiveSamples):
+            let reason =
+                "sustained core CPU: \(percentage(utilization))% of one core " +
+                "for \(consecutiveSamples) sample(s), pid=\(sample.processIdentifier), " +
+                "launch=\(sample.launchID)"
+            let now = Date()
+            guard now.timeIntervalSince(lastCoreCPURecoveryTime) >=
+                Self.coreCPURecoveryCooldown else {
+                coreCPUWatchdogSummary = "recovery cooldown active after \(reason)"
+                Logger.log(
+                    "Enhanced Mode core CPU remains elevated, but automatic recovery " +
+                        "is in cooldown: \(reason)",
+                    level: .warning
+                )
+                return
+            }
+
+            lastCoreCPURecoveryTime = now
+            coreCPUWatchdogSummary = "automatic recovery triggered: \(reason)"
+            Logger.log(
+                "Enhanced Mode core CPU remained elevated; rebuilding core: \(reason)",
+                level: .error
+            )
+            captureAndRestartEnhancedMode(reason: reason)
         }
     }
 
@@ -3870,6 +4040,7 @@ extension AppDelegate {
         guard let session = beginSpeedTest(showNotifications: showNotifications) else {
             return
         }
+        let presentationSessionIdentifier = UUID()
 
         ApiRequest.getMergedProxyData(session: session, timeout: 10) { [weak self] resp in
             DispatchQueue.main.async {
@@ -3888,17 +4059,39 @@ extension AppDelegate {
                     in: resp,
                     benchmarkURL: benchmarkURL,
                     timeout: timeout,
-                    session: session
-                ) { [weak self] in
-                    DispatchQueue.main.async {
-                        guard let self,
-                              self.isActiveBenchmarkSession(session) else { return }
-                        self.finishSpeedTest(
-                            session: session,
-                            showNotifications: showNotifications
-                        )
+                    session: session,
+                    result: { [weak self] result in
+                        DispatchQueue.main.async {
+                            guard let self,
+                                  !session.isCancelled,
+                                  self.isActiveBenchmarkSession(session) else { return }
+                            let state: ProxyBenchmarkRowState = result.delay > 0
+                                ? .measured(
+                                    displayName: result.identity.proxyName,
+                                    delay: result.delay
+                                )
+                                : .failed(displayName: result.identity.proxyName)
+                            GlobalLeafBenchmarkPresentationStore.publish(
+                                GlobalLeafBenchmarkPresentation(
+                                    identity: result.identity,
+                                    benchmarkURL: result.benchmarkURL,
+                                    sessionIdentifier: presentationSessionIdentifier,
+                                    rowState: state
+                                )
+                            )
+                        }
+                    },
+                    completion: { [weak self] in
+                        DispatchQueue.main.async {
+                            guard let self,
+                                  self.isActiveBenchmarkSession(session) else { return }
+                            self.finishSpeedTest(
+                                session: session,
+                                showNotifications: showNotifications
+                            )
+                        }
                     }
-                }
+                )
             }
         }
     }
@@ -4124,6 +4317,9 @@ extension AppDelegate {
 
 extension AppDelegate: ApiRequestStreamDelegate {
     func didUpdateTraffic(up: Int, down: Int) {
+        let (trafficBytes, overflow) = max(0, up).addingReportingOverflow(max(0, down))
+        latestTrafficBytesPerSecond = overflow ? Int.max : trafficBytes
+        latestTrafficUpdateTime = Date()
         statusItemView.updateSpeedLabel(up: up, down: down)
     }
 
