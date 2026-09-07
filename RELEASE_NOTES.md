@@ -3,6 +3,7 @@
 - **Selected Automatic Results Arrive Before the Selector Retry Tail** — A selected automatic group is now retested first with its own URL and expected status, then published from Mihomo's fresh `now` before leaf rows begin. Selector concurrency grows only after complete launch cohorts settle, is capped at twelve, and retries at most four failed targets, preventing a long failure tail from hiding the result users asked for. (#147)
 - **Automatic-Group Leaf Delays Are Visible and Generation-Safe** — Automatic-group submenus now render URL-scoped delay badges for every direct candidate. Results carry group membership, benchmark URL, expected status, session identity, and expiry metadata, so provider changes and late callbacks cannot leave misleading group or leaf values behind. Mihomo's fresh `now` remains the only authority for the selected path. (#219)
 - **Dashboard Themes Persist and Legacy WebKit Renders Safely** — Opening or upgrading the dashboard now clears only volatile caches and preserves local storage, cookies, and IndexedDB. A capability-gated compatibility layer replaces unsupported `color-mix()` transparency on older WebKit and supplies cached theme preview colors without forcing layout for every theme. (#221, #223)
+- **Global Delay Results Remain Visible in Node Lists** — The top-level benchmark now retains each inline and provider leaf result with its test URL and session identity. Reopening a Selector keeps the newest applicable measurement even when that Selector uses a different configured test URL, while newer group-scoped evidence still wins. (#225)
 
 ---
 
@@ -11,6 +12,7 @@
 - **选中的自动策略会在 Selector 重试尾部之前返回** — 当前选中的自动策略会优先使用自身 URL 与 expected status 重测，并依据 Mihomo 最新 `now` 发布结果，随后才开始叶子节点测速。Selector 只会在完整启动批次结束后调整并发，上限降为 12，且最多重试 4 个失败目标，失败尾部不再长期遮住用户最关心的结果。 (#147)
 - **自动策略子节点延迟现在可见且不会串代** — 自动策略子菜单会为每个直接候选节点显示按该组 URL 测得的延迟。结果会携带成员列表、测速 URL、expected status、session 身份及过期信息，因此 provider 变化或旧回调不会留下误导性的策略组或节点数值；选中路径仍只以 Mihomo 最新 `now` 为准。 (#219)
 - **控制台主题可以持久保存，旧 WebKit 也能安全渲染** — 打开或升级控制台时只清理易失缓存，保留 local storage、Cookie 与 IndexedDB。能力检测兼容层会在旧 WebKit 上替代不支持的 `color-mix()` 透明效果，并使用缓存的主题预览色，避免为每个主题强制触发布局计算。 (#221, #223)
+- **全局测速结果会持续显示在节点列表中** — 顶部延迟测速现在会按节点来源、provider、测速 URL 和 session 保留每个叶子节点结果。即使 Selector 配置了不同测速地址，重新打开节点列表仍会显示最新适用结果；之后产生的分组测速证据仍会优先。 (#225)
 
 <!-- Previous release notes -->
 

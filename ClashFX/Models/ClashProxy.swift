@@ -285,6 +285,68 @@ enum ProxyBenchmarkRowState {
     }
 }
 
+struct LeafProxyBenchmarkIdentity: Hashable {
+    let endpoint: SelectorBenchmarkEndpoint
+    let providerName: ClashProviderName?
+    let proxyName: ClashProxyName
+
+    init(endpoint: SelectorBenchmarkEndpoint,
+         providerName: ClashProviderName?,
+         proxyName: ClashProxyName) {
+        self.endpoint = endpoint
+        self.providerName = providerName
+        self.proxyName = proxyName
+    }
+
+    init(proxy: ClashProxy) {
+        endpoint = proxy.enclosingProvider == nil ? .inline : .provider
+        providerName = proxy.enclosingProvider?.name
+        proxyName = proxy.name
+    }
+}
+
+struct GlobalLeafBenchmarkPresentation {
+    private static let freshCacheAge: TimeInterval = 30 * 60
+    private static let maximumCacheAge: TimeInterval = 24 * 60 * 60
+
+    let identity: LeafProxyBenchmarkIdentity
+    let benchmarkURL: String
+    let sessionIdentifier: UUID
+    let rowState: ProxyBenchmarkRowState
+    let publishedAt: Date
+
+    var isStale: Bool {
+        Date().timeIntervalSince(publishedAt) > Self.freshCacheAge
+    }
+
+    init(identity: LeafProxyBenchmarkIdentity,
+         benchmarkURL: String,
+         sessionIdentifier: UUID,
+         rowState: ProxyBenchmarkRowState,
+         publishedAt: Date = .init()) {
+        self.identity = identity
+        self.benchmarkURL = benchmarkURL
+        self.sessionIdentifier = sessionIdentifier
+        self.rowState = rowState
+        self.publishedAt = publishedAt
+    }
+
+    func reconciled(with proxy: ClashProxy,
+                    now: Date = .init()) -> GlobalLeafBenchmarkPresentation? {
+        guard now.timeIntervalSince(publishedAt) <= Self.maximumCacheAge,
+              proxy.all == nil,
+              identity == LeafProxyBenchmarkIdentity(proxy: proxy) else {
+            return nil
+        }
+        return self
+    }
+
+    func isNewer(than state: ClashProxyTestState?) -> Bool {
+        guard let latestHistory = state?.history.last else { return true }
+        return publishedAt >= latestHistory.time
+    }
+}
+
 struct SelectorBenchmarkPresentation {
     private static let freshCacheAge: TimeInterval = 30 * 60
     private static let maximumCacheAge: TimeInterval = 24 * 60 * 60

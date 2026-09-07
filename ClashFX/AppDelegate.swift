@@ -3870,6 +3870,7 @@ extension AppDelegate {
         guard let session = beginSpeedTest(showNotifications: showNotifications) else {
             return
         }
+        let presentationSessionIdentifier = UUID()
 
         ApiRequest.getMergedProxyData(session: session, timeout: 10) { [weak self] resp in
             DispatchQueue.main.async {
@@ -3888,17 +3889,39 @@ extension AppDelegate {
                     in: resp,
                     benchmarkURL: benchmarkURL,
                     timeout: timeout,
-                    session: session
-                ) { [weak self] in
-                    DispatchQueue.main.async {
-                        guard let self,
-                              self.isActiveBenchmarkSession(session) else { return }
-                        self.finishSpeedTest(
-                            session: session,
-                            showNotifications: showNotifications
-                        )
+                    session: session,
+                    result: { [weak self] result in
+                        DispatchQueue.main.async {
+                            guard let self,
+                                  !session.isCancelled,
+                                  self.isActiveBenchmarkSession(session) else { return }
+                            let state: ProxyBenchmarkRowState = result.delay > 0
+                                ? .measured(
+                                    displayName: result.identity.proxyName,
+                                    delay: result.delay
+                                )
+                                : .failed(displayName: result.identity.proxyName)
+                            GlobalLeafBenchmarkPresentationStore.publish(
+                                GlobalLeafBenchmarkPresentation(
+                                    identity: result.identity,
+                                    benchmarkURL: result.benchmarkURL,
+                                    sessionIdentifier: presentationSessionIdentifier,
+                                    rowState: state
+                                )
+                            )
+                        }
+                    },
+                    completion: { [weak self] in
+                        DispatchQueue.main.async {
+                            guard let self,
+                                  self.isActiveBenchmarkSession(session) else { return }
+                            self.finishSpeedTest(
+                                session: session,
+                                showNotifications: showNotifications
+                            )
+                        }
                     }
-                }
+                )
             }
         }
     }

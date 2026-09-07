@@ -898,6 +898,100 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertNil(proxy.testState(for: "https://unknown.example.test/generate_204"))
     }
 
+    func testGlobalLeafPresentationFillsSelectorURLGapAfterRefresh() throws {
+        let globalURL = "https://global.example.test/generate_204"
+        let selectorURL = "https://selector.example.test/generate_204"
+        let response = snapshot([
+            [
+                "name": "All Nodes",
+                "type": "Selector",
+                "all": ["Provider Node"],
+                "now": "Provider Node",
+                "history": [],
+                "testUrl": selectorURL
+            ],
+            [
+                "name": "Provider Node",
+                "type": "Vless",
+                "history": [],
+                "extra": [
+                    globalURL: [
+                        "alive": true,
+                        "history": [
+                            ["time": "2026-09-03T09:17:32.000+0000", "delay": 118]
+                        ]
+                    ]
+                ]
+            ]
+        ])
+        let proxy = try XCTUnwrap(response.proxiesMap["Provider Node"])
+        let publishedAt = Date(timeIntervalSince1970: 1_788_427_852)
+        let presentation = GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: proxy),
+            benchmarkURL: globalURL,
+            sessionIdentifier: UUID(),
+            rowState: .measured(displayName: proxy.name, delay: 118),
+            publishedAt: publishedAt
+        )
+
+        XCTAssertNil(proxy.testState(for: selectorURL))
+        XCTAssertEqual(
+            presentation.reconciled(
+                with: proxy,
+                now: publishedAt.addingTimeInterval(1)
+            )?.rowState.rawDelay,
+            118
+        )
+        XCTAssertTrue(presentation.isNewer(than: proxy.testState(for: selectorURL)))
+    }
+
+    func testGlobalLeafPresentationYieldsToNewerSelectorEvidenceAndRejectsWrongIdentity() throws {
+        let selectorURL = "https://selector.example.test/generate_204"
+        let response = snapshot([
+            [
+                "name": "Node",
+                "type": "Vless",
+                "history": [],
+                "extra": [
+                    selectorURL: [
+                        "alive": true,
+                        "history": [
+                            ["time": "2026-09-03T09:20:00.000+0000", "delay": 95]
+                        ]
+                    ]
+                ]
+            ]
+        ])
+        let proxy = try XCTUnwrap(response.proxiesMap["Node"])
+        let selectorState = try XCTUnwrap(proxy.testState(for: selectorURL))
+        let selectorMeasurementTime = try XCTUnwrap(selectorState.history.last?.time)
+        let presentation = GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: proxy),
+            benchmarkURL: "https://global.example.test/generate_204",
+            sessionIdentifier: UUID(),
+            rowState: .measured(displayName: proxy.name, delay: 118),
+            publishedAt: selectorMeasurementTime.addingTimeInterval(-1)
+        )
+
+        XCTAssertFalse(presentation.isNewer(than: selectorState))
+
+        let wrongProviderPresentation = GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(
+                endpoint: .provider,
+                providerName: "Different Provider",
+                proxyName: proxy.name
+            ),
+            benchmarkURL: selectorURL,
+            sessionIdentifier: UUID(),
+            rowState: .measured(displayName: proxy.name, delay: 72),
+            publishedAt: selectorMeasurementTime
+        )
+        XCTAssertNil(wrongProviderPresentation.reconciled(
+            with: proxy,
+            now: selectorMeasurementTime
+        ))
+    }
+
     func testEffectiveBenchmarkURLUsesExplicitNonEmptyValue() throws {
         let response = snapshot([
             [

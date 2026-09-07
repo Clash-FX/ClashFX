@@ -8,6 +8,43 @@
 
 import Cocoa
 
+enum GlobalLeafBenchmarkPresentationStore {
+    private static var presentations = [LeafProxyBenchmarkIdentity: GlobalLeafBenchmarkPresentation]()
+
+    static func publish(_ presentation: GlobalLeafBenchmarkPresentation) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        presentations[presentation.identity] = presentation
+        NotificationCenter.default.post(
+            name: .speedTestFinishForProxy,
+            object: presentation
+        )
+    }
+
+    static func presentation(for proxy: ClashProxy) -> GlobalLeafBenchmarkPresentation? {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let identity = LeafProxyBenchmarkIdentity(proxy: proxy)
+        guard let current = presentations[identity] else { return nil }
+        guard let reconciled = current.reconciled(with: proxy) else {
+            presentations[identity] = nil
+            return nil
+        }
+        return reconciled
+    }
+
+    static func prune(using snapshot: ClashProxyResp) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let validIdentities = Set(snapshot.proxies.compactMap { proxy -> LeafProxyBenchmarkIdentity? in
+            proxy.all == nil ? LeafProxyBenchmarkIdentity(proxy: proxy) : nil
+        })
+        presentations = presentations.filter { validIdentities.contains($0.key) }
+    }
+
+    static func clearAll() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        presentations.removeAll()
+    }
+}
+
 enum SelectorBenchmarkPresentationStore {
     private struct Key: Hashable {
         let selectorName: ClashProxyName
@@ -192,6 +229,7 @@ class ProxyMenuItem: NSMenuItem {
     private let parentGroupName: ClashProxyName
     private let parentGroupType: ClashProxyType
     private let parentConfiguredBenchmarkURL: String?
+    private let benchmarkIdentity: LeafProxyBenchmarkIdentity
     private var presentationName: String
     private var selectorBenchmarkPresentation: SelectorBenchmarkPresentation?
 
@@ -214,6 +252,7 @@ class ProxyMenuItem: NSMenuItem {
         proxyName = proxy.name
         parentGroupName = group.name
         parentGroupType = group.type
+        benchmarkIdentity = LeafProxyBenchmarkIdentity(proxy: proxy)
         parentConfiguredBenchmarkURL = group.testUrl.flatMap {
             let value = $0.trimmingCharacters(in: .whitespacesAndNewlines)
             return value.isEmpty ? nil : value
@@ -270,7 +309,13 @@ class ProxyMenuItem: NSMenuItem {
               presentation.rowName == proxyName else {
             guard let presentation = note.object as? AutomaticGroupChildBenchmarkPresentation,
                   presentation.identity.groupName == parentGroupName,
-                  presentation.rowName == proxyName else { return }
+                  presentation.rowName == proxyName else {
+                guard let presentation = note.object as? GlobalLeafBenchmarkPresentation,
+                      presentation.identity == benchmarkIdentity,
+                      parentGroupType == .select else { return }
+                applyGlobalLeafBenchmarkPresentation(presentation)
+                return
+            }
             applyAutomaticChildBenchmarkPresentation(presentation)
             return
         }
@@ -356,6 +401,21 @@ class ProxyMenuItem: NSMenuItem {
         applyStaleAppearance(presentation.isStale)
     }
 
+    private func applyGlobalLeafBenchmarkPresentation(
+        _ presentation: GlobalLeafBenchmarkPresentation
+    ) {
+        presentationName = proxyName
+        toolTip = presentation.benchmarkURL == parentBenchmarkURL
+            ? nil
+            : presentation.benchmarkURL
+        updatePresentation(
+            name: proxyName,
+            delay: presentation.rowState.delayDisplay,
+            rawValue: presentation.rowState.rawDelay
+        )
+        applyStaleAppearance(presentation.isStale)
+    }
+
     private func updateAutomaticChildBenchmarkPresentation(from info: ClashProxy) {
         guard let snapshot = info.enclosingResp,
               let group = snapshot.proxiesMap[parentGroupName] else {
@@ -399,6 +459,9 @@ class ProxyMenuItem: NSMenuItem {
             updatePresentation(name: proxyName, delay: nil, rawValue: nil)
             return
         }
+        let globalPresentation = info.all == nil
+            ? GlobalLeafBenchmarkPresentationStore.presentation(for: info)
+            : nil
 
         if let presentation = SelectorBenchmarkPresentationStore.presentation(
             selectorName: parentGroupName,
@@ -413,15 +476,33 @@ class ProxyMenuItem: NSMenuItem {
                     level: .warning
                 )
             }
-            applySelectorBenchmarkPresentation(presentation)
-            return
+            if case .unavailable = presentation.rowState {
+                selectorBenchmarkPresentation = nil
+            } else if let globalPresentation,
+                      globalPresentation.publishedAt > presentation.publishedAt {
+                selectorBenchmarkPresentation = nil
+                applyGlobalLeafBenchmarkPresentation(globalPresentation)
+                return
+            } else {
+                applySelectorBenchmarkPresentation(presentation)
+                return
+            }
         }
 
         selectorBenchmarkPresentation = nil
         presentationName = proxyName
         toolTip = nil
-        guard let leaf = finalLeaf(from: info),
-              let state = leaf.testState(for: parentBenchmarkURL),
+        guard let leaf = finalLeaf(from: info) else {
+            updatePresentation(name: proxyName, delay: nil, rawValue: nil)
+            return
+        }
+        let state = leaf.testState(for: parentBenchmarkURL)
+        if let globalPresentation,
+           globalPresentation.isNewer(than: state) {
+            applyGlobalLeafBenchmarkPresentation(globalPresentation)
+            return
+        }
+        guard let state,
               let history = state.history.last else {
             updatePresentation(name: proxyName, delay: nil, rawValue: nil)
             return
