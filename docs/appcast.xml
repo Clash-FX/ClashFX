@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10.10 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.10 (Lab)</h2><ul><li><strong>Large Selector Benchmarks Finish Without a Retry Tail</strong> — Selector rows now use a bounded rolling pool of 8–12 requests, settle failures immediately instead of retrying them after the full pass, and reuse successful direct-leaf measurements from the selected automatic-group retest only when URL, timeout, expected-status semantics, and provider identity match. Mihomo's fresh `now` remains authoritative. (#147)</li><li><strong>Quitting Reliably Restores the Original System Proxy</strong> — Proxy transitions now serialize the complete asynchronous Helper operations, block new enable/recovery work while quitting, and avoid a second disable after restoration. ClashFX reads the settings back before exiting; a failed, timed-out, or mismatched restore keeps the original snapshot and cancels termination so the user can retry. (#147)</li><li><strong>Old Delay Results No Longer Make Usable Menus Look Disabled</strong> — The 30-minute stale state no longer fades whole node rows or automatic-group menus. Nodes remain normally legible and selectable while current, failed, and unavailable delay badges continue to describe benchmark state. Automatic-group child rows also retain the newest applicable global measurement. (#147, #219)</li><li><strong>Legacy WebKit Theme Colors Are Converted Instead of Turning Black</strong> — The dashboard compatibility layer now detects real `color-mix()` support with CSS variables and converts RGB, Lab, and OKLab fallback colors on older Safari/WebKit engines, preventing dark themes from losing their intended backgrounds and contrast. (#221)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 08 Sep 2026 13:43:28 +0000</pubDate>
+  <sparkle:version>1001010010</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.10</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.10/ClashFX.dmg"
+    sparkle:version="1001010010"
+    sparkle:shortVersionString="1.1.10.10"
+    sparkle:edSignature="u1c6PKV4nAmMZCMTjQSBEpPH2HkeEBrN+BFUUJMmRRdZdIzUMwgkggugkuzyD+52OMgMSFLb8Vcyk1odgY+xAQ=="
+    length="95249480"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.9 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.9 (Lab)</h2><ul><li><strong>Selected Automatic Results Arrive Before the Selector Retry Tail</strong> — A selected automatic group is now retested first with its own URL and expected status, then published from Mihomo's fresh `now` before leaf rows begin. Selector concurrency grows only after complete launch cohorts settle, is capped at twelve, and retries at most four failed targets, preventing a long failure tail from hiding the result users asked for. (#147)</li><li><strong>Automatic-Group Leaf Delays Are Visible and Generation-Safe</strong> — Automatic-group submenus now render URL-scoped delay badges for every direct candidate. Results carry group membership, benchmark URL, expected status, session identity, and expiry metadata, so provider changes and late callbacks cannot leave misleading group or leaf values behind. Mihomo's fresh `now` remains the only authority for the selected path. (#219)</li><li><strong>Dashboard Themes Persist and Legacy WebKit Renders Safely</strong> — Opening or upgrading the dashboard now clears only volatile caches and preserves local storage, cookies, and IndexedDB. A capability-gated compatibility layer replaces unsupported `color-mix()` transparency on older WebKit and supplies cached theme preview colors without forcing layout for every theme. (#221, #223)</li><li><strong>Global Delay Results Remain Visible in Node Lists</strong> — The top-level benchmark now retains each inline and provider leaf result with its test URL and session identity. Reopening a Selector keeps the newest applicable measurement even when that Selector uses a different configured test URL, while newer group-scoped evidence still wins. (#225)</li><li><strong>Runaway Enhanced-Mode Cores Are Captured and Recovered</strong> — ClashFX now measures the managed Mihomo process's CPU time by launch identity and PID. Sustained near-single-core usage first saves a thread sample, then rebuilds Enhanced Mode if the condition continues, with startup grace, active-traffic suppression, and a recovery cooldown to avoid reacting to legitimate or short-lived work. The diagnostic report records the watchdog state. (#226)</li></ul>
