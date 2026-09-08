@@ -347,6 +347,20 @@ struct GlobalLeafBenchmarkPresentation {
     }
 }
 
+enum ProxyBenchmarkPresentationPolicy {
+    static func allowsGlobalLeafFallback(in groupType: ClashProxyType) -> Bool {
+        return groupType == .select || groupType.isAutoGroup
+    }
+
+    static func prefersGlobal(
+        publishedAt globalDate: Date,
+        over contextualDate: Date?
+    ) -> Bool {
+        guard let contextualDate else { return true }
+        return globalDate > contextualDate
+    }
+}
+
 struct SelectorBenchmarkPresentation {
     private static let freshCacheAge: TimeInterval = 30 * 60
     private static let maximumCacheAge: TimeInterval = 24 * 60 * 60
@@ -574,7 +588,9 @@ struct SelectorBenchmarkRow {
 }
 
 struct SelectorBenchmarkConcurrencyPolicy {
-    private static let minimumConcurrency = 4
+    // Failed nodes are not proof of local congestion. Keep the normal starting
+    // capacity instead of halving throughput for the remaining timeout tail.
+    private static let minimumConcurrency = 8
     private static let initialConcurrency = 8
     private static let maximumConcurrency = 12
     private static let adjustmentStep = 4
@@ -614,7 +630,7 @@ final class AdaptiveAsyncTaskRunner {
     typealias Task = (@escaping (Bool) -> Void) -> Void
 
     private let tasks: [Task]
-    private let stateQueue = DispatchQueue(label: "com.clashfx.adaptiveProxyDelayTaskRunner")
+    private let stateQueue: DispatchQueue
     private let limitChanged: ((Int, Int) -> Void)?
     private var policy: SelectorBenchmarkConcurrencyPolicy
     private var nextTaskIndex = 0
@@ -633,9 +649,11 @@ final class AdaptiveAsyncTaskRunner {
 
     init(tasks: [Task],
          policy: SelectorBenchmarkConcurrencyPolicy,
+         stateQueue: DispatchQueue = DispatchQueue(label: "com.clashfx.adaptiveProxyDelayTaskRunner"),
          limitChanged: ((Int, Int) -> Void)? = nil) {
         self.tasks = tasks
         self.policy = policy
+        self.stateQueue = stateQueue
         self.limitChanged = limitChanged
         remainingLaunchesInCohort = policy.currentLimit
     }
@@ -710,32 +728,48 @@ final class AdaptiveAsyncTaskRunner {
     }
 }
 
-struct SelectorBenchmarkRetryPolicy {
-    let maxConcurrentRequests = 2
-    let maxRetryRequests = 4
-
-    func retryTargets(
-        from targets: [SelectorBenchmarkPlan.Target],
-        firstPassDelays: [SelectorBenchmarkMeasurementKey: Int]
-    ) -> [SelectorBenchmarkPlan.Target] {
-        return Array(targets
-            .filter { (firstPassDelays[$0.key] ?? 0) <= 0 }
-            .prefix(maxRetryRequests))
-    }
-
-    func finalDelay(
-        for target: SelectorBenchmarkPlan.Target,
-        firstPassDelays: [SelectorBenchmarkMeasurementKey: Int],
-        retryDelays: [SelectorBenchmarkMeasurementKey: Int]
-    ) -> Int {
-        return retryDelays[target.key] ?? firstPassDelays[target.key] ?? 0
-    }
-}
-
 struct SelectorBenchmarkAutomaticRetestTarget {
     let groupName: ClashProxyName
     let benchmarkURL: String
     let expectedStatus: String?
+}
+
+/// Shared production executor; transport and scheduling can be isolated in tests.
+enum SelectorBenchmarkExecutor {
+    static func run(
+        plan: SelectorBenchmarkPlan,
+        reusing measurements: [SelectorBenchmarkMeasurementKey: Int] = [:],
+        isCancelled: @escaping () -> Bool,
+        schedulingQueue: DispatchQueue = DispatchQueue(label: "com.clashfx.selectorBenchmarkExecutor"),
+        request: @escaping (SelectorBenchmarkPlan.Target, @escaping (Int) -> Void) -> Void,
+        result: @escaping (SelectorBenchmarkPlan.Target, Int) -> Void,
+        limitChanged: ((Int, Int) -> Void)? = nil,
+        completion: @escaping () -> Void
+    ) {
+        let pending = plan.interleavedTargets.filter { target in
+            guard !isCancelled() else { return false }
+            guard let delay = measurements[target.key], delay > 0 else { return true }
+            result(target, delay)
+            return false
+        }
+        let tasks: [AdaptiveAsyncTaskRunner.Task] = pending.map { target in
+            return { done in
+                guard !isCancelled() else { done(false); return }
+                let settlement = ManagedOperationSettlement<Int> { delay in
+                    if !isCancelled() { result(target, delay) }
+                    done(delay > 0)
+                }
+                request(target) { settlement.finish($0) }
+            }
+        }
+        Logger.log("[Proxy Delay] Selector requests: \(tasks.count), reused: \(plan.targets.count - pending.count)")
+        AdaptiveAsyncTaskRunner(
+            tasks: tasks,
+            policy: SelectorBenchmarkConcurrencyPolicy(targetCount: tasks.count),
+            stateQueue: schedulingQueue,
+            limitChanged: limitChanged
+        ).start(completion: completion)
+    }
 }
 
 struct SelectorBenchmarkPlan {
@@ -748,6 +782,37 @@ struct SelectorBenchmarkPlan {
     let orderedRows: [SelectorBenchmarkRow]
     let targets: [Target]
     let selectedAutomaticRetest: SelectorBenchmarkAutomaticRetestTarget?
+
+    /// Reuse only successful direct-leaf measurements made during this same
+    /// action, with exactly the Selector's URL, timeout and status semantics.
+    /// Nested groups measure a selected path, not an independently named leaf.
+    func reusableMeasurements(group: ClashProxy,
+                              candidateDelays: [ClashProxyName: Int],
+                              timeout: Int) -> [SelectorBenchmarkMeasurementKey: Int] {
+        guard let retest = selectedAutomaticRetest,
+              retest.groupName == group.name,
+              group.type.isAutoGroup,
+              retest.benchmarkURL == group.effectiveBenchmarkURL(fallback: retest.benchmarkURL),
+              retest.expectedStatus?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+              group.expectedStatus?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+              let snapshot = group.enclosingResp else { return [:] }
+        let members = Set(group.all ?? [])
+        var measurements = [SelectorBenchmarkMeasurementKey: Int]()
+        for target in targets {
+            let key = target.key
+            guard key.benchmarkURL == retest.benchmarkURL,
+                  key.timeout == timeout,
+                  members.contains(key.proxyName),
+                  let leaf = snapshot.proxiesMap[key.proxyName],
+                  leaf.all == nil,
+                  !ClashProxyType.isProxyGroup(leaf),
+                  leaf.enclosingProvider?.name == key.providerName,
+                  (leaf.enclosingProvider == nil ? SelectorBenchmarkEndpoint.inline : .provider) == key.endpoint,
+                  let delay = candidateDelays[key.proxyName], delay > 0 else { continue }
+            measurements[key] = delay
+        }
+        return measurements
+    }
 
     var interleavedTargets: [Target] {
         var bucketOrder = [SelectorBenchmarkSchedulingBucket]()
@@ -1099,6 +1164,7 @@ class ClashProxyResp {
         for provider in providerResp.providers.values {
             for proxy in provider.proxies {
                 proxy.enclosingProvider = provider
+                proxy.enclosingResp = self
                 proxiesMap[proxy.name] = proxy
                 proxies.append(proxy)
             }

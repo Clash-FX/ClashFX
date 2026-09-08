@@ -1002,6 +1002,7 @@ class ApiRequest {
 
     static func benchmarkSelectorPlan(
         _ plan: SelectorBenchmarkPlan,
+        reusing measurements: [SelectorBenchmarkMeasurementKey: Int] = [:],
         session: BenchmarkSession,
         result: @escaping (SelectorBenchmarkPlan.Target, Int) -> Void,
         completion: @escaping () -> Void
@@ -1012,7 +1013,6 @@ class ApiRequest {
         }
 
         let resultQueue = DispatchQueue(label: "com.clashfx.selectorBenchmarkResults")
-        var firstPassDelays = [SelectorBenchmarkMeasurementKey: Int]()
         let benchmarkStartedAt = Date()
         var didLogFirstResult = false
 
@@ -1050,108 +1050,43 @@ class ApiRequest {
             }
         }
 
-        typealias DelayTask = AdaptiveAsyncTaskRunner.Task
-        let tasks: [DelayTask] = plan.interleavedTargets.map { target in
-            return { done in
-                runTarget(target) { delay in
-                    resultQueue.sync {
-                        firstPassDelays[target.key] = delay
-                        if !didLogFirstResult {
-                            didLogFirstResult = true
-                            Logger.log(
-                                "[Proxy Delay] Selector first result after "
-                                    + String(format: "%.2f", Date().timeIntervalSince(benchmarkStartedAt))
-                                    + "s"
-                            )
-                        }
+        SelectorBenchmarkExecutor.run(
+            plan: plan,
+            reusing: measurements,
+            isCancelled: { session.isCancelled },
+            request: runTarget,
+            result: { target, delay in
+                resultQueue.sync {
+                    if !didLogFirstResult {
+                        didLogFirstResult = true
+                        Logger.log(
+                            "[Proxy Delay] Selector first result after "
+                                + String(format: "%.2f", Date().timeIntervalSince(benchmarkStartedAt)) + "s"
+                        )
                     }
-                    // Successful rows are final and can be shown immediately.
-                    // Failures remain in the testing state until their one retry
-                    // settles, avoiding a distracting fail/success flicker.
-                    if delay > 0, !session.isCancelled {
-                        result(target, delay)
-                    }
-                    done(delay > 0)
                 }
-            }
-        }
-
-        let concurrencyPolicy = plan.concurrencyPolicy
-
-        Logger.log(
-            "[Proxy Delay] Starting Selector benchmark: \(tasks.count) unique target(s), "
-                + "initial concurrency \(concurrencyPolicy.currentLimit), "
-                + "max concurrency \(concurrencyPolicy.maximumLimit)"
-        )
-        AdaptiveAsyncTaskRunner(
-            tasks: tasks,
-            policy: concurrencyPolicy,
+                result(target, delay)
+            },
             limitChanged: { previousLimit, currentLimit in
                 Logger.log(
                     "[Proxy Delay] Adaptive Selector concurrency changed "
                         + "from \(previousLimit) to \(currentLimit)"
                 )
-            }
-        )
-        .start {
-            guard !session.isCancelled else {
-                completion()
-                return
-            }
-
-            let retryPolicy = SelectorBenchmarkRetryPolicy()
-            let failedTargets = resultQueue.sync {
-                plan.targets.filter { (firstPassDelays[$0.key] ?? 0) <= 0 }
-            }
-            let retryTargets = retryPolicy.retryTargets(
-                from: plan.targets,
-                firstPassDelays: firstPassDelays
-            )
-            let retryKeys = Set(retryTargets.map(\.key))
-            for target in failedTargets where !retryKeys.contains(target.key) {
-                result(target, 0)
-            }
-            Logger.log(
-                "[Proxy Delay] Selector first pass completed in "
-                    + String(format: "%.2f", Date().timeIntervalSince(benchmarkStartedAt))
-                    + "s; \(failedTargets.count) failure(s), retrying \(retryTargets.count)"
-            )
-            guard !retryTargets.isEmpty else {
-                completion()
-                return
-            }
-
-            Logger.log(
-                "[Proxy Delay] Retrying \(retryTargets.count) failed Selector target(s), "
-                    + "max concurrency \(retryPolicy.maxConcurrentRequests)"
-            )
-            let retryTasks: [LimitedAsyncTaskRunner.Task] = retryTargets.map { target in
-                return { done in
-                    runTarget(target) { delay in
-                        if !session.isCancelled {
-                            result(target, delay)
-                        }
-                        done()
-                    }
-                }
-            }
-            LimitedAsyncTaskRunner(
-                tasks: retryTasks,
-                maxConcurrent: retryPolicy.maxConcurrentRequests
-            )
-            .start {
+            },
+            completion: {
                 guard !session.isCancelled else {
                     completion()
                     return
                 }
+
                 Logger.log(
-                    "[Proxy Delay] Selector retry tail completed after "
+                    "[Proxy Delay] Selector benchmark completed in "
                         + String(format: "%.2f", Date().timeIntervalSince(benchmarkStartedAt))
-                        + "s total"
+                        + "s"
                 )
                 completion()
             }
-        }
+        )
     }
 
     private static func benchmarkRequestTimeout(for coreTimeoutMilliseconds: Int) -> TimeInterval {

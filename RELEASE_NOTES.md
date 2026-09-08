@@ -1,5 +1,35 @@
 ### Bug Fixes
 
+- **Large Selector Benchmarks Finish Without a Retry Tail** — Selector rows now use a bounded rolling pool of 8–12 requests, settle failures immediately instead of retrying them after the full pass, and reuse successful direct-leaf measurements from the selected automatic-group retest only when URL, timeout, expected-status semantics, and provider identity match. Mihomo's fresh `now` remains authoritative. (#147)
+- **Quitting Reliably Restores the Original System Proxy** — Proxy transitions now serialize the complete asynchronous Helper operations, block new enable/recovery work while quitting, and avoid a second disable after restoration. ClashFX reads the settings back before exiting; a failed, timed-out, or mismatched restore keeps the original snapshot and cancels termination so the user can retry. (#147)
+- **Old Delay Results No Longer Make Usable Menus Look Disabled** — The 30-minute stale state no longer fades whole node rows or automatic-group menus. Nodes remain normally legible and selectable while current, failed, and unavailable delay badges continue to describe benchmark state. Automatic-group child rows also retain the newest applicable global measurement. (#147, #219)
+- **Legacy WebKit Theme Colors Are Converted Instead of Turning Black** — The dashboard compatibility layer now detects real `color-mix()` support with CSS variables and converts RGB, Lab, and OKLab fallback colors on older Safari/WebKit engines, preventing dark themes from losing their intended backgrounds and contrast. (#221)
+
+### Contributors
+
+- @a51095 — Reported slow Selector completion, proxy restoration on quit, and stale rows appearing disabled. (#147)
+- @0nelab — Retested automatic-group delay visibility and legacy WebKit theme rendering. (#219, #221)
+
+---
+
+### 修复
+
+- **大型 Selector 测速不再附加失败重试尾部** — Selector 现在使用 8～12 个请求的有界滚动并发；失败结果会立即结算，不再等整轮结束后重试。选中自动策略重测得到的成功叶子结果，只有在 URL、超时、expected-status 语义及 Provider 身份完全一致时才会复用；选中路径仍只以 Mihomo 最新 `now` 为准。 (#147)
+- **退出时会可靠恢复原系统代理** — 系统代理转换会等待前一项异步 Helper 操作真正完成；退出期间会阻止新的启用与网络恢复任务，恢复完成后也不会再次关闭代理。退出前会读回核对设置；若恢复失败、超时或不一致，会保留原始快照并取消退出，方便用户重试。 (#147)
+- **旧测速结果不再让可用菜单看起来像被禁用** — 30 分钟后的过期状态不再降低整行节点或自动策略菜单的透明度。节点文字保持正常可读、仍可选择，同时继续通过延迟徽标区分当前、失败与不可用状态；自动策略子节点也会保留最新适用的全局测速结果。 (#147, #219)
+- **旧版 WebKit 的主题颜色会正确转换而不是变黑** — 控制台兼容层现在会结合 CSS 变量检测真实的 `color-mix()` 支持，并在旧版 Safari/WebKit 上转换 RGB、Lab 与 OKLab 后备颜色，避免暗色主题丢失背景色和对比度。 (#221)
+
+### 贡献者
+
+- @a51095 — 反馈 Selector 完成过慢、退出未恢复代理，以及过期节点看起来被禁用的问题。 (#147)
+- @0nelab — 协助复测自动策略子节点延迟显示和旧版 WebKit 主题渲染。 (#219, #221)
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Selected Automatic Results Arrive Before the Selector Retry Tail** — A selected automatic group is now retested first with its own URL and expected status, then published from Mihomo's fresh `now` before leaf rows begin. Selector concurrency grows only after complete launch cohorts settle, is capped at twelve, and retries at most four failed targets, preventing a long failure tail from hiding the result users asked for. (#147)
 - **Automatic-Group Leaf Delays Are Visible and Generation-Safe** — Automatic-group submenus now render URL-scoped delay badges for every direct candidate. Results carry group membership, benchmark URL, expected status, session identity, and expiry metadata, so provider changes and late callbacks cannot leave misleading group or leaf values behind. Mihomo's fresh `now` remains the only authority for the selected path. (#219)
 - **Dashboard Themes Persist and Legacy WebKit Renders Safely** — Opening or upgrading the dashboard now clears only volatile caches and preserves local storage, cookies, and IndexedDB. A capability-gated compatibility layer replaces unsupported `color-mix()` transparency on older WebKit and supplies cached theme preview colors without forcing layout for every theme. (#221, #223)

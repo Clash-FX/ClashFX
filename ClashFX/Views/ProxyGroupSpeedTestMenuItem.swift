@@ -342,6 +342,8 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         speedTestItem.beginBenchmarkAction(session: session)
 
         var plan: SelectorBenchmarkPlan?
+        var preflightSnapshot: ClashProxyResp?
+        var reusableMeasurements = [SelectorBenchmarkMeasurementKey: Int]()
         var pendingRows = Set<ClashProxyName>()
         var selectorBenchmarkURL = Settings.benchMarkUrl
         let sessionIdentifier = UUID()
@@ -504,10 +506,20 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                                 return
                             }
 
+                            // Restore Provider ownership on the fresh topology
+                            // before matching direct candidates to Selector targets.
+                            if let providers = preflightSnapshot?.enclosingProviderResp {
+                                snapshot.updateProvider(providers)
+                            }
                             AutomaticChildBenchmarkStore.settle(
                                 group: freshGroup,
                                 candidateDelays: result.candidateDelays,
                                 sessionIdentifier: sessionIdentifier
+                            )
+                            reusableMeasurements = plan.reusableMeasurements(
+                                group: freshGroup,
+                                candidateDelays: result.candidateDelays,
+                                timeout: 5000
                             )
 
                             let retestSnapshot = AutomaticGroupRetestSnapshot.make(
@@ -578,6 +590,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             selectorBenchmarkURL = selector.effectiveBenchmarkURL(
                 fallback: Settings.benchMarkUrl
             )
+            preflightSnapshot = response
             plan = SelectorBenchmarkPlan.make(
                 selector: selector,
                 snapshot: response,
@@ -644,6 +657,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                 retestSelectedAutomaticGroup {
                     ApiRequest.benchmarkSelectorPlan(
                         plan,
+                        reusing: reusableMeasurements,
                         session: session,
                         result: publishResult,
                         completion: finish

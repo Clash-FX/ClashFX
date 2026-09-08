@@ -32,6 +32,22 @@ struct SystemProxyOperationPolicy {
         return snapshot[captureErrorKey] as? String
     }
 
+    static func restoredSnapshotMatches(expected: [String: Any], actual: [String: Any]) -> Bool {
+        guard captureError(in: actual) == nil,
+              let currentServices = actual[capturedServiceIDsKey] as? [String] else { return false }
+        let capturedServices = Set(expected[capturedServiceIDsKey] as? [String] ?? [])
+        for serviceID in currentServices {
+            if let saved = expected[serviceID] as? [String: Any] {
+                guard let current = actual[serviceID] as? [String: Any],
+                      NSDictionary(dictionary: saved).isEqual(to: current) else { return false }
+            } else if capturedServices.contains(serviceID), actual[serviceID] != nil {
+                return false
+            }
+        }
+        // Removed services cannot be restored; new, uncaptured services are left alone.
+        return true
+    }
+
     /// Old releases persisted only the dictionary, not its ownership marker.
     /// It can be promoted exactly once, but only while the live system still
     /// points at ClashFX and the dictionary is demonstrably a non-ClashFX,

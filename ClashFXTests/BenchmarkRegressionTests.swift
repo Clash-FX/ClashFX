@@ -1,4 +1,5 @@
 import Cocoa
+import JavaScriptCore
 import WebKit
 import XCTest
 
@@ -212,6 +213,35 @@ final class BenchmarkURLSettingsTests: XCTestCase {
 }
 
 final class ManagedOperationSettlementTests: XCTestCase {
+    func testAsyncOperationsWaitForCompletionAndIgnoreDuplicateCompletion() {
+        let queue = DispatchQueue(label: "test.serial-operations")
+        let operations = SerializedAsyncOperationQueue(queue: queue)
+        let started = expectation(description: "first operation started")
+        let drained = expectation(description: "all operations completed")
+        var events = [Int]()
+        var finishFirst: (() -> Void)?
+        var finishSecond: (() -> Void)?
+        operations.enqueue { done in
+            events.append(1)
+            finishFirst = done
+            started.fulfill()
+        }
+        operations.enqueue { done in
+            events.append(2)
+            finishSecond = done
+        }
+        operations.enqueue { done in
+            events.append(3)
+            done()
+            drained.fulfill()
+        }
+        wait(for: [started], timeout: 2)
+        queue.sync { XCTAssertEqual(events, [1]); finishFirst?(); finishFirst?() }
+        queue.sync { XCTAssertEqual(events, [1, 2]); finishSecond?() }
+        wait(for: [drained], timeout: 2)
+        queue.sync { XCTAssertEqual(events, [1, 2, 3]) }
+    }
+
     func testNormalResultFiresOnce() {
         var outcomes = [String]()
         let settlement = ManagedOperationSettlement<String> { outcomes.append($0) }
@@ -250,6 +280,34 @@ final class ManagedOperationSettlementTests: XCTestCase {
 }
 
 final class SystemProxyOperationPolicyTests: XCTestCase {
+    func testRestoreVerificationChecksPACAndEnabledFlags() {
+        let key = SystemProxyOperationPolicy.capturedServiceIDsKey
+        let original: [String: Any] = [
+            key: ["wifi"],
+            "wifi": ["ProxyAutoConfigEnable": 1, "ProxyAutoConfigURLString": "https://example.test/proxy.pac", "HTTPEnable": 0]
+        ]
+        XCTAssertTrue(SystemProxyOperationPolicy.restoredSnapshotMatches(expected: original, actual: original))
+        var changed = original
+        changed["wifi"] = ["ProxyAutoConfigEnable": 0, "ProxyAutoConfigURLString": "https://example.test/proxy.pac", "HTTPEnable": 0]
+        XCTAssertFalse(SystemProxyOperationPolicy.restoredSnapshotMatches(expected: original, actual: changed))
+        changed["wifi"] = ["ProxyAutoConfigEnable": 1, "ProxyAutoConfigURLString": "https://wrong.test/proxy.pac", "HTTPEnable": 0]
+        XCTAssertFalse(SystemProxyOperationPolicy.restoredSnapshotMatches(expected: original, actual: changed))
+        XCTAssertFalse(SystemProxyOperationPolicy.restoredSnapshotMatches(expected: original, actual: [:]))
+        changed = original
+        changed[SystemProxyOperationPolicy.captureErrorKey] = "read failed"
+        XCTAssertFalse(SystemProxyOperationPolicy.restoredSnapshotMatches(expected: original, actual: changed))
+    }
+
+    func testRestoreVerificationHandlesAbsentAndNewNetworkServices() {
+        let key = SystemProxyOperationPolicy.capturedServiceIDsKey
+        let original: [String: Any] = [key: ["wifi", "removed"], "removed": ["HTTPEnable": 1]]
+        let actual: [String: Any] = [key: ["wifi", "new"], "new": ["HTTPEnable": 1]]
+        XCTAssertTrue(SystemProxyOperationPolicy.restoredSnapshotMatches(expected: original, actual: actual))
+        var changed = actual
+        changed["wifi"] = ["HTTPEnable": 0]
+        XCTAssertFalse(SystemProxyOperationPolicy.restoredSnapshotMatches(expected: original, actual: changed))
+    }
+
     private func clashSnapshot(httpPort: Int = 7890, socksPort: Int = 7891) -> [String: Any] {
         return [
             "wifi": [
@@ -400,13 +458,13 @@ final class TerminationCleanupPolicyTests: XCTestCase {
         XCTAssertFalse(policy.forceDisableProxy)
     }
 
-    func testExternallyOwnedProxyStateSelectsForceDisable() {
+    func testExternalChangeMarkerDoesNotBypassOriginalProxyRestoration() {
         let policy = TerminationCleanupPolicy.make(observation: TerminationCleanupObservation(
             enhancedModeActive: false, proxyPortAutoSet: false, isProxySetByOther: true,
             currentSystemSetToClash: true, hasInterfaceProxySetToClash: false
         ))
         XCTAssertTrue(policy.cleanSystemProxy)
-        XCTAssertTrue(policy.forceDisableProxy)
+        XCTAssertFalse(policy.forceDisableProxy)
     }
 }
 
@@ -477,6 +535,126 @@ final class BenchmarkRegressionTests: XCTestCase {
         })
         let data = try! JSONSerialization.data(withJSONObject: ["proxies": proxies])
         return ClashProxyResp(data)
+    }
+
+    func testDashboardCompatibilityConvertsLabThemeColorsWithoutFallingBackToBlack() throws {
+        let testFileURL = URL(fileURLWithPath: #filePath)
+        let scriptURL = testFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("ClashFX/Resources/DashboardCompatibility/clashfx-compat.js")
+        let source = try String(contentsOf: scriptURL, encoding: .utf8)
+        let context = try XCTUnwrap(JSContext())
+        var exception: String?
+        context.exceptionHandler = { _, value in
+            exception = value?.toString()
+        }
+        context.evaluateScript("""
+        var window = {
+          __CLASHFX_DASHBOARD_COMPAT_TESTING__: true,
+          CSS: { supports: function () { return false; } },
+          getComputedStyle: function () { return {}; }
+        };
+        var document = {
+          readyState: 'loading',
+          addEventListener: function () {}
+        };
+        """)
+        context.evaluateScript(source)
+        XCTAssertNil(exception)
+
+        func converted(_ cssColor: String) throws -> (Double, Double, Double) {
+            let argumentData = try JSONSerialization.data(withJSONObject: [cssColor])
+            let argumentJSON = try XCTUnwrap(String(data: argumentData, encoding: .utf8))
+            let expression = "window.__CLASHFX_DASHBOARD_COMPAT__.testing.parseRenderedColor(\(argumentJSON)[0])"
+            let value = try XCTUnwrap(context.evaluateScript(expression))
+            XCTAssertFalse(value.isNull)
+            return (
+                value.forProperty("red").toDouble(),
+                value.forProperty("green").toDouble(),
+                value.forProperty("blue").toDouble()
+            )
+        }
+
+        let darkBackground = try converted("lab(13.3466% -1.2732 -5.67451)")
+        XCTAssertEqual(darkBackground.0, 0x1D, accuracy: 1.5)
+        XCTAssertEqual(darkBackground.1, 0x23, accuracy: 1.5)
+        XCTAssertEqual(darkBackground.2, 0x2A, accuracy: 1.5)
+
+        let darkContent = try converted("lab(97.3754% -1.86676 -10.6283)")
+        XCTAssertEqual(darkContent.0, 0xF2, accuracy: 8)
+        XCTAssertEqual(darkContent.1, 0xF8, accuracy: 8)
+        XCTAssertEqual(darkContent.2, 0xFF, accuracy: 8)
+
+        let probeExpression = context.evaluateScript(
+            "window.__CLASHFX_DASHBOARD_COMPAT__.testing.renderedProbeExpression"
+        )?.toString()
+        XCTAssertEqual(
+            probeExpression,
+            "color-mix(in oklab, var(--clashfx-probe-color) 50%, transparent)"
+        )
+    }
+
+    func testProviderMergePreservesProxySnapshotOwnership() throws {
+        let response = snapshot([
+            [
+                "name": "Selector",
+                "type": "Selector",
+                "all": ["Provider Node"],
+                "now": "Provider Node",
+                "history": []
+            ],
+            [
+                "name": "Provider Node",
+                "type": "Vless",
+                "history": []
+            ]
+        ])
+        let providerData = try JSONSerialization.data(withJSONObject: [
+            "providers": [
+                "Subscription": [
+                    "name": "Subscription",
+                    "type": "Proxy",
+                    "vehicleType": "HTTP",
+                    "proxies": [
+                        [
+                            "name": "Provider Node",
+                            "type": "Vless",
+                            "history": []
+                        ]
+                    ]
+                ]
+            ]
+        ])
+        let providerResponse = try ClashProviderResp.decoder.decode(
+            ClashProviderResp.self,
+            from: providerData
+        )
+
+        response.updateProvider(providerResponse)
+
+        let mergedNode = try XCTUnwrap(response.proxiesMap["Provider Node"])
+        XCTAssertTrue(mergedNode.enclosingResp === response)
+        XCTAssertEqual(mergedNode.enclosingProvider?.name, "Subscription")
+    }
+
+    func testGlobalLeafFallbackCoversSelectableAndAutomaticGroups() {
+        XCTAssertTrue(ProxyBenchmarkPresentationPolicy.allowsGlobalLeafFallback(in: .select))
+        XCTAssertTrue(ProxyBenchmarkPresentationPolicy.allowsGlobalLeafFallback(in: .urltest))
+        XCTAssertTrue(ProxyBenchmarkPresentationPolicy.allowsGlobalLeafFallback(in: .fallback))
+        XCTAssertTrue(ProxyBenchmarkPresentationPolicy.allowsGlobalLeafFallback(in: .loadBalance))
+        XCTAssertFalse(ProxyBenchmarkPresentationPolicy.allowsGlobalLeafFallback(in: .relay))
+
+        let older = Date(timeIntervalSince1970: 100)
+        let newer = Date(timeIntervalSince1970: 200)
+        XCTAssertTrue(ProxyBenchmarkPresentationPolicy.prefersGlobal(
+            publishedAt: newer,
+            over: older
+        ))
+        XCTAssertFalse(ProxyBenchmarkPresentationPolicy.prefersGlobal(
+            publishedAt: older,
+            over: newer
+        ))
     }
 
     func testSelectorPlanSharesNestedAutomaticFinalLeaf() throws {
@@ -646,7 +824,7 @@ final class BenchmarkRegressionTests: XCTestCase {
 
         XCTAssertEqual(plan.targets.count, 25)
         XCTAssertEqual(plan.maxConcurrentRequests, 8)
-        XCTAssertEqual(plan.concurrencyPolicy.minimumLimit, 4)
+        XCTAssertEqual(plan.concurrencyPolicy.minimumLimit, 8)
         XCTAssertEqual(plan.concurrencyPolicy.maximumLimit, 12)
     }
 
@@ -671,12 +849,15 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(policy.currentLimit, 8)
 
         policy.recordCohort(Array(repeating: true, count: 4) + Array(repeating: false, count: 4))
-        XCTAssertEqual(policy.currentLimit, 4)
+        XCTAssertEqual(policy.currentLimit, 8)
 
         policy.recordCohort(Array(repeating: false, count: 8))
-        XCTAssertEqual(policy.currentLimit, 4)
+        XCTAssertEqual(policy.currentLimit, 8)
 
         policy.recordCohort(Array(repeating: true, count: 4))
+        XCTAssertEqual(policy.currentLimit, 12)
+
+        policy.recordCohort(Array(repeating: false, count: 12))
         XCTAssertEqual(policy.currentLimit, 8)
     }
 
@@ -772,10 +953,11 @@ final class BenchmarkRegressionTests: XCTestCase {
         wait(for: [replacementTasksStarted, completed], timeout: 2)
     }
 
-    func testSelectorRetryPolicyRetriesOnlyFailuresOnceAndUsesRetryResult() throws {
-        let names = ["First", "Second", "Third"]
+    func testSelectorReusesOnlySuccessfulEquivalentDirectLeafMeasurements() throws {
+        let url = "https://benchmark.example.test"
         let response = snapshot([
-            ["name": "Selector", "type": "Selector", "all": names, "now": names[0], "history": []],
+            ["name": "Selector", "type": "Selector", "all": ["Automatic", "First", "Second", "Third"], "now": "Automatic", "history": []],
+            ["name": "Automatic", "type": "URLTest", "all": ["First", "Second"], "now": "First", "testUrl": url, "history": []],
             ["name": "First", "type": "Trojan", "history": []],
             ["name": "Second", "type": "Vless", "history": []],
             ["name": "Third", "type": "Hysteria2", "history": []]
@@ -783,34 +965,16 @@ final class BenchmarkRegressionTests: XCTestCase {
         let plan = try SelectorBenchmarkPlan.make(
             selector: XCTUnwrap(response.proxiesMap["Selector"]),
             snapshot: response,
-            benchmarkURL: "https://benchmark.example.test",
+            benchmarkURL: url,
             timeout: 5
         )
-        let firstPass = Dictionary(uniqueKeysWithValues: zip(
-            plan.targets.map(\.key),
-            [120, 0, 0]
-        ))
-        let policy = SelectorBenchmarkRetryPolicy()
-        let retryTargets = policy.retryTargets(from: plan.targets, firstPassDelays: firstPass)
-
-        XCTAssertEqual(policy.maxConcurrentRequests, 2)
-        XCTAssertEqual(retryTargets.map(\.key.proxyName), ["Second", "Third"])
-        XCTAssertEqual(
-            policy.finalDelay(
-                for: retryTargets[0],
-                firstPassDelays: firstPass,
-                retryDelays: [retryTargets[0].key: 240]
-            ),
-            240
-        )
-        XCTAssertEqual(
-            policy.finalDelay(
-                for: retryTargets[1],
-                firstPassDelays: firstPass,
-                retryDelays: [:]
-            ),
-            0
-        )
+        let group = try XCTUnwrap(response.proxiesMap["Automatic"])
+        let delays = ["First": 120, "Second": 0, "Third": 300]
+        let reused = plan.reusableMeasurements(group: group, candidateDelays: delays, timeout: 5)
+        XCTAssertEqual(reused.count, 1)
+        XCTAssertEqual(reused.first?.key.proxyName, "First")
+        XCTAssertEqual(reused.first?.value, 120)
+        XCTAssertTrue(plan.reusableMeasurements(group: group, candidateDelays: delays, timeout: 10).isEmpty)
     }
 
     func testAdaptiveRunnerAppliesPolicyLimitChanges() {
@@ -838,28 +1002,59 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(limitChanges.map(\.1), [12])
     }
 
-    func testSelectorRetryPolicyCapsTheFailureTail() throws {
-        let names = (1 ... 20).map { "Node \($0)" }
-        var proxies: [[String: Any]] = [
-            ["name": "Selector", "type": "Selector", "all": names, "now": names[0], "history": []]
-        ]
-        proxies.append(contentsOf: names.map {
-            ["name": $0, "type": "Vless", "history": []]
-        })
-        let response = snapshot(proxies)
-        let plan = try SelectorBenchmarkPlan.make(
-            selector: XCTUnwrap(response.proxiesMap["Selector"]),
-            snapshot: response,
-            benchmarkURL: "https://benchmark.example.test",
-            timeout: 5
-        )
-        let failures = Dictionary(uniqueKeysWithValues: plan.targets.map { ($0.key, 0) })
-        let policy = SelectorBenchmarkRetryPolicy()
+    func testSelectorDoesNotReuseDifferentURLStatusOrNestedGroupMeasurements() throws {
+        let url = "https://benchmark.example.test"
+        for (groupURL, status, members) in [
+            ("https://other.example.test", "", ["Leaf"]),
+            (url, "204", ["Leaf"]),
+            (url, "", ["Nested"])
+        ] {
+            let response = snapshot([
+                ["name": "Selector", "type": "Selector", "all": ["Automatic", "Leaf"], "now": "Automatic", "history": []],
+                ["name": "Automatic", "type": "URLTest", "all": members, "now": members[0], "testUrl": groupURL, "expectedStatus": status, "history": []],
+                ["name": "Nested", "type": "Selector", "all": ["Leaf"], "now": "Leaf", "history": []],
+                ["name": "Leaf", "type": "Vless", "history": []]
+            ])
+            let plan = try SelectorBenchmarkPlan.make(
+                selector: XCTUnwrap(response.proxiesMap["Selector"]), snapshot: response,
+                benchmarkURL: url, timeout: 5
+            )
+            XCTAssertTrue(try plan.reusableMeasurements(
+                group: XCTUnwrap(response.proxiesMap["Automatic"]),
+                candidateDelays: ["Leaf": 120, "Nested": 120], timeout: 5
+            ).isEmpty)
+        }
+    }
 
-        XCTAssertEqual(policy.retryTargets(
-            from: plan.targets,
-            firstPassDelays: failures
-        ).count, 4)
+    func testSelectorReuseRequiresMatchingProviderIdentity() throws {
+        let url = "https://benchmark.example.test"
+        let response = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["Automatic", "Leaf"], "now": "Automatic", "history": []],
+            ["name": "Automatic", "type": "URLTest", "all": ["Leaf"], "now": "Leaf", "testUrl": url, "history": []],
+            ["name": "Leaf", "type": "Vless", "history": []]
+        ])
+        let selector = try XCTUnwrap(response.proxiesMap["Selector"])
+        let group = try XCTUnwrap(response.proxiesMap["Automatic"])
+        let inlinePlan = SelectorBenchmarkPlan.make(selector: selector, snapshot: response, benchmarkURL: url, timeout: 5)
+        var firstProviderPlan: SelectorBenchmarkPlan?
+        for providerName in ["Subscription", "Other Subscription"] {
+            let data = try JSONSerialization.data(withJSONObject: ["providers": [providerName: [
+                "name": providerName, "type": "Proxy", "vehicleType": "HTTP",
+                "proxies": [["name": "Leaf", "type": "Vless", "history": []]]
+            ]]])
+            try response.updateProvider(ClashProviderResp.decoder.decode(ClashProviderResp.self, from: data))
+            XCTAssertTrue(inlinePlan.reusableMeasurements(group: group, candidateDelays: ["Leaf": 120], timeout: 5).isEmpty)
+            if let firstProviderPlan {
+                XCTAssertTrue(firstProviderPlan.reusableMeasurements(group: group, candidateDelays: ["Leaf": 120], timeout: 5).isEmpty)
+            } else {
+                firstProviderPlan = SelectorBenchmarkPlan.make(selector: selector, snapshot: response, benchmarkURL: url, timeout: 5)
+            }
+        }
+        let providerPlan = SelectorBenchmarkPlan.make(selector: selector, snapshot: response, benchmarkURL: url, timeout: 5)
+        let reused = providerPlan.reusableMeasurements(group: group, candidateDelays: ["Leaf": 120], timeout: 5)
+        XCTAssertEqual(reused.count, 1)
+        XCTAssertEqual(reused.first?.key.providerName, "Other Subscription")
+        XCTAssertEqual(reused.first?.key.endpoint, .provider)
     }
 
     func testProxyHistoryIsScopedToExactBenchmarkURL() throws {

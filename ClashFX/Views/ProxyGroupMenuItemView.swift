@@ -271,7 +271,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
     }
 
     private func render(_ presentation: AutomaticGroupBenchmarkPresentation) {
-        effectView.alphaValue = presentation.isStale ? 0.65 : 1
+        effectView.alphaValue = 1
         let leaf = presentation.finalLeaf ?? presentation.rowState.presentationName
         if let result = presentation.rowState.delayDisplay {
             selectProxyLabel.stringValue = "\(leaf) · \(result)"

@@ -401,6 +401,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return TerminalConfirmAction.run()
     }
 
+    private(set) var isTerminating = false
+
+    func prepareForTerminationCleanup() {
+        isTerminating = true
+        SystemProxyManager.shared.prepareForTermination()
+        cancelActiveSpeedTest(reason: "application quit", refreshMenu: false)
+        pendingStartupProxyRecoveryWork?.cancel()
+        pendingStartupProxyRecoveryWork = nil
+        isStartupProxyRecoveryActive = false
+        pendingWakeRecoveryWork?.cancel()
+        pendingWakeRecoveryWork = nil
+        wakeRecoveryGeneration += 1
+        enhancedModeHealthTimer?.invalidate()
+        enhancedModeHealthTimer = nil
+    }
+
+    func cancelTerminationCleanup() {
+        isTerminating = false
+        SystemProxyManager.shared.resumeAfterCancelledTermination()
+        statusItem.menu = statusMenu
+        startEnhancedModeHealthMonitor()
+        restoreEnhancedModeIfNeeded()
+    }
+
     func applicationWillTerminate(_ aNotification: Notification) {
         UserDefaults.standard.set(0, forKey: "launch_fail_times")
         Logger.log("ClashFX will terminate")
@@ -415,10 +439,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Fallback: TerminalCleanUpAction.run() already handles Enhanced Mode cleanup
         // in the normal quit path. This guard only fires if applicationWillTerminate
         // is reached without going through TerminalCleanUpAction (e.g. forced termination).
-        if ConfigManager.shared.isEnhancedModeActive, !isRestarting {
+        if ConfigManager.shared.isEnhancedModeActive, !isRestarting, !isTerminating {
             cleanupEnhancedModeForTermination {}
         }
-        if !isRestarting,
+        if !isRestarting, !isTerminating,
            NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true) ||
            NetworkChangeNotifier.hasInterfaceProxySetToClash() {
             Logger.log("Need Reset Proxy Setting again", level: .error)
@@ -940,6 +964,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .observe(on: MainScheduler.instance)
             .delay(.milliseconds(200), scheduler: MainScheduler.instance)
             .bind { [weak self] _ in
+                guard self?.isTerminating == false else { return }
                 guard NetworkChangeNotifier.getPrimaryInterface() != nil else { return }
                 let proxySetted = NetworkChangeNotifier.isCurrentSystemSetToClash()
                 if !proxySetted,
@@ -976,6 +1001,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .filter { $0 != nil }
             .observe(on: MainScheduler.instance)
             .debounce(.seconds(5), scheduler: MainScheduler.instance).bind { [weak self] _ in
+                guard self?.isTerminating == false else { return }
                 if self?.isStartupProxyRecoveryActive == true {
                     self?.scheduleStartupProxyRecovery(after: 0.1)
                 }
@@ -1562,6 +1588,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func resetProxySettingOnWakeupFromSleep() {
+        guard !isTerminating else { return }
         Logger.log("Wake recovery: didWake received")
         recordWakeRecoveryBreadcrumb("didWake received", expectsProgressWithin: Self.wakeRecoveryDelay + 2)
 
@@ -1588,6 +1615,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func scheduleWakeRecovery() {
+        guard !isTerminating else { return }
         pendingWakeRecoveryWork?.cancel()
         wakeRecoveryGeneration += 1
         let generation = wakeRecoveryGeneration
@@ -2219,6 +2247,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func recoverFromCoreLogFailure(_ reason: CoreLogRecoveryReason) {
         let recover = { [weak self] in
             guard let self = self else { return }
+            guard !self.isTerminating else { return }
             guard Settings.enhancedMode,
                   ConfigManager.shared.isEnhancedModeActive,
                   self.enhancedModeMenuItem.isEnabled,
@@ -2590,8 +2619,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func healthCheckOnNetworkChange() {
-        ApiRequest.getMergedProxyData {
-            proxyResp in
+        guard !isTerminating else { return }
+        ApiRequest.getMergedProxyData { [weak self] proxyResp in
+            guard self?.isTerminating == false else { return }
             guard let proxyResp = proxyResp else { return }
 
             var providers = Set<ClashProxyName>()
