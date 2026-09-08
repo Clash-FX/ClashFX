@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10.9 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.9 (Lab)</h2><ul><li><strong>Selected Automatic Results Arrive Before the Selector Retry Tail</strong> — A selected automatic group is now retested first with its own URL and expected status, then published from Mihomo's fresh `now` before leaf rows begin. Selector concurrency grows only after complete launch cohorts settle, is capped at twelve, and retries at most four failed targets, preventing a long failure tail from hiding the result users asked for. (#147)</li><li><strong>Automatic-Group Leaf Delays Are Visible and Generation-Safe</strong> — Automatic-group submenus now render URL-scoped delay badges for every direct candidate. Results carry group membership, benchmark URL, expected status, session identity, and expiry metadata, so provider changes and late callbacks cannot leave misleading group or leaf values behind. Mihomo's fresh `now` remains the only authority for the selected path. (#219)</li><li><strong>Dashboard Themes Persist and Legacy WebKit Renders Safely</strong> — Opening or upgrading the dashboard now clears only volatile caches and preserves local storage, cookies, and IndexedDB. A capability-gated compatibility layer replaces unsupported `color-mix()` transparency on older WebKit and supplies cached theme preview colors without forcing layout for every theme. (#221, #223)</li><li><strong>Global Delay Results Remain Visible in Node Lists</strong> — The top-level benchmark now retains each inline and provider leaf result with its test URL and session identity. Reopening a Selector keeps the newest applicable measurement even when that Selector uses a different configured test URL, while newer group-scoped evidence still wins. (#225)</li><li><strong>Runaway Enhanced-Mode Cores Are Captured and Recovered</strong> — ClashFX now measures the managed Mihomo process's CPU time by launch identity and PID. Sustained near-single-core usage first saves a thread sample, then rebuilds Enhanced Mode if the condition continues, with startup grace, active-traffic suppression, and a recovery cooldown to avoid reacting to legitimate or short-lived work. The diagnostic report records the watchdog state. (#226)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 07 Sep 2026 13:50:19 +0000</pubDate>
+  <sparkle:version>1001010009</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.9</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.9/ClashFX.dmg"
+    sparkle:version="1001010009"
+    sparkle:shortVersionString="1.1.10.9"
+    sparkle:edSignature="CqRJam5htFN65byF1weck4NBi+aI3s4OFqxqJs16XJMZpzK3H/1+BHnQ6GI5hm0MucVC4gkT2YQFJb9fWx6VBw=="
+    length="95203369"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.8 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.8 (Lab)</h2><ul><li><strong>Selected Automatic Results Arrive Before the Selector Retry Tail</strong> — A selected automatic group is now retested first with its own URL and expected status, then published from Mihomo's fresh `now` before leaf rows begin. Selector concurrency grows only after complete launch cohorts settle, is capped at twelve, and retries at most four failed targets, preventing a long failure tail from hiding the result users asked for. (#147)</li><li><strong>Automatic-Group Leaf Delays Are Visible and Generation-Safe</strong> — Automatic-group submenus now render URL-scoped delay badges for every direct candidate. Results carry group membership, benchmark URL, expected status, session identity, and expiry metadata, so provider changes and late callbacks cannot leave misleading group or leaf values behind. Mihomo's fresh `now` remains the only authority for the selected path. (#219)</li><li><strong>Dashboard Themes Persist and Legacy WebKit Renders Safely</strong> — Opening or upgrading the dashboard now clears only volatile caches and preserves local storage, cookies, and IndexedDB. A capability-gated compatibility layer replaces unsupported `color-mix()` transparency on older WebKit and supplies cached theme preview colors without forcing layout for every theme. (#221, #223)</li></ul>
