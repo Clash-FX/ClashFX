@@ -1,11 +1,13 @@
 import Foundation
 
-/// The unhosted unit-test bundle compiles the pure proxy-model sources directly.
+/// The unhosted unit-test bundle compiles model, executor and proxy-manager sources directly.
 /// These test-only shims satisfy their logging/date-format dependencies without
 /// loading ClashFX's AppDelegate, controller, helper, or live configuration.
 enum ClashLogLevel {
     case info
     case warning
+    case debug
+    case error
 }
 
 enum Logger {

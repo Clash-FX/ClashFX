@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        D14700000000000000000001 /* SystemProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F935B2FB23085515009E4D33; };
+        D14700000000000000000002 /* SystemProxyManager+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14700000000000000000003; };
+        D14700000000000000000004 /* IsolatedOperationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14700000000000000000005; };
 		C30100000000000000000003 /* BenchmarkRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30100000000000000000001 /* BenchmarkRegressionTests.swift */; };
 		C30100000000000000000013 /* ClashProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49C9EF63223E78F5005D8B6A /* ClashProxy.swift */; };
 		C30100000000000000000014 /* ClashProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F939724B23A4B33500FE5A3F /* ClashProvider.swift */; };
@@ -213,6 +216,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        D14700000000000000000003 /* SystemProxyManager+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SystemProxyManager+Live.swift"; sourceTree = "<group>"; };
+        D14700000000000000000005 /* IsolatedOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsolatedOperationTests.swift; sourceTree = "<group>"; };
 		C30100000000000000000001 /* BenchmarkRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkRegressionTests.swift; sourceTree = "<group>"; };
 		C30100000000000000000002 /* ClashFXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClashFXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C30100000000000000000015 /* BenchmarkRegressionSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkRegressionSupport.swift; sourceTree = "<group>"; };
@@ -434,6 +439,7 @@
 			children = (
 				C30100000000000000000001 /* BenchmarkRegressionTests.swift */,
 				C30100000000000000000015 /* BenchmarkRegressionSupport.swift */,
+                D14700000000000000000005 /* IsolatedOperationTests.swift */,
 				C30800000000000000000001 /* ProxySettingRestorationPolicyTests.m */,
 			);
 			path = ClashFXTests;
@@ -510,6 +516,7 @@
 				495BFB8721919B9800C8779D /* RemoteConfigManager.swift */,
 				4952C3BE2115C7CA004A4FA8 /* MenuItemFactory.swift */,
 				F935B2FB23085515009E4D33 /* SystemProxyManager.swift */,
+                D14700000000000000000003 /* SystemProxyManager+Live.swift */,
 				F977FAAB2366790500C17F1F /* AutoUpgradeManager.swift */,
 				F977FAAD23669D6400C17F1F /* ConnectionManager.swift */,
 				F9E754CF239CC21F00CEE7CC /* WebPortalManager.swift */,
@@ -1093,6 +1100,8 @@
 				D22300000000000000000002 /* DashboardWebsiteDataPolicy.swift in Sources */,
 				C30100000000000000000003 /* BenchmarkRegressionTests.swift in Sources */,
 				C30100000000000000000016 /* BenchmarkRegressionSupport.swift in Sources */,
+                D14700000000000000000001 /* SystemProxyManager.swift in Sources */,
+                D14700000000000000000004 /* IsolatedOperationTests.swift in Sources */,
 				C30100000000000000000013 /* ClashProxy.swift in Sources */,
 				C30100000000000000000014 /* ClashProvider.swift in Sources */,
 				C30200000000000000000003 /* StartupProxyRecoveryPolicy.swift in Sources */,
@@ -1128,6 +1137,7 @@
 				495340B320DE68C300B0D3FF /* StatusItemView.swift in Sources */,
 				0DE4369C17354E28 /* SpeedTextView.swift in Sources */,
 				F935B2FC23085515009E4D33 /* SystemProxyManager.swift in Sources */,
+                D14700000000000000000002 /* SystemProxyManager+Live.swift in Sources */,
 				0AD7506D2A5B9B26001FFBBD /* ConnectionLeftTextCellView.swift in Sources */,
 				495A44D320D267D000888A0A /* LaunchAtLogin.swift in Sources */,
 				490C8A102AC26E67007140F2 /* JSBridge.swift in Sources */,

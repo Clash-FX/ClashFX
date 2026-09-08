@@ -12,6 +12,7 @@ import RxSwift
 
 enum TerminalConfirmAction {
     static func run() -> NSApplication.TerminateReply {
+        guard !AppDelegate.shared.isTerminating else { return .terminateLater }
         guard confirmAction() else {
             return .terminateCancel
         }
@@ -22,7 +23,9 @@ enum TerminalConfirmAction {
             currentSystemSetToClash: NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true),
             hasInterfaceProxySetToClash: NetworkChangeNotifier.hasInterfaceProxySetToClash()
         ))
+        AppDelegate.shared.prepareForTerminationCleanup()
         let group = DispatchGroup()
+        var proxyCleanupSucceeded = !policy.cleanSystemProxy
 
         if policy.cleanEnhancedMode {
             Logger.log("ClashFX quit need clean Enhanced Mode")
@@ -36,7 +39,8 @@ enum TerminalConfirmAction {
             Logger.log("ClashFX quit need clean proxy setting")
             group.enter()
 
-            SystemProxyManager.shared.disableProxy(forceDisable: policy.forceDisableProxy) {
+            SystemProxyManager.shared.restoreForTermination { success in
+                proxyCleanupSucceeded = success
                 group.leave()
             }
         }
@@ -58,26 +62,28 @@ enum TerminalConfirmAction {
                 quittingMenu.addItem(quittingItem)
                 statusItem.menu = quittingMenu
             }
-            AppDelegate.shared.disposeBag = DisposeBag()
         }
 
-        let terminationSettlement = ManagedOperationSettlement<Void> { _ in
+        let terminationSettlement = ManagedOperationSettlement<Bool> { succeeded in
             DispatchQueue.main.async {
-                NSApp.reply(toApplicationShouldTerminate: true)
+                if !succeeded {
+                    AppDelegate.shared.cancelTerminationCleanup()
+                }
+                NSApp.reply(toApplicationShouldTerminate: succeeded)
+                if !succeeded {
+                    NSAlert.alert(with: NSLocalizedString(
+                        "Proxy cleanup failed. ClashFX remains open; please try quitting again.",
+                        comment: ""
+                    ))
+                }
             }
         }
-        terminationSettlement.scheduleTimeout(after: 10, queue: .global(qos: .default), outcome: { () })
-
-        DispatchQueue.global(qos: .default).async {
-            let res = group.wait(timeout: .now() + 9.8)
-            switch res {
-            case .success:
-                Logger.log("ClashFX quit after clean up finish")
-                _ = terminationSettlement.finish(())
-            case .timedOut:
-                Logger.log("ClashFX quit after clean up timeout")
-                _ = terminationSettlement.finish(())
-            }
+        // Include an in-flight capture/enable followed by restore and readback.
+        // These XPC stages each have their own eight-second deadline.
+        terminationSettlement.scheduleTimeout(after: 40, queue: .main, outcome: { false })
+        group.notify(queue: .main) {
+            Logger.log("ClashFX quit cleanup completed: proxy success=\(proxyCleanupSucceeded)")
+            _ = terminationSettlement.finish(proxyCleanupSucceeded)
         }
 
         Logger.log("ClashFX quit wait for clean up")

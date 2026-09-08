@@ -5,6 +5,39 @@
 
 import Foundation
 
+/// Serializes entire asynchronous operations, including their callbacks.
+/// Merely dispatching their start onto a serial queue allows XPC writes to overlap.
+final class SerializedAsyncOperationQueue {
+    typealias Operation = (@escaping () -> Void) -> Void
+    private let queue: DispatchQueue
+    private var pending = [Operation]()
+    private var running = false
+
+    init(queue: DispatchQueue) {
+        self.queue = queue
+    }
+
+    func enqueue(_ operation: @escaping Operation) {
+        queue.async {
+            self.pending.append(operation)
+            self.startNext()
+        }
+    }
+
+    private func startNext() {
+        guard !running, !pending.isEmpty else { return }
+        running = true
+        let operation = pending.removeFirst()
+        let settlement = ManagedOperationSettlement<Void> { _ in
+            self.queue.async {
+                self.running = false
+                self.startNext()
+            }
+        }
+        operation { _ = settlement.finish(()) }
+    }
+}
+
 /// Resolves an asynchronous operation once, regardless of whether the first
 /// terminal event is a result, an error, or a timeout.
 final class ManagedOperationSettlement<Outcome> {
@@ -94,7 +127,9 @@ struct TerminationCleanupPolicy: Equatable {
         return TerminationCleanupPolicy(
             cleanEnhancedMode: observation.enhancedModeActive,
             cleanSystemProxy: cleanSystemProxy,
-            forceDisableProxy: cleanSystemProxy && observation.isProxySetByOther
+            // Restoring the captured settings remains the user's requested
+            // behavior even when a transient network change marked them external.
+            forceDisableProxy: false
         )
     }
 }

@@ -312,7 +312,9 @@ class ProxyMenuItem: NSMenuItem {
                   presentation.rowName == proxyName else {
                 guard let presentation = note.object as? GlobalLeafBenchmarkPresentation,
                       presentation.identity == benchmarkIdentity,
-                      parentGroupType == .select else { return }
+                      ProxyBenchmarkPresentationPolicy.allowsGlobalLeafFallback(
+                          in: parentGroupType
+                      ) else { return }
                 applyGlobalLeafBenchmarkPresentation(presentation)
                 return
             }
@@ -386,7 +388,6 @@ class ProxyMenuItem: NSMenuItem {
             delay: presentation.rowState.delayDisplay,
             rawValue: presentation.rowState.rawDelay
         )
-        applyStaleAppearance(presentation.isStale)
     }
 
     private func applyAutomaticChildBenchmarkPresentation(
@@ -398,7 +399,6 @@ class ProxyMenuItem: NSMenuItem {
             delay: presentation.rowState.delayDisplay,
             rawValue: presentation.rowState.rawDelay
         )
-        applyStaleAppearance(presentation.isStale)
     }
 
     private func applyGlobalLeafBenchmarkPresentation(
@@ -413,7 +413,6 @@ class ProxyMenuItem: NSMenuItem {
             delay: presentation.rowState.delayDisplay,
             rawValue: presentation.rowState.rawDelay
         )
-        applyStaleAppearance(presentation.isStale)
     }
 
     private func updateAutomaticChildBenchmarkPresentation(from info: ClashProxy) {
@@ -422,11 +421,22 @@ class ProxyMenuItem: NSMenuItem {
             updatePresentation(name: proxyName, delay: nil, rawValue: nil)
             return
         }
+        let globalPresentation = info.all == nil
+            ? GlobalLeafBenchmarkPresentationStore.presentation(for: info)
+            : nil
         if let presentation = AutomaticChildBenchmarkStore.presentation(
             group: group,
             rowName: proxyName
         ) {
-            applyAutomaticChildBenchmarkPresentation(presentation)
+            if let globalPresentation,
+               ProxyBenchmarkPresentationPolicy.prefersGlobal(
+                   publishedAt: globalPresentation.publishedAt,
+                   over: presentation.publishedAt
+               ) {
+                applyGlobalLeafBenchmarkPresentation(globalPresentation)
+            } else {
+                applyAutomaticChildBenchmarkPresentation(presentation)
+            }
             return
         }
 
@@ -434,7 +444,13 @@ class ProxyMenuItem: NSMenuItem {
         let evidenceProxy = info.testState(for: parentBenchmarkURL) == nil
             ? (finalLeaf(from: info) ?? info)
             : info
-        guard let state = evidenceProxy.testState(for: parentBenchmarkURL),
+        let state = evidenceProxy.testState(for: parentBenchmarkURL)
+        if let globalPresentation,
+           globalPresentation.isNewer(than: state) {
+            applyGlobalLeafBenchmarkPresentation(globalPresentation)
+            return
+        }
+        guard let state,
               let history = state.history.last else {
             updatePresentation(name: proxyName, delay: nil, rawValue: nil)
             return
@@ -547,22 +563,6 @@ class ProxyMenuItem: NSMenuItem {
         } else {
             attributedTitle = getAttributedTitle(name: name, delay: delay)
         }
-    }
-
-    private func applyStaleAppearance(_ stale: Bool) {
-        guard stale else { return }
-        if enableShowUsingView {
-            view?.alphaValue = 0.65
-            return
-        }
-        guard let attributedTitle else { return }
-        let muted = NSMutableAttributedString(attributedString: attributedTitle)
-        muted.addAttribute(
-            .foregroundColor,
-            value: NSColor.secondaryLabelColor,
-            range: NSRange(location: 0, length: muted.length)
-        )
-        self.attributedTitle = muted
     }
 }
 
