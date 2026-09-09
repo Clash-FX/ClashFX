@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.10.11 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.11 (Lab)</h2><ul><li><strong>Invalid TUN Descriptors No Longer Trigger a Log Storm</strong> — The embedded core now treats Darwin `bad file descriptor` and `socket operation on non-socket` read failures as closed TUN devices instead of retrying forever. ClashFX also recognizes either signature as an immediate Enhanced Mode recovery signal and rate-limits the errors independently of unrelated traffic logs, preventing the CPU, memory, and UI lockup seen during some post-reboot starts.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 09 Sep 2026 03:08:24 +0000</pubDate>
+  <sparkle:version>1001010011</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.11</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.11/ClashFX.dmg"
+    sparkle:version="1001010011"
+    sparkle:shortVersionString="1.1.10.11"
+    sparkle:edSignature="O6DfBmh/CTN9XrWsKhx1HM7J1fVl6WJHWmazjFw3s9YzWR6CbLtKGI5c5KXnhEmL3vxCa4s7Zm1SaAO1PQRjDA=="
+    length="95235267"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.10 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.10 (Lab)</h2><ul><li><strong>Large Selector Benchmarks Finish Without a Retry Tail</strong> — Selector rows now use a bounded rolling pool of 8–12 requests, settle failures immediately instead of retrying them after the full pass, and reuse successful direct-leaf measurements from the selected automatic-group retest only when URL, timeout, expected-status semantics, and provider identity match. Mihomo's fresh `now` remains authoritative. (#147)</li><li><strong>Quitting Reliably Restores the Original System Proxy</strong> — Proxy transitions now serialize the complete asynchronous Helper operations, block new enable/recovery work while quitting, and avoid a second disable after restoration. ClashFX reads the settings back before exiting; a failed, timed-out, or mismatched restore keeps the original snapshot and cancels termination so the user can retry. (#147)</li><li><strong>Old Delay Results No Longer Make Usable Menus Look Disabled</strong> — The 30-minute stale state no longer fades whole node rows or automatic-group menus. Nodes remain normally legible and selectable while current, failed, and unavailable delay badges continue to describe benchmark state. Automatic-group child rows also retain the newest applicable global measurement. (#147, #219)</li><li><strong>Legacy WebKit Theme Colors Are Converted Instead of Turning Black</strong> — The dashboard compatibility layer now detects real `color-mix()` support with CSS variables and converts RGB, Lab, and OKLab fallback colors on older Safari/WebKit engines, preventing dark themes from losing their intended backgrounds and contrast. (#221)</li></ul>
