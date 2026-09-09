@@ -111,9 +111,21 @@ func (a *delayedURLTestAdapter) DialContext(context.Context, *C.Metadata) (C.Con
 	return outbound.NewConn(client, a), nil
 }
 
-func TestClosedTunSocketIsTreatedAsClosed(t *testing.T) {
-	if !E.IsClosed(syscall.ENOTSOCK) {
-		t.Fatal("ENOTSOCK must stop the Darwin TUN read loop")
+func TestClosedTunErrorsAreTreatedAsClosed(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "socket operation on non-socket", err: syscall.ENOTSOCK},
+		{name: "bad file descriptor", err: syscall.EBADF},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if !E.IsClosed(test.err) {
+				t.Fatalf("%v must stop the Darwin TUN read loop", test.err)
+			}
+		})
 	}
 }
 
@@ -150,10 +162,10 @@ func TestURLTestRecomputesSelectionAfterAllCandidatesFinish(t *testing.T) {
 		done <- err
 	}()
 
-	deadline := time.Now().Add(150 * time.Millisecond)
-	for secondProxy.LastDelayForTestUrl(testURL) >= 50 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	// Allow the faster second result to settle while the first request remains
+	// in flight. Polling LastDelayForTestUrl here races Mihomo's queue write and
+	// makes this regression test itself unsafe under go test -race.
+	time.Sleep(100 * time.Millisecond)
 	if got := group.Now(); got != "first" {
 		t.Fatalf("selection during partial results = %q, want cached first", got)
 	}

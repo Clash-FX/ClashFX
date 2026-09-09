@@ -1638,6 +1638,63 @@ final class SubscriptionStatusPresentationTests: XCTestCase {
     }
 }
 
+final class CoreLogGuardTests: XCTestCase {
+    private let badFileDescriptorMessage = "batch read packet: bad file descriptor"
+
+    func testDarwinClosedTunErrorsRequestImmediateRecovery() {
+        let messages = [
+            "batch read packet: socket operation on non-socket",
+            badFileDescriptorMessage
+        ]
+
+        for (index, message) in messages.enumerated() {
+            let logGuard = CoreLogGuard()
+            let decision = logGuard.process(
+                message: message,
+                level: .error,
+                now: Date(timeIntervalSince1970: TimeInterval(100 + index))
+            )
+            guard case .closedTunSocket? = decision.recoveryReason else {
+                return XCTFail("Expected closed-TUN recovery for \(message)")
+            }
+        }
+    }
+
+    func testBadFileDescriptorFloodIsBoundedAcrossInterleavedMessages() {
+        let logGuard = CoreLogGuard()
+        let baseTime = Date(timeIntervalSince1970: 100)
+        var fatalEntries = 0
+
+        for index in 0 ..< 100 {
+            let now = baseTime.addingTimeInterval(TimeInterval(index) / 1_000)
+            let fatalDecision = logGuard.process(
+                message: badFileDescriptorMessage,
+                level: .error,
+                now: now
+            )
+            fatalEntries += fatalDecision.entries.filter {
+                $0.0 == badFileDescriptorMessage
+            }.count
+            _ = logGuard.process(
+                message: "[TCP] unrelated log \(index)",
+                level: .info,
+                now: now
+            )
+        }
+
+        XCTAssertEqual(fatalEntries, 3)
+
+        let nextDecision = logGuard.process(
+            message: badFileDescriptorMessage,
+            level: .error,
+            now: baseTime.addingTimeInterval(1.1)
+        )
+        XCTAssertTrue(nextDecision.entries.contains {
+            $0.0.contains("Suppressed 97 closed TUN read failures entries")
+        })
+    }
+}
+
 final class StartupProxyRecoveryPolicyTests: XCTestCase {
     private func cpuSample(
         launchID: String = "launch-a",

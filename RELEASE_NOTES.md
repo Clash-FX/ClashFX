@@ -1,5 +1,19 @@
 ### Bug Fixes
 
+- **Invalid TUN Descriptors No Longer Trigger a Log Storm** — The embedded core now treats Darwin `bad file descriptor` and `socket operation on non-socket` read failures as closed TUN devices instead of retrying forever. ClashFX also recognizes either signature as an immediate Enhanced Mode recovery signal and rate-limits the errors independently of unrelated traffic logs, preventing the CPU, memory, and UI lockup seen during some post-reboot starts.
+
+---
+
+### 修复
+
+- **无效 TUN 描述符不再引发日志风暴** — 内嵌核心现在会把 Darwin 的 `bad file descriptor` 和 `socket operation on non-socket` 读取错误视为 TUN 已关闭，不再无限重试。ClashFX 也会把两种错误都识别为增强模式的立即恢复信号，并独立于其他流量日志进行限流，避免部分重启后首次启动时出现 CPU、内存持续增长及界面卡死。
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Large Selector Benchmarks Finish Without a Retry Tail** — Selector rows now use a bounded rolling pool of 8–12 requests, settle failures immediately instead of retrying them after the full pass, and reuse successful direct-leaf measurements from the selected automatic-group retest only when URL, timeout, expected-status semantics, and provider identity match. Mihomo's fresh `now` remains authoritative. (#147)
 - **Quitting Reliably Restores the Original System Proxy** — Proxy transitions now serialize the complete asynchronous Helper operations, block new enable/recovery work while quitting, and avoid a second disable after restoration. ClashFX reads the settings back before exiting; a failed, timed-out, or mismatched restore keeps the original snapshot and cancels termination so the user can retry. (#147)
 - **Old Delay Results No Longer Make Usable Menus Look Disabled** — The 30-minute stale state no longer fades whole node rows or automatic-group menus. Nodes remain normally legible and selectable while current, failed, and unavailable delay badges continue to describe benchmark state. Automatic-group child rows also retain the newest applicable global measurement. (#147, #219)

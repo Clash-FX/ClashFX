@@ -28,7 +28,8 @@ ORIGINAL_IS_CLOSED = (
 )
 PATCHED_IS_CLOSED = (
     "return IsMulti(err, io.EOF, net.ErrClosed, io.ErrClosedPipe, os.ErrClosed, "
-    "syscall.EPIPE, syscall.ECONNRESET, syscall.ENOTCONN, syscall.ENOTSOCK)"
+    "syscall.EPIPE, syscall.ECONNRESET, syscall.ENOTCONN, syscall.ENOTSOCK, "
+    "syscall.EBADF)"
 )
 ORIGINAL_URL_TEST = """func (u *URLTest) URLTest(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16]) (map[string]uint16, error) {
 	return u.GroupBase.URLTest(ctx, u.testUrl, expectedStatus)
