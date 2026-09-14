@@ -108,6 +108,7 @@ struct TerminationCleanupObservation {
     let isProxySetByOther: Bool
     let currentSystemSetToClash: Bool
     let hasInterfaceProxySetToClash: Bool
+    let preserveSystemProxyForFailClosed: Bool
 }
 
 struct TerminationCleanupPolicy: Equatable {
@@ -120,10 +121,11 @@ struct TerminationCleanupPolicy: Equatable {
     }
 
     static func make(observation: TerminationCleanupObservation) -> TerminationCleanupPolicy {
-        let cleanSystemProxy =
+        let cleanSystemProxy = !observation.preserveSystemProxyForFailClosed && (
             (observation.proxyPortAutoSet && !observation.isProxySetByOther) ||
-            observation.currentSystemSetToClash ||
-            observation.hasInterfaceProxySetToClash
+                observation.currentSystemSetToClash ||
+                observation.hasInterfaceProxySetToClash
+        )
         return TerminationCleanupPolicy(
             cleanEnhancedMode: observation.enhancedModeActive,
             cleanSystemProxy: cleanSystemProxy,

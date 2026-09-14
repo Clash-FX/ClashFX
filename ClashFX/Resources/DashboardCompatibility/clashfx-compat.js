@@ -194,6 +194,14 @@
     );
   }
 
+  function polarToCartesian(chroma, hueDegrees) {
+    var hue = hueDegrees * Math.PI / 180;
+    return {
+      axisA: chroma * Math.cos(hue),
+      axisB: chroma * Math.sin(hue)
+    };
+  }
+
   function functionalComponents(value, functionName) {
     var expression = new RegExp('^' + functionName + '\\(\\s*(.*?)\\s*\\)$', 'i').exec(value);
     if (!expression) return null;
@@ -274,6 +282,35 @@
         return oklabToSRGB(oklabLightness, oklabA, oklabB, oklabAlpha);
       }
     }
+
+    var lch = functionalComponents(value, 'lch');
+    if (lch && lch.channels.length === 3) {
+      var lchLightness = component(lch.channels[0], 100);
+      var lchChroma = component(lch.channels[1], 150);
+      var lchHue = Number(lch.channels[2].replace(/deg$/i, ''));
+      var lchAlpha = alphaComponent(lch.alpha);
+      if (lchLightness !== null && lchChroma !== null && isFinite(lchHue) && lchAlpha !== null) {
+        var labAxes = polarToCartesian(lchChroma, lchHue);
+        return labToSRGB(lchLightness, labAxes.axisA, labAxes.axisB, lchAlpha);
+      }
+    }
+
+    var oklch = functionalComponents(value, 'oklch');
+    if (oklch && oklch.channels.length === 3) {
+      var oklchLightness = component(oklch.channels[0], 1);
+      var oklchChroma = component(oklch.channels[1], 0.4);
+      var oklchHue = Number(oklch.channels[2].replace(/deg$/i, ''));
+      var oklchAlpha = alphaComponent(oklch.alpha);
+      if (oklchLightness !== null && oklchChroma !== null && isFinite(oklchHue) && oklchAlpha !== null) {
+        var oklabAxes = polarToCartesian(oklchChroma, oklchHue);
+        return oklabToSRGB(
+          oklchLightness,
+          oklabAxes.axisA,
+          oklabAxes.axisB,
+          oklchAlpha
+        );
+      }
+    }
     return null;
   }
 
@@ -342,7 +379,23 @@
     function safeFallbackColor(variableName) {
       var palette = activeThemePalette();
       var value = palette.content;
-      if (/--color-base-(100|200|300)$/.test(variableName)) value = palette.base;
+      if (/--color-base-(100|200|300)$/.test(variableName)) {
+        var base = parseRenderedColor(palette.base);
+        var content = parseRenderedColor(palette.content);
+        var surfaceLevel = /--color-base-300$/.test(variableName)
+          ? 0.16
+          : (/--color-base-200$/.test(variableName) ? 0.08 : 0);
+        if (base && content && surfaceLevel > 0) {
+          return colorResult(
+            base.red * (1 - surfaceLevel) + content.red * surfaceLevel,
+            base.green * (1 - surfaceLevel) + content.green * surfaceLevel,
+            base.blue * (1 - surfaceLevel) + content.blue * surfaceLevel,
+            1,
+            'safe-surface'
+          );
+        }
+        value = palette.base;
+      }
       else if (/--color-primary/.test(variableName)) value = palette.primary;
       else if (/--color-error/.test(variableName)) value = '#ff657f';
       else if (/--color-success/.test(variableName)) value = '#00d193';
@@ -351,11 +404,31 @@
       return parseRenderedColor(value) || colorResult(127, 127, 127, 1, 'safe-fallback');
     }
 
-    function rgbaFor(variableName, alpha) {
-      probe.style.color = '';
+    function resolvedVariableColor(variableName) {
+      var rootValue = nativeGetComputedStyle(root).getPropertyValue(variableName) || '';
+      var parsedRootValue = parseRenderedColor(rootValue);
+      if (parsedRootValue && parsedRootValue.alpha > 0) return parsedRootValue;
+
+      // A legacy WebKit engine can accept var(...) syntactically, yet resolve
+      // an unsupported OKLCH value to transparent black. Start with a visible
+      // sentinel so invalid assignment cannot be mistaken for a real theme color.
+      probe.style.color = 'rgb(1, 2, 3)';
       probe.style.color = 'var(' + variableName + ')';
-      var value = nativeGetComputedStyle(probe).color || '';
-      var parsed = parseRenderedColor(value) || safeFallbackColor(variableName);
+      var parsedComputedValue = parseRenderedColor(
+        nativeGetComputedStyle(probe).color || ''
+      );
+      if (parsedComputedValue && parsedComputedValue.alpha > 0 && !(
+        Math.abs(parsedComputedValue.red - 1) < 0.5 &&
+        Math.abs(parsedComputedValue.green - 2) < 0.5 &&
+        Math.abs(parsedComputedValue.blue - 3) < 0.5
+      )) {
+        return parsedComputedValue;
+      }
+      return safeFallbackColor(variableName);
+    }
+
+    function rgbaFor(variableName, alpha) {
+      var parsed = resolvedVariableColor(variableName);
       return 'rgba(' + Math.round(parsed.red) + ', ' +
         Math.round(parsed.green) + ', ' + Math.round(parsed.blue) + ', ' +
         clamp(alpha * parsed.alpha, 0, 1) + ')';

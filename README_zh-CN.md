@@ -91,6 +91,10 @@ ClashFX 的核心功能 — 基于 TUN 的全局代理，捕获所有应用的 T
 2. 首次使用需要授予管理员权限
 3. 所有流量现在都通过 ClashFX 路由
 
+### Claude 专用代理锁定
+
+可将 Claude 桌面版、Claude Code 和 Anthropic 网页流量固定到一个具体节点，并在故障时阻断回落。请查看 [Claude 专用代理锁定的用法与保护边界](docs/CLAUDE-PROXY-LOCK.md)。
+
 ### URL Schemes
 
 - **导入远程配置：**

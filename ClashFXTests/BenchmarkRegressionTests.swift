@@ -434,7 +434,8 @@ final class TerminationCleanupPolicyTests: XCTestCase {
     func testNoCleanupDoesNotWait() {
         let policy = TerminationCleanupPolicy.make(observation: TerminationCleanupObservation(
             enhancedModeActive: false, proxyPortAutoSet: false, isProxySetByOther: false,
-            currentSystemSetToClash: false, hasInterfaceProxySetToClash: false
+            currentSystemSetToClash: false, hasInterfaceProxySetToClash: false,
+            preserveSystemProxyForFailClosed: false
         ))
         XCTAssertFalse(policy.shouldWait)
     }
@@ -442,7 +443,8 @@ final class TerminationCleanupPolicyTests: XCTestCase {
     func testEnhancedAndProxyCleanupCombineIntoOneWait() {
         let policy = TerminationCleanupPolicy.make(observation: TerminationCleanupObservation(
             enhancedModeActive: true, proxyPortAutoSet: true, isProxySetByOther: false,
-            currentSystemSetToClash: false, hasInterfaceProxySetToClash: false
+            currentSystemSetToClash: false, hasInterfaceProxySetToClash: false,
+            preserveSystemProxyForFailClosed: false
         ))
         XCTAssertTrue(policy.cleanEnhancedMode)
         XCTAssertTrue(policy.cleanSystemProxy)
@@ -452,7 +454,8 @@ final class TerminationCleanupPolicyTests: XCTestCase {
     func testOwnedProxyStateSelectsRestore() {
         let policy = TerminationCleanupPolicy.make(observation: TerminationCleanupObservation(
             enhancedModeActive: false, proxyPortAutoSet: true, isProxySetByOther: false,
-            currentSystemSetToClash: false, hasInterfaceProxySetToClash: false
+            currentSystemSetToClash: false, hasInterfaceProxySetToClash: false,
+            preserveSystemProxyForFailClosed: false
         ))
         XCTAssertTrue(policy.cleanSystemProxy)
         XCTAssertFalse(policy.forceDisableProxy)
@@ -461,10 +464,54 @@ final class TerminationCleanupPolicyTests: XCTestCase {
     func testExternalChangeMarkerDoesNotBypassOriginalProxyRestoration() {
         let policy = TerminationCleanupPolicy.make(observation: TerminationCleanupObservation(
             enhancedModeActive: false, proxyPortAutoSet: false, isProxySetByOther: true,
-            currentSystemSetToClash: true, hasInterfaceProxySetToClash: false
+            currentSystemSetToClash: true, hasInterfaceProxySetToClash: false,
+            preserveSystemProxyForFailClosed: false
         ))
         XCTAssertTrue(policy.cleanSystemProxy)
         XCTAssertFalse(policy.forceDisableProxy)
+    }
+
+    func testFailClosedLockPreservesSystemProxyWhileCleaningEnhancedMode() {
+        let policy = TerminationCleanupPolicy.make(observation: TerminationCleanupObservation(
+            enhancedModeActive: true, proxyPortAutoSet: true, isProxySetByOther: false,
+            currentSystemSetToClash: true, hasInterfaceProxySetToClash: true,
+            preserveSystemProxyForFailClosed: true
+        ))
+        XCTAssertTrue(policy.cleanEnhancedMode)
+        XCTAssertFalse(policy.cleanSystemProxy)
+        XCTAssertTrue(policy.shouldWait)
+    }
+}
+
+final class ClaudeProxyLockPolicyTests: XCTestCase {
+    func testRulesCoverClaudeProcessesAndOfficialDomains() {
+        XCTAssertEqual(ClaudeProxyLockPolicy.rules(target: "IPRoyal Korea"), [
+            "PROCESS-NAME,Claude,IPRoyal Korea",
+            "PROCESS-NAME,claude,IPRoyal Korea",
+            "DOMAIN-SUFFIX,claude.ai,IPRoyal Korea",
+            "DOMAIN-SUFFIX,claude.com,IPRoyal Korea",
+            "DOMAIN-SUFFIX,anthropic.com,IPRoyal Korea"
+        ])
+    }
+
+    func testApplyingLockForcesRuleModeAndPrependsRules() {
+        var root: [String: Any] = [
+            "mode": "global",
+            "find-process-mode": "off",
+            "rules": ["MATCH,DIRECT"]
+        ]
+        XCTAssertTrue(ClaudeProxyLockPolicy.apply(to: &root, target: "Korea"))
+        XCTAssertEqual(root["mode"] as? String, "rule")
+        XCTAssertEqual(root["find-process-mode"] as? String, "always")
+        let rules = root["rules"] as? [String]
+        XCTAssertEqual(rules?.last, "MATCH,DIRECT")
+        XCTAssertEqual(rules?.first, "PROCESS-NAME,Claude,Korea")
+    }
+
+    func testUnsafeOrFallbackTargetsAreRejected() {
+        XCTAssertFalse(ClaudeProxyLockPolicy.isValidTarget("DIRECT"))
+        XCTAssertFalse(ClaudeProxyLockPolicy.isValidTarget("bad,target"))
+        XCTAssertTrue(ClaudeProxyLockPolicy.rules(target: "bad,target").isEmpty)
     }
 }
 
@@ -585,6 +632,21 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(darkContent.0, 0xF2, accuracy: 8)
         XCTAssertEqual(darkContent.1, 0xF8, accuracy: 8)
         XCTAssertEqual(darkContent.2, 0xFF, accuracy: 8)
+
+        let darkOKLCHBackground = try converted("oklch(25.33% 0.016 252.42)")
+        XCTAssertEqual(darkOKLCHBackground.0, 0x1D, accuracy: 6)
+        XCTAssertEqual(darkOKLCHBackground.1, 0x23, accuracy: 6)
+        XCTAssertEqual(darkOKLCHBackground.2, 0x2A, accuracy: 6)
+
+        let darkOKLCHContent = try converted("oklch(97.807% 0.029 256.847 / 80%)")
+        XCTAssertGreaterThan(darkOKLCHContent.0, 220)
+        XCTAssertGreaterThan(darkOKLCHContent.1, 220)
+        XCTAssertGreaterThan(darkOKLCHContent.2, 220)
+
+        let polarLabBackground = try converted("lch(13.3466% 5.815 257.35)")
+        XCTAssertLessThan(polarLabBackground.0, 60)
+        XCTAssertLessThan(polarLabBackground.1, 60)
+        XCTAssertLessThan(polarLabBackground.2, 60)
 
         let probeExpression = context.evaluateScript(
             "window.__CLASHFX_DASHBOARD_COMPAT__.testing.renderedProbeExpression"
@@ -716,9 +778,9 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(plan.selectedAutomaticRetest?.groupName, "Automatic")
         XCTAssertEqual(
             plan.selectedAutomaticRetest?.benchmarkURL,
-            "https://automatic.example.test"
+            "https://selector.example.test"
         )
-        XCTAssertEqual(plan.selectedAutomaticRetest?.expectedStatus, "204")
+        XCTAssertNil(plan.selectedAutomaticRetest?.expectedStatus)
     }
 
     func testSelectorPlanHandlesNilEmptyAndSingleLeafMembers() throws {
@@ -1002,28 +1064,44 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(limitChanges.map(\.1), [12])
     }
 
-    func testSelectorDoesNotReuseDifferentURLStatusOrNestedGroupMeasurements() throws {
+    func testSelectorReusesParentURLMeasurementsRegardlessOfAutomaticGroupConfiguration() throws {
         let url = "https://benchmark.example.test"
-        for (groupURL, status, members) in [
-            ("https://other.example.test", "", ["Leaf"]),
-            (url, "204", ["Leaf"]),
-            (url, "", ["Nested"])
+        for (groupURL, status) in [
+            ("https://other.example.test", ""),
+            (url, "204")
         ] {
             let response = snapshot([
                 ["name": "Selector", "type": "Selector", "all": ["Automatic", "Leaf"], "now": "Automatic", "history": []],
-                ["name": "Automatic", "type": "URLTest", "all": members, "now": members[0], "testUrl": groupURL, "expectedStatus": status, "history": []],
-                ["name": "Nested", "type": "Selector", "all": ["Leaf"], "now": "Leaf", "history": []],
+                ["name": "Automatic", "type": "URLTest", "all": ["Leaf"], "now": "Leaf", "testUrl": groupURL, "expectedStatus": status, "history": []],
                 ["name": "Leaf", "type": "Vless", "history": []]
             ])
             let plan = try SelectorBenchmarkPlan.make(
                 selector: XCTUnwrap(response.proxiesMap["Selector"]), snapshot: response,
                 benchmarkURL: url, timeout: 5
             )
-            XCTAssertTrue(try plan.reusableMeasurements(
+            XCTAssertEqual(try plan.reusableMeasurements(
                 group: XCTUnwrap(response.proxiesMap["Automatic"]),
-                candidateDelays: ["Leaf": 120, "Nested": 120], timeout: 5
-            ).isEmpty)
+                candidateDelays: ["Leaf": 120], timeout: 5
+            ).values.first, 120)
         }
+    }
+
+    func testSelectorDoesNotReuseNestedGroupCandidateAsLeafMeasurement() throws {
+        let url = "https://benchmark.example.test"
+        let response = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["Automatic", "Leaf"], "now": "Automatic", "history": []],
+            ["name": "Automatic", "type": "URLTest", "all": ["Nested"], "now": "Nested", "testUrl": url, "history": []],
+            ["name": "Nested", "type": "Selector", "all": ["Leaf"], "now": "Leaf", "history": []],
+            ["name": "Leaf", "type": "Vless", "history": []]
+        ])
+        let plan = try SelectorBenchmarkPlan.make(
+            selector: XCTUnwrap(response.proxiesMap["Selector"]), snapshot: response,
+            benchmarkURL: url, timeout: 5
+        )
+        XCTAssertTrue(try plan.reusableMeasurements(
+            group: XCTUnwrap(response.proxiesMap["Automatic"]),
+            candidateDelays: ["Nested": 120], timeout: 5
+        ).isEmpty)
     }
 
     func testSelectorReuseRequiresMatchingProviderIdentity() throws {

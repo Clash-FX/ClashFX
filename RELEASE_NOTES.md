@@ -1,3 +1,27 @@
+### Features
+
+- **Claude Proxy Lock Fails Closed on One Chosen Node** — A new menu action pins Claude Desktop, Claude Code process traffic, and Anthropic web domains to one concrete proxy in Enhanced Mode. ClashFX forces Rule mode and System Proxy, restores either if another controller changes them, blocks their manual shutdown while the lock is active, and leaves the local System Proxy sentinel in place on quit so protected clients cannot silently fall back. The dialog states the limits for extensions, app-specific proxies, and software that ignores macOS networking settings.
+
+### Bug Fixes
+
+- **Selector Rows Share Comparable Measurements** — A Selector benchmark now tests its selected automatic group with the Selector's own URL and status semantics, then publishes direct-leaf results to the shared store. The same underlying node no longer shows conflicting values merely because it appears in different policy groups; explicit automatic-group retests still use that group's configured URL and Mihomo's fresh `now`. (#219)
+- **Legacy WebKit Keeps Dark Themes Legible** — The dashboard fallback now parses LCH and OKLCH colors, rejects transparent-black results from unsupported CSS variables, and derives visibly separate base surfaces instead of collapsing multiple dark layers to one black background. (#221)
+
+---
+
+### 功能
+
+- **Claude 专用代理锁定会在故障时阻断流量** — 新菜单功能可在增强模式下，将 Claude 桌面版、Claude Code 进程流量和 Anthropic 网页域名锁定到一个具体代理节点。ClashFX 会强制规则模式和系统代理；外部控制器改动后会自动恢复；锁定期间不能手动关闭保护；退出时保留本地系统代理哨兵，使受保护客户端无法静默回落。对浏览器扩展、应用内代理和忽略 macOS 网络设置的软件，设置窗口会明确说明保护边界。
+
+### 修复
+
+- **Selector 节点现在共享可比较的测速结果** — Selector 测速会使用 Selector 自己的 URL 和状态语义测试当前自动策略，并把直接叶子节点结果发布到共享存储。同一底层节点不会再仅因出现在不同策略组中而显示互相冲突的数值；明确重测自动策略时，仍使用该组配置的 URL 和 Mihomo 最新 `now`。 (#219)
+- **旧版 WebKit 的暗色主题保持清晰可读** — 控制台后备层现在支持解析 LCH 和 OKLCH，能排除不受支持 CSS 变量返回的透明黑色，并为不同基础表面生成可区分的明暗层级，不再让多层暗色背景全部塌缩成黑色。 (#221)
+
+<!-- Previous release notes -->
+
+---
+
 ### Bug Fixes
 
 - **Invalid TUN Descriptors No Longer Trigger a Log Storm** — The embedded core now treats Darwin `bad file descriptor` and `socket operation on non-socket` read failures as closed TUN devices instead of retrying forever. ClashFX also recognizes either signature as an immediate Enhanced Mode recovery signal and rate-limits the errors independently of unrelated traffic logs, preventing the CPU, memory, and UI lockup seen during some post-reboot starts.

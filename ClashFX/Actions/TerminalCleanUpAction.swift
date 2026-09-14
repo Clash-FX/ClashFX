@@ -21,7 +21,8 @@ enum TerminalConfirmAction {
             proxyPortAutoSet: ConfigManager.shared.proxyPortAutoSet,
             isProxySetByOther: ConfigManager.shared.isProxySetByOtherVariable.value,
             currentSystemSetToClash: NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true),
-            hasInterfaceProxySetToClash: NetworkChangeNotifier.hasInterfaceProxySetToClash()
+            hasInterfaceProxySetToClash: NetworkChangeNotifier.hasInterfaceProxySetToClash(),
+            preserveSystemProxyForFailClosed: Settings.claudeProxyLockEnabled
         ))
         AppDelegate.shared.prepareForTerminationCleanup()
         let group = DispatchGroup()
