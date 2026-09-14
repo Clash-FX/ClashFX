@@ -6,6 +6,24 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11</h2><ul><li><strong>Invalid TUN Descriptors No Longer Trigger a Log Storm</strong> — The embedded core now treats Darwin `bad file descriptor` and `socket operation on non-socket` read failures as closed TUN devices instead of retrying forever. ClashFX also recognizes either signature as an immediate Enhanced Mode recovery signal and rate-limits the errors independently of unrelated traffic logs, preventing the CPU, memory, and UI lockup seen during some post-reboot starts.</li></ul>
+  ]]></description>
+  <pubDate>Mon, 14 Sep 2026 12:31:59 +0000</pubDate>
+  <sparkle:version>1001011000</sparkle:version>
+  <sparkle:shortVersionString>1.1.11</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11/ClashFX.dmg"
+    sparkle:version="1001011000"
+    sparkle:shortVersionString="1.1.11"
+    sparkle:edSignature="81dNkkTf6DIbNWD4fD++dUUi69iMh8C00ZkLlwzn9HYOlMFaxXPO/4Dw6wBdXoQvhZWsCUp/VU5tEQTgqQ0MCw=="
+    length="95196593"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.10.11 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.10.11 (Lab)</h2><ul><li><strong>Invalid TUN Descriptors No Longer Trigger a Log Storm</strong> — The embedded core now treats Darwin `bad file descriptor` and `socket operation on non-socket` read failures as closed TUN devices instead of retrying forever. ClashFX also recognizes either signature as an immediate Enhanced Mode recovery signal and rate-limits the errors independently of unrelated traffic logs, preventing the CPU, memory, and UI lockup seen during some post-reboot starts.</li></ul>
