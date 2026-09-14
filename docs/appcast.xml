@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.1 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.1 (Lab)</h2><ul><li><strong>Claude Proxy Lock Fails Closed on One Chosen Node</strong> — A new menu action pins Claude Desktop, Claude Code process traffic, and Anthropic web domains to one concrete proxy in Enhanced Mode. ClashFX forces Rule mode and System Proxy, restores either if another controller changes them, blocks their manual shutdown while the lock is active, and leaves the local System Proxy sentinel in place on quit so protected clients cannot silently fall back. The dialog states the limits for extensions, app-specific proxies, and software that ignores macOS networking settings.</li><li><strong>Selector Rows Share Comparable Measurements</strong> — A Selector benchmark now tests its selected automatic group with the Selector's own URL and status semantics, then publishes direct-leaf results to the shared store. The same underlying node no longer shows conflicting values merely because it appears in different policy groups; explicit automatic-group retests still use that group's configured URL and Mihomo's fresh `now`. (#219)</li><li><strong>Legacy WebKit Keeps Dark Themes Legible</strong> — The dashboard fallback now parses LCH and OKLCH colors, rejects transparent-black results from unsupported CSS variables, and derives visibly separate base surfaces instead of collapsing multiple dark layers to one black background. (#221)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 14 Sep 2026 12:59:57 +0000</pubDate>
+  <sparkle:version>1001011001</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.1</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.1/ClashFX.dmg"
+    sparkle:version="1001011001"
+    sparkle:shortVersionString="1.1.11.1"
+    sparkle:edSignature="H34ER4xAdH2vRuWCo2kz3oszyW5kOYnfXakKdhJphyoumPq8LemeTkFvmjxEGzqYeInqDSlM3DOBORNJz/rgCA=="
+    length="95234523"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11</h2><ul><li><strong>Invalid TUN Descriptors No Longer Trigger a Log Storm</strong> — The embedded core now treats Darwin `bad file descriptor` and `socket operation on non-socket` read failures as closed TUN devices instead of retrying forever. ClashFX also recognizes either signature as an immediate Enhanced Mode recovery signal and rate-limits the errors independently of unrelated traffic logs, preventing the CPU, memory, and UI lockup seen during some post-reboot starts.</li></ul>
