@@ -25,6 +25,7 @@ enum LabSupport {
         lines.append("### Feature flags")
         lines.append("- Enhanced Mode (TUN): \(Settings.enhancedMode)")
         lines.append("- Bypass Chinese Apps: \(Settings.bypassChineseApps)")
+        lines.append("- Claude Proxy Lock: \(Settings.claudeProxyLockEnabled)")
         lines.append("- Built-in API mode: \(Settings.builtInApiMode)")
         lines.append("- IPv6: \(Settings.enableIPV6)")
         lines.append("- System Proxy Auto Set: \(ConfigManager.shared.proxyPortAutoSet)")

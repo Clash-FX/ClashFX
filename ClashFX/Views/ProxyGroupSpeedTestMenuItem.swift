@@ -399,6 +399,22 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                         )
                     )
                 }
+                let identity = LeafProxyBenchmarkIdentity(
+                    endpoint: target.key.endpoint,
+                    providerName: target.key.providerName,
+                    proxyName: target.key.proxyName
+                )
+                let state: ProxyBenchmarkRowState = delay == 0
+                    ? .failed(displayName: target.key.proxyName)
+                    : .measured(displayName: target.key.proxyName, delay: delay)
+                GlobalLeafBenchmarkPresentationStore.publish(
+                    GlobalLeafBenchmarkPresentation(
+                        identity: identity,
+                        benchmarkURL: target.key.benchmarkURL,
+                        sessionIdentifier: sessionIdentifier,
+                        rowState: state
+                    )
+                )
             }
         }
 
@@ -433,7 +449,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
 
             let automaticRetestStartedAt = Date()
             Logger.log(
-                "[Proxy Delay] Prioritizing selected automatic group '\(target.groupName)' before Selector rows"
+                "[Proxy Delay] Refreshing selected automatic group '\(target.groupName)' with the Selector benchmark URL before other rows"
             )
 
             ApiRequest.getProxyGroupDelay(
@@ -470,15 +486,6 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                                         .unavailable(displayName: row.displayName)
                                     )
                                 }
-                                AutomaticGroupBenchmarkPresentationStore.settleTestingAsUnavailable(
-                                    groupName: target.groupName,
-                                    finalLeaf: nil,
-                                    sessionIdentifier: sessionIdentifier
-                                )
-                                AutomaticChildBenchmarkStore.settleTestingAsUnavailable(
-                                    groupName: target.groupName,
-                                    sessionIdentifier: sessionIdentifier
-                                )
                                 continuation()
                                 return
                             }
@@ -493,15 +500,6 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                                         .unavailable(displayName: row.displayName)
                                     )
                                 }
-                                AutomaticGroupBenchmarkPresentationStore.settleTestingAsUnavailable(
-                                    groupName: target.groupName,
-                                    finalLeaf: nil,
-                                    sessionIdentifier: sessionIdentifier
-                                )
-                                AutomaticChildBenchmarkStore.settleTestingAsUnavailable(
-                                    groupName: target.groupName,
-                                    sessionIdentifier: sessionIdentifier
-                                )
                                 continuation()
                                 return
                             }
@@ -511,11 +509,23 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                             if let providers = preflightSnapshot?.enclosingProviderResp {
                                 snapshot.updateProvider(providers)
                             }
-                            AutomaticChildBenchmarkStore.settle(
-                                group: freshGroup,
-                                candidateDelays: result.candidateDelays,
-                                sessionIdentifier: sessionIdentifier
-                            )
+                            for memberName in freshGroup.all ?? [] {
+                                guard let leaf = snapshot.proxiesMap[memberName],
+                                      leaf.all == nil,
+                                      !ClashProxyType.isProxyGroup(leaf),
+                                      let delay = result.candidateDelays[memberName] else { continue }
+                                let state: ProxyBenchmarkRowState = delay > 0
+                                    ? .measured(displayName: memberName, delay: delay)
+                                    : .failed(displayName: memberName)
+                                GlobalLeafBenchmarkPresentationStore.publish(
+                                    GlobalLeafBenchmarkPresentation(
+                                        identity: LeafProxyBenchmarkIdentity(proxy: leaf),
+                                        benchmarkURL: target.benchmarkURL,
+                                        sessionIdentifier: sessionIdentifier,
+                                        rowState: state
+                                    )
+                                )
+                            }
                             reusableMeasurements = plan.reusableMeasurements(
                                 group: freshGroup,
                                 candidateDelays: result.candidateDelays,
@@ -558,18 +568,6 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                                     state
                                 )
                             }
-                            AutomaticGroupBenchmarkPresentationStore.publish(
-                                AutomaticGroupBenchmarkPresentation(
-                                    identity: AutomaticGroupBenchmarkIdentity(
-                                        group: freshGroup,
-                                        fallbackBenchmarkURL: Settings.benchMarkUrl
-                                    ),
-                                    selectedPath: retestSnapshot.selectedPath,
-                                    finalLeaf: retestSnapshot.finalLeaf,
-                                    sessionIdentifier: sessionIdentifier,
-                                    rowState: state
-                                )
-                            )
                             Logger.log(
                                 "[Proxy Delay] Selected automatic group '\(target.groupName)' completed in "
                                     + String(format: "%.2f", Date().timeIntervalSince(automaticRetestStartedAt))
@@ -622,17 +620,6 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                         for row in plan.orderedRows where pendingRows.remove(row.rowName) != nil {
                             publishState(row, .unavailable(displayName: row.displayName))
                         }
-                        if let target = plan.selectedAutomaticRetest {
-                            AutomaticGroupBenchmarkPresentationStore.settleTestingAsUnavailable(
-                                groupName: target.groupName,
-                                finalLeaf: nil,
-                                sessionIdentifier: sessionIdentifier
-                            )
-                            AutomaticChildBenchmarkStore.settleTestingAsUnavailable(
-                                groupName: target.groupName,
-                                sessionIdentifier: sessionIdentifier
-                            )
-                        }
                         presentationCoalescer.flush()
                     }
                 }
@@ -642,17 +629,6 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                     } else {
                         publishState(row, .testing(displayName: row.displayName))
                     }
-                }
-                if let target = plan.selectedAutomaticRetest,
-                   let automaticGroup = response.proxiesMap[target.groupName] {
-                    AutomaticGroupBenchmarkPresentationStore.begin(
-                        group: automaticGroup,
-                        sessionIdentifier: sessionIdentifier
-                    )
-                    AutomaticChildBenchmarkStore.begin(
-                        group: automaticGroup,
-                        sessionIdentifier: sessionIdentifier
-                    )
                 }
                 retestSelectedAutomaticGroup {
                     ApiRequest.benchmarkSelectorPlan(

@@ -580,6 +580,21 @@
 /* Requires Enhanced Mode (uses PROCESS-NAME rules) */
 "Requires Enhanced Mode (uses PROCESS-NAME rules)" = "Требуется режим Enhanced (используются правила PROCESS-NAME)";
 
+/* Claude Proxy Lock */
+"Claude Proxy Lock…" = "Блокировка прокси Claude…";
+"Claude Proxy Lock" = "Блокировка прокси Claude";
+"Pin Claude traffic to one proxy and block fallback" = "Закрепить трафик Claude за одним прокси без переключения";
+"Choose one concrete proxy node. ClashFX will force Claude Desktop, Claude Code, and Anthropic web domains through it in Enhanced Mode. If that node or ClashFX fails, protected traffic is blocked instead of falling back. While enabled, Rule mode, Enhanced Mode, and System Proxy cannot be turned off. Browser extensions, manually configured app proxies, and software that ignores macOS networking settings remain outside this protection." = "Выберите один конкретный прокси-узел. В расширенном режиме ClashFX направит через него Claude Desktop, Claude Code и веб-домены Anthropic. При отказе узла или ClashFX защищённый трафик будет заблокирован без переключения на другой маршрут. Пока функция включена, нельзя отключить режим правил, расширенный режим или системный прокси. Расширения браузера, ручные настройки прокси в приложениях и ПО, игнорирующее сетевые настройки macOS, не входят в область защиты.";
+"Apply Lock" = "Применить";
+"Enable Lock" = "Включить";
+"Disable Lock" = "Отключить";
+"Claude Proxy Lock is protecting this setting. Disable the lock first." = "Эта настройка защищена блокировкой прокси Claude. Сначала отключите блокировку.";
+"Claude Proxy Lock could not be fully applied: %@" = "Не удалось полностью применить блокировку прокси Claude: %@";
+"Proxy core is not running." = "Ядро прокси не запущено.";
+"Could not load the proxy list." = "Не удалось загрузить список прокси.";
+"No eligible proxy nodes are available." = "Нет доступных конкретных прокси-узлов.";
+"Could not enable System Proxy." = "Не удалось включить системный прокси.";
+
 /* Settings sidebar */
 "Settings" = "Настройки";
 "Global Shortcut" = "Сочетания";

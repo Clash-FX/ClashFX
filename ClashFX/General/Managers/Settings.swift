@@ -263,6 +263,12 @@ enum Settings {
     @UserDefault("bypassChineseApps", defaultValue: false)
     static var bypassChineseApps: Bool
 
+    @UserDefault("claudeProxyLockEnabled", defaultValue: false)
+    static var claudeProxyLockEnabled: Bool
+
+    @UserDefault("claudeProxyLockTarget", defaultValue: "")
+    static var claudeProxyLockTarget: String
+
     @UserDefault("appLanguage", defaultValue: "")
     static var appLanguage: String
 

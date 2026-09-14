@@ -792,9 +792,6 @@ struct SelectorBenchmarkPlan {
         guard let retest = selectedAutomaticRetest,
               retest.groupName == group.name,
               group.type.isAutoGroup,
-              retest.benchmarkURL == group.effectiveBenchmarkURL(fallback: retest.benchmarkURL),
-              retest.expectedStatus?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
-              group.expectedStatus?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
               let snapshot = group.enclosingResp else { return [:] }
         let members = Set(group.all ?? [])
         var measurements = [SelectorBenchmarkMeasurementKey: Int]()
@@ -894,8 +891,11 @@ struct SelectorBenchmarkPlan {
         let selectedAutomaticRetest = selectedAutomaticGroup.map {
             SelectorBenchmarkAutomaticRetestTarget(
                 groupName: $0.name,
-                benchmarkURL: $0.effectiveBenchmarkURL(fallback: benchmarkURL),
-                expectedStatus: $0.expectedStatus
+                // A Selector action must keep every visible row comparable.
+                // The group's own URL/expected-status are reserved for the
+                // explicit ReTest action on that automatic group.
+                benchmarkURL: benchmarkURL,
+                expectedStatus: nil
             )
         }
         return SelectorBenchmarkPlan(

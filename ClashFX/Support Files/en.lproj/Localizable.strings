@@ -587,6 +587,21 @@
 /* Requires Enhanced Mode (uses PROCESS-NAME rules) */
 "Requires Enhanced Mode (uses PROCESS-NAME rules)" = "Requires Enhanced Mode (uses PROCESS-NAME rules)";
 
+/* Claude Proxy Lock */
+"Claude Proxy Lock…" = "Claude Proxy Lock…";
+"Claude Proxy Lock" = "Claude Proxy Lock";
+"Pin Claude traffic to one proxy and block fallback" = "Pin Claude traffic to one proxy and block fallback";
+"Choose one concrete proxy node. ClashFX will force Claude Desktop, Claude Code, and Anthropic web domains through it in Enhanced Mode. If that node or ClashFX fails, protected traffic is blocked instead of falling back. While enabled, Rule mode, Enhanced Mode, and System Proxy cannot be turned off. Browser extensions, manually configured app proxies, and software that ignores macOS networking settings remain outside this protection." = "Choose one concrete proxy node. ClashFX will force Claude Desktop, Claude Code, and Anthropic web domains through it in Enhanced Mode. If that node or ClashFX fails, protected traffic is blocked instead of falling back. While enabled, Rule mode, Enhanced Mode, and System Proxy cannot be turned off. Browser extensions, manually configured app proxies, and software that ignores macOS networking settings remain outside this protection.";
+"Apply Lock" = "Apply Lock";
+"Enable Lock" = "Enable Lock";
+"Disable Lock" = "Disable Lock";
+"Claude Proxy Lock is protecting this setting. Disable the lock first." = "Claude Proxy Lock is protecting this setting. Disable the lock first.";
+"Claude Proxy Lock could not be fully applied: %@" = "Claude Proxy Lock could not be fully applied: %@";
+"Proxy core is not running." = "Proxy core is not running.";
+"Could not load the proxy list." = "Could not load the proxy list.";
+"No eligible proxy nodes are available." = "No eligible proxy nodes are available.";
+"Could not enable System Proxy." = "Could not enable System Proxy.";
+
 /* Settings sidebar */
 "Settings" = "Settings";
 "Global Shortcut" = "Shortcuts";

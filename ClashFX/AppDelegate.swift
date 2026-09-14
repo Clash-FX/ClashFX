@@ -123,6 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var localProxyProviderSubscriptionInfoAttemptTimes: [String: Date] = [:]
     private weak var advancedTunMenuItem: NSMenuItem?
     private weak var bypassChineseAppsMenuItem: NSMenuItem?
+    private weak var claudeProxyLockMenuItem: NSMenuItem?
     private weak var turnOffProxyMenuItem: NSMenuItem?
     var labHelpMenuItems: [NSMenuItem] = []
     private weak var labFeedbackMenuItem: NSMenuItem?
@@ -286,6 +287,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         installTurnOffProxyMenuItem()
         installAdvancedTunMenuItem()
         installBypassChineseAppsMenuItem()
+        installClaudeProxyLockMenuItem()
         DispatchQueue.main.async {
             self.postFinishLaunching()
         }
@@ -442,7 +444,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if ConfigManager.shared.isEnhancedModeActive, !isRestarting, !isTerminating {
             cleanupEnhancedModeForTermination {}
         }
-        if !isRestarting, !isTerminating,
+        if !Settings.claudeProxyLockEnabled, !isRestarting, !isTerminating,
            NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true) ||
            NetworkChangeNotifier.hasInterfaceProxySetToClash() {
             Logger.log("Need Reset Proxy Setting again", level: .error)
@@ -1019,9 +1021,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .distinctUntilChanged()
             .filter { $0 }
             .filter { _ in !ConfigManager.shared.proxyShouldPaused.value }
-            .bind { _ in
+            .bind { [weak self] _ in
                 let rawProxy = NetworkChangeNotifier.getRawProxySetting()
                 Logger.log("proxy changed to no clashX setting: \(rawProxy)", level: .warning)
+                if Settings.claudeProxyLockEnabled {
+                    Logger.log("Claude Proxy Lock is restoring the protected System Proxy", level: .warning)
+                    self?.enableSystemProxyForClaudeLock()
+                    return
+                }
                 NSUserNotificationCenter.default.postProxyChangeByOtherAppNotice()
             }.disposed(by: disposeBag)
 
@@ -1225,6 +1232,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             ConfigManager.shared.currentConfig = config
             self.verifyPendingOutboundMode(using: config, requestSequence: modeRequestSequence)
+            if Settings.claudeProxyLockEnabled, config.mode != .rule {
+                Logger.log("Claude Proxy Lock is restoring Rule mode", level: .warning)
+                self.switchProxyMode(mode: .rule, source: .configReload)
+            }
             completeHandler?()
         }
     }
@@ -1438,6 +1449,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             var changed = applyProfileRuleDirectives(in: &root)
             changed = applyProfileMixin(to: &root) || changed
+
+            if Settings.claudeProxyLockEnabled {
+                if ClaudeProxyLockPolicy.isValidTarget(Settings.claudeProxyLockTarget) {
+                    changed = ClaudeProxyLockPolicy.apply(
+                        to: &root,
+                        target: Settings.claudeProxyLockTarget
+                    ) || changed
+                } else {
+                    Logger.log("[Claude Proxy Lock] Invalid target; blocking the runtime config", level: .error)
+                    root["mode"] = "rule"
+                    root["rules"] = ["MATCH,REJECT"]
+                    changed = true
+                }
+            }
 
             if includeRulePatch && !Settings.enhancedMode {
                 let injectedRules = Settings.proxyIgnoreListAsRules()
@@ -2667,6 +2692,10 @@ extension AppDelegate {
 
     @IBAction func actionToggleEnhancedMode(_ sender: NSMenuItem?) {
         let newState = !Settings.enhancedMode
+        guard newState || !Settings.claudeProxyLockEnabled else {
+            presentClaudeProxyLockProtectionNotice()
+            return
+        }
         guard ConfigManager.shared.isRunning else { return }
         enhancedModeMenuItem.isEnabled = false
 
@@ -2766,6 +2795,10 @@ extension AppDelegate {
     }
 
     @objc func actionTurnOffAllProxyModes(_ sender: Any?) {
+        guard !Settings.claudeProxyLockEnabled else {
+            presentClaudeProxyLockProtectionNotice()
+            return
+        }
         if ConfigManager.shared.proxyPortAutoSet || ConfigManager.shared.isProxySetByOtherVariable.value {
             ConfigManager.shared.isProxySetByOtherVariable.accept(false)
             SystemProxyManager.shared.disableProxy(result: { success in
@@ -2903,6 +2936,190 @@ extension AppDelegate {
             statusMenu.addItem(item)
         }
         bypassChineseAppsMenuItem = item
+    }
+
+    private func installClaudeProxyLockMenuItem() {
+        let item = NSMenuItem(
+            title: NSLocalizedString("Claude Proxy Lock…", comment: ""),
+            action: #selector(showClaudeProxyLockSettings(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.state = Settings.claudeProxyLockEnabled ? .on : .off
+        item.toolTip = NSLocalizedString(
+            "Pin Claude traffic to one proxy and block fallback",
+            comment: ""
+        )
+        let parentMenu = enhancedModeMenuItem.menu ?? statusMenu
+        let anchor = bypassChineseAppsMenuItem ?? advancedTunMenuItem ?? enhancedModeMenuItem
+        let insertIndex = (parentMenu?.index(of: anchor!) ?? -1) + 1
+        if let menu = parentMenu, insertIndex > 0 {
+            menu.insertItem(item, at: insertIndex)
+        } else {
+            statusMenu.addItem(item)
+        }
+        claudeProxyLockMenuItem = item
+    }
+
+    @objc private func showClaudeProxyLockSettings(_ sender: Any?) {
+        guard ConfigManager.shared.isRunning else {
+            offerClaudeProxyLockDisableIfNeeded(
+                message: NSLocalizedString("Proxy core is not running.", comment: "")
+            )
+            return
+        }
+
+        ApiRequest.getMergedProxyData { [weak self] response in
+            guard let self = self else { return }
+            guard let response = response else {
+                self.offerClaudeProxyLockDisableIfNeeded(
+                    message: NSLocalizedString("Could not load the proxy list.", comment: "")
+                )
+                return
+            }
+
+            let targets = response.proxies
+                .filter {
+                    !ClashProxyType.isProxyGroup($0) &&
+                        !ClashProxyType.isBuiltInProxy($0) &&
+                        $0.hidden != true &&
+                        ClaudeProxyLockPolicy.isValidTarget($0.name)
+                }
+                .map(\.name)
+                .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+
+            guard !targets.isEmpty else {
+                self.offerClaudeProxyLockDisableIfNeeded(
+                    message: NSLocalizedString("No eligible proxy nodes are available.", comment: "")
+                )
+                return
+            }
+
+            let alert = NSAlert()
+            alert.messageText = NSLocalizedString("Claude Proxy Lock", comment: "")
+            alert.informativeText = NSLocalizedString(
+                "Choose one concrete proxy node. ClashFX will force Claude Desktop, Claude Code, and Anthropic web domains through it in Enhanced Mode. If that node or ClashFX fails, protected traffic is blocked instead of falling back. While enabled, Rule mode, Enhanced Mode, and System Proxy cannot be turned off. Browser extensions, manually configured app proxies, and software that ignores macOS networking settings remain outside this protection.",
+                comment: ""
+            )
+
+            let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 380, height: 26))
+            popup.addItems(withTitles: targets)
+            if let index = targets.firstIndex(of: Settings.claudeProxyLockTarget) {
+                popup.selectItem(at: index)
+            }
+            alert.accessoryView = popup
+            alert.addButton(withTitle: NSLocalizedString(
+                Settings.claudeProxyLockEnabled ? "Apply Lock" : "Enable Lock",
+                comment: ""
+            ))
+            if Settings.claudeProxyLockEnabled {
+                alert.addButton(withTitle: NSLocalizedString("Disable Lock", comment: ""))
+            }
+            alert.addButton(withTitle: NSLocalizedString("Cancel", comment: ""))
+
+            NSApp.activate(ignoringOtherApps: true)
+            let result = alert.runModal()
+            if result == .alertFirstButtonReturn, let target = popup.selectedItem?.title {
+                self.applyClaudeProxyLock(enabled: true, target: target)
+            } else if Settings.claudeProxyLockEnabled, result == .alertSecondButtonReturn {
+                self.applyClaudeProxyLock(enabled: false, target: Settings.claudeProxyLockTarget)
+            }
+        }
+    }
+
+    private func offerClaudeProxyLockDisableIfNeeded(message: String) {
+        guard Settings.claudeProxyLockEnabled else {
+            NSAlert.alert(with: message)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("Claude Proxy Lock", comment: "")
+        alert.informativeText = message
+        alert.addButton(withTitle: NSLocalizedString("Disable Lock", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Cancel", comment: ""))
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            applyClaudeProxyLock(enabled: false, target: Settings.claudeProxyLockTarget)
+        }
+    }
+
+    private func applyClaudeProxyLock(enabled: Bool, target: String) {
+        Settings.claudeProxyLockTarget = target
+        Settings.claudeProxyLockEnabled = enabled
+        claudeProxyLockMenuItem?.state = enabled ? .on : .off
+
+        if enabled {
+            ConfigManager.selectOutBoundMode = .rule
+            Settings.enhancedMode = true
+        }
+
+        if ConfigManager.shared.isEnhancedModeActive {
+            disableEnhancedMode { [weak self] error in
+                guard let self = self else { return }
+                guard error == nil else {
+                    self.presentClaudeProxyLockApplyError(error!)
+                    return
+                }
+                if enabled {
+                    self.enableClaudeProxyLockProtection()
+                } else {
+                    Settings.enhancedMode = false
+                    self.updateConfig(showNotification: false)
+                }
+            }
+        } else if enabled {
+            enableClaudeProxyLockProtection()
+        } else {
+            updateConfig(showNotification: false)
+        }
+    }
+
+    private func enableClaudeProxyLockProtection() {
+        enableEnhancedMode { [weak self] error in
+            guard let self = self else { return }
+            if let error = error {
+                self.presentClaudeProxyLockApplyError(error)
+                return
+            }
+            Settings.enhancedMode = true
+            self.enhancedModeMenuItem.state = .on
+            self.switchProxyMode(mode: .rule, source: .menu)
+            self.enableSystemProxyForClaudeLock()
+            self.scheduleEnhancedModePostToggleRefresh()
+        }
+    }
+
+    private func enableSystemProxyForClaudeLock() {
+        let config = ConfigManager.shared.currentConfig
+        SystemProxyManager.shared.enableProxy(
+            port: config?.usedHttpPort ?? 0,
+            socksPort: config?.usedSocksPort ?? 0,
+            replacingExternalProxy: ConfigManager.shared.isProxySetByOtherVariable.value
+        ) { success in
+            guard success else {
+                AppDelegate.shared.presentClaudeProxyLockApplyError(
+                    NSLocalizedString("Could not enable System Proxy.", comment: "")
+                )
+                return
+            }
+            ConfigManager.shared.isProxySetByOtherVariable.accept(false)
+            ConfigManager.shared.proxyPortAutoSet = true
+        }
+    }
+
+    private func presentClaudeProxyLockProtectionNotice() {
+        NSAlert.alert(with: NSLocalizedString(
+            "Claude Proxy Lock is protecting this setting. Disable the lock first.",
+            comment: ""
+        ))
+    }
+
+    private func presentClaudeProxyLockApplyError(_ error: String) {
+        Logger.log("Claude Proxy Lock apply failed: \(error)", level: .error)
+        NSAlert.alert(with: String(
+            format: NSLocalizedString("Claude Proxy Lock could not be fully applied: %@", comment: ""),
+            error
+        ))
     }
 
     @objc func actionToggleBypassChineseApps(_ sender: NSMenuItem) {
@@ -3888,6 +4105,11 @@ extension AppDelegate {
             return
         }
 
+        guard !Settings.claudeProxyLockEnabled || mode == .rule else {
+            presentClaudeProxyLockProtectionNotice()
+            return
+        }
+
         desiredOutboundMode = mode
         enqueueOutboundModeChange(
             mode: mode,
@@ -4007,6 +4229,12 @@ extension AppDelegate {
     }
 
     @IBAction func actionSetSystemProxy(_ sender: Any?) {
+        let wouldDisable = ConfigManager.shared.proxyPortAutoSet &&
+            !ConfigManager.shared.isProxySetByOtherVariable.value
+        guard !Settings.claudeProxyLockEnabled || !wouldDisable else {
+            presentClaudeProxyLockProtectionNotice()
+            return
+        }
         if ConfigManager.shared.proxyPortAutoSet && ConfigManager.shared.proxyShouldPaused.value {
             disableSystemProxyFromUserAction()
         } else if ConfigManager.shared.isProxySetByOtherVariable.value {
