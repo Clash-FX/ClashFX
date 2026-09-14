@@ -91,6 +91,10 @@ ClashFX's core feature — TUN-based global proxy that captures all TCP/UDP traf
 2. Grant administrator privileges on first use
 3. All traffic is now routed through ClashFX
 
+### Claude Proxy Lock
+
+Pin Claude Desktop, Claude Code, and Anthropic web traffic to one concrete node with fail-closed protection. See [Claude Proxy Lock usage and limits](docs/CLAUDE-PROXY-LOCK.md).
+
 ### URL Schemes
 
 - **Import remote config:**
