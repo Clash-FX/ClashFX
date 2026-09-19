@@ -752,7 +752,7 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(delay, 42)
     }
 
-    func testSelectorPlanDefersOnlyCurrentlySelectedAutomaticGroup() throws {
+    func testSelectorMeasuresSelectedLeafWhenAutomaticTestSemanticsDiffer() throws {
         let response = snapshot([
             ["name": "Selector", "type": "Selector", "all": ["Direct", "Automatic", "Other Auto"], "now": "Automatic", "history": []],
             ["name": "Automatic", "type": "URLTest", "all": ["Direct", "Other"], "now": "Direct", "history": [], "testUrl": "https://automatic.example.test", "expectedStatus": "204"],
@@ -770,17 +770,60 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(plan.orderedRows.map(\.rowName), ["Direct", "Automatic", "Other Auto"])
         XCTAssertEqual(
             plan.orderedRows.filter(\.isDeferredAutomaticRetest).map(\.rowName),
-            ["Automatic"]
+            []
         )
-        XCTAssertNil(plan.orderedRows[1].measurementKey)
+        XCTAssertEqual(plan.orderedRows[1].measurementKey?.proxyName, "Direct")
+        XCTAssertEqual(plan.orderedRows[1].measurementKey?.benchmarkURL, "https://selector.example.test")
         XCTAssertEqual(plan.orderedRows[2].measurementKey?.proxyName, "Other")
         XCTAssertEqual(plan.targets.map(\.key.proxyName), ["Direct", "Other"])
-        XCTAssertEqual(plan.selectedAutomaticRetest?.groupName, "Automatic")
-        XCTAssertEqual(
-            plan.selectedAutomaticRetest?.benchmarkURL,
-            "https://selector.example.test"
-        )
-        XCTAssertNil(plan.selectedAutomaticRetest?.expectedStatus)
+        XCTAssertNil(plan.selectedAutomaticRetest)
+    }
+
+    func testEmptyRegionalGroupsNeverPlanCompatibleButExplicitDirectIsValid() throws {
+        let response = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["Singapore", "Taiwan", "DIRECT", "Real"], "now": "Singapore", "history": []],
+            ["name": "Singapore", "type": "URLTest", "all": ["COMPATIBLE"], "now": "COMPATIBLE", "history": []],
+            ["name": "Taiwan", "type": "Fallback", "all": ["Singapore"], "now": "Singapore", "history": []],
+            ["name": "COMPATIBLE", "type": "Compatible", "id": "fallback-id", "history": []],
+            ["name": "DIRECT", "type": "Direct", "id": "direct-id", "history": []],
+            ["name": "Real", "type": "Vless", "id": "real-id", "history": []]
+        ])
+        let plan = SelectorBenchmarkPlan.make(selector: try XCTUnwrap(response.proxiesMap["Selector"]),
+                                             snapshot: response, benchmarkURL: "https://test.invalid", timeout: 5000)
+        XCTAssertNil(plan.selectedAutomaticRetest)
+        XCTAssertEqual(Set(plan.targets.map(\.key.proxyName)), ["DIRECT", "Real"])
+        for row in plan.orderedRows.prefix(2) {
+            XCTAssertNil(row.measurementKey)
+            XCTAssertEqual(row.unavailableReason, .compatibilityFallback)
+        }
+        XCTAssertFalse(response.hasBenchmarkCandidates(in: "Taiwan"))
+        XCTAssertTrue(response.hasBenchmarkCandidates(in: "DIRECT"))
+        let result = AutomaticGroupRetestSnapshot.make(groupName: "Singapore", candidateDelays: ["COMPATIBLE": 532], snapshot: response)
+        guard case .unavailable(.compatibilityFallback) = result.evidence else {
+            return XCTFail("Direct fallback must not become proxy latency")
+        }
+        let proxy = try XCTUnwrap(response.proxiesMap["COMPATIBLE"])
+        let value = GlobalLeafBenchmarkPresentation(identity: .init(proxy: proxy), benchmarkURL: "https://test.invalid",
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "COMPATIBLE", delay: 532))
+        var cache = BenchmarkEvidenceCache()
+        cache.publish(value)
+        XCTAssertNil(value.reconciled(with: proxy))
+        XCTAssertNil(cache.measurement(for: proxy, conditions: .init(url: "https://test.invalid")))
+    }
+
+    func testMissingCompatibleAndInvalidGroupMembershipCannotResolveToSuccess() {
+        let response = snapshot([
+            ["name": "Implicit", "type": "URLTest", "all": ["COMPATIBLE"], "now": "COMPATIBLE", "history": []],
+            ["name": "Empty", "type": "Selector", "all": [], "now": "DIRECT", "history": []],
+            ["name": "Invalid", "type": "Selector", "all": ["Missing"], "now": "DIRECT", "history": []],
+            ["name": "DIRECT", "type": "Direct", "history": []]
+        ])
+        for name in ["Implicit", "Empty", "Invalid"] {
+            guard case .unavailable = response.resolveSelectedPath(from: name) else {
+                return XCTFail("\(name) cannot represent an available proxy path")
+            }
+            XCTAssertFalse(response.hasBenchmarkCandidates(in: name))
+        }
     }
 
     func testSelectorPlanHandlesNilEmptyAndSingleLeafMembers() throws {
@@ -1064,7 +1107,7 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(limitChanges.map(\.1), [12])
     }
 
-    func testSelectorReusesParentURLMeasurementsRegardlessOfAutomaticGroupConfiguration() throws {
+    func testSelectorDoesNotReuseAutomaticResultsWithDifferentURLOrStatus() throws {
         let url = "https://benchmark.example.test"
         for (groupURL, status) in [
             ("https://other.example.test", ""),
@@ -1079,10 +1122,12 @@ final class BenchmarkRegressionTests: XCTestCase {
                 selector: XCTUnwrap(response.proxiesMap["Selector"]), snapshot: response,
                 benchmarkURL: url, timeout: 5
             )
-            XCTAssertEqual(try plan.reusableMeasurements(
+            XCTAssertNil(plan.selectedAutomaticRetest)
+            XCTAssertEqual(plan.orderedRows[0].measurementKey?.benchmarkURL, url)
+            XCTAssertTrue(try plan.reusableMeasurements(
                 group: XCTUnwrap(response.proxiesMap["Automatic"]),
                 candidateDelays: ["Leaf": 120], timeout: 5
-            ).values.first, 120)
+            ).isEmpty)
         }
     }
 
@@ -1340,7 +1385,7 @@ final class BenchmarkRegressionTests: XCTestCase {
         )
     }
 
-    func testSelectedAutomaticPresentationAcceptsItsOwnConfiguredURL() {
+    func testSelectorPresentationRejectsAutomaticGroupsDifferentURL() {
         let response = snapshot([
             ["name": "Selector", "type": "Selector", "all": ["Automatic"], "now": "Automatic", "history": []],
             ["name": "Automatic", "type": "URLTest", "all": ["Leaf"], "now": "Leaf", "history": [], "testUrl": "https://automatic.example.test"],
@@ -1355,16 +1400,43 @@ final class BenchmarkRegressionTests: XCTestCase {
             rowState: .measured(displayName: "Automatic", delay: 210)
         )
 
-        XCTAssertEqual(
+        XCTAssertNil(
             presentation.reconciled(
                 with: response,
                 currentBenchmarkURL: "https://selector.example.test"
-            ).rowState.rawDelay,
-            210
+            ).rowState.rawDelay
         )
     }
 
-    func testSelectorPresentationMarksStaleEvidenceAndExpiresItAfterOneDay() {
+    func testOldLeafAndAutomaticMeasurementsRemainAvailableOnlyForMatchingIdentity() throws {
+        let url = "https://benchmark.example.test"
+        let response = snapshot([
+            ["name": "Auto", "type": "URLTest", "all": ["Leaf"], "now": "Leaf", "testUrl": url, "history": []],
+            ["name": "Leaf", "type": "Vless", "history": []],
+            ["name": "Other", "type": "Vless", "history": []]
+        ])
+        let leaf = try XCTUnwrap(response.proxiesMap["Leaf"])
+        let group = try XCTUnwrap(response.proxiesMap["Auto"])
+        let date = Date(timeIntervalSinceNow: -(48 * 60 * 60))
+        let measurement = GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: leaf), benchmarkURL: url,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf", delay: 90), publishedAt: date
+        )
+        XCTAssertEqual(measurement.reconciled(with: leaf)?.rowState.rawDelay, 90)
+        XCTAssertNil(measurement.reconciled(with: try XCTUnwrap(response.proxiesMap["Other"])))
+        let child = AutomaticGroupChildBenchmarkPresentation(
+            identity: AutomaticGroupBenchmarkIdentity(group: group, fallbackBenchmarkURL: url),
+            rowName: "Leaf", sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Leaf", delay: 90), publishedAt: date
+        )
+        XCTAssertEqual(child.reconciled(group: group, fallbackBenchmarkURL: url)?.rowState.rawDelay, 90)
+        let changed = snapshot([
+            ["name": "Auto", "type": "URLTest", "all": ["Other"], "now": "Other", "testUrl": url, "history": []]
+        ])
+        XCTAssertNil(child.reconciled(group: try XCTUnwrap(changed.proxiesMap["Auto"]), fallbackBenchmarkURL: url))
+    }
+
+    func testSelectorPresentationRetainsLastMeasurementAfterOneDay() {
         let response = snapshot([
             ["name": "Selector", "type": "Selector", "all": ["Leaf"], "now": "Leaf", "history": []],
             ["name": "Leaf", "type": "Vless", "history": []]
@@ -1396,11 +1468,12 @@ final class BenchmarkRegressionTests: XCTestCase {
             rowState: .measured(displayName: "Leaf", delay: 90),
             publishedAt: Date(timeIntervalSinceNow: -(25 * 60 * 60))
         )
-        XCTAssertNil(
+        XCTAssertEqual(
             expired.reconciled(
                 with: response,
                 currentBenchmarkURL: "https://benchmark.example.test"
-            ).rowState.rawDelay
+            ).rowState.rawDelay,
+            90
         )
     }
 
@@ -1506,7 +1579,7 @@ final class BenchmarkRegressionTests: XCTestCase {
         ))
     }
 
-    func testAutomaticChildPresentationExpiresAfterOneDay() throws {
+    func testAutomaticChildPresentationRetainsLastMeasurementAfterOneDay() throws {
         let response = snapshot([
             ["name": "Automatic", "type": "Fallback", "all": ["Leaf"], "now": "Leaf", "history": []],
             ["name": "Leaf", "type": "Vless", "history": []],
@@ -1522,10 +1595,10 @@ final class BenchmarkRegressionTests: XCTestCase {
             rowState: .measured(displayName: "Leaf", delay: 120),
             publishedAt: Date(timeIntervalSinceNow: -(25 * 60 * 60))
         )
-        XCTAssertNil(presentation.reconciled(
+        XCTAssertEqual(presentation.reconciled(
             group: group,
             fallbackBenchmarkURL: "https://fallback.example.test"
-        ))
+        )?.rowState.rawDelay, 120)
     }
 
     func testCancelTerminatesObserversOnceAndRejectsObsoleteGeneration() {
@@ -1545,6 +1618,183 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(ownership.activeGeneration, replacementSession)
         XCTAssertTrue(ownership.finish(replacementSession))
         XCTAssertNil(ownership.activeGeneration)
+    }
+}
+
+final class BenchmarkEvidenceFlowTests: XCTestCase {
+    private let url = "https://benchmark.example.test"
+
+    private func snapshot(id: String = "node-v1", now: String = "Leaf") -> ClashProxyResp {
+        let proxies: [String: Any] = [
+            "Selector": ["name": "Selector", "type": "Selector", "all": ["Leaf", "Other"], "now": now, "history": []],
+            "Leaf": ["name": "Leaf", "id": id, "type": "Vless", "history": []],
+            "Other": ["name": "Other", "id": "other-v1", "type": "Vless", "history": []]
+        ]
+        return ClashProxyResp(try! JSONSerialization.data(withJSONObject: ["proxies": proxies]))
+    }
+
+    func testResponseClassificationNeverTurnsAPIErrorsIntoDeadNodes() throws {
+        func decode(_ code: Int, _ body: String, failed: Bool = false) -> ProxyDelayOutcome {
+            ProxyDelayOutcome.decode(statusCode: code, data: Data(body.utf8), transportFailed: failed)
+        }
+        XCTAssertEqual(decode(200, "{\"delay\":83}"), .measured(83))
+        XCTAssertEqual(decode(200, "{\"delay\":0}"), .failed)
+        for body in ["{}", "{\"delay\":true}", "{\"delay\":1.5}", "{\"delay\":-1}", "{\"delay\":\"83\"}", "not json"] {
+            XCTAssertEqual(decode(200, body), .unavailable, body)
+        }
+        for code in [401, 403, 404, 429, 500, 502] {
+            XCTAssertEqual(decode(code, "{\"message\":\"API unavailable\"}"), .unavailable)
+        }
+        XCTAssertEqual(decode(504, "<html>gateway timeout</html>"), .unavailable)
+        XCTAssertEqual(decode(503, "{\"message\":\"upstream unavailable\"}"), .unavailable)
+        XCTAssertEqual(decode(503, "{\"message\":\"An error occurred in the delay test\"}"), .failed)
+        XCTAssertEqual(decode(504, "{\"message\":\"Timeout\"}"), .failed)
+        XCTAssertEqual(decode(200, "{\"delay\":83}", failed: true), .unavailable)
+        XCTAssertEqual(ProxyDelayOutcome.decode(statusCode: nil, data: nil, transportFailed: true, cancelled: true), .cancelled)
+    }
+
+    func testGroupDecoderDistinguishesEmptyMalformedAndActualAllFailed() {
+        func decode(_ code: Int, _ body: String) -> ProxyGroupDelayOutcome {
+            .decode(statusCode: code, data: Data(body.utf8), transportFailed: false)
+        }
+        XCTAssertFalse(decode(200, "{}").hasProbeEvidence)
+        XCTAssertFalse(decode(200, "{\"Leaf\":\"bad\"}").hasProbeEvidence)
+        XCTAssertFalse(decode(401, "{\"message\":\"Unauthorized\"}").hasProbeEvidence)
+        XCTAssertTrue(decode(504, "{\"message\":\"get delay: all proxies timeout\"}").hasProbeEvidence)
+        XCTAssertEqual(decode(200, "{\"Leaf\":90}").candidateDelays, ["Leaf": 90])
+    }
+
+    func testCacheSeparatesURLStatusAndNodeIdentityAndPrunesReplacements() throws {
+        let original = snapshot()
+        let node = try XCTUnwrap(original.proxiesMap["Leaf"])
+        var cache = BenchmarkEvidenceCache()
+        for (testURL, status, delay) in [(url, nil as String?, 90), (url + "/other", nil, 130), (url, "204", 150)] {
+            cache.publish(GlobalLeafBenchmarkPresentation(
+                identity: LeafProxyBenchmarkIdentity(proxy: node), benchmarkURL: testURL,
+                expectedStatus: status, sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf", delay: delay)
+            ))
+        }
+        XCTAssertEqual(cache.measurement(for: node, conditions: .init(url: url))?.rowState.rawDelay, 90)
+        XCTAssertEqual(cache.measurement(for: node, conditions: .init(url: url + "/other"))?.rowState.rawDelay, 130)
+        XCTAssertEqual(cache.measurement(for: node, conditions: .init(url: url, expectedStatus: "204"))?.rowState.rawDelay, 150)
+        let replacement = snapshot(id: "node-v2")
+        XCTAssertNil(cache.measurement(for: try XCTUnwrap(replacement.proxiesMap["Leaf"]), conditions: .init(url: url)))
+        cache.prune(using: replacement)
+        XCTAssertNil(cache.measurement(for: node, conditions: .init(url: url)))
+    }
+
+    func testProductionNotificationsAndRefreshResolveTheSameEvidence() {
+        let finished = expectation(description: "production store notifications")
+        DispatchQueue.main.async {
+            let snapshot = self.snapshot()
+            let node = snapshot.proxiesMap["Leaf"]!
+            let conditions = BenchmarkConditions(url: self.url)
+            let base = Date()
+            GlobalLeafBenchmarkPresentationStore.clearAll()
+            defer { GlobalLeafBenchmarkPresentationStore.clearAll() }
+            func render() -> BenchmarkRowResolver.Presentation {
+                let value = GlobalLeafBenchmarkPresentationStore.presentation(for: node, conditions: conditions)
+                let attempt = GlobalLeafBenchmarkPresentationStore.attempt(for: node, conditions: conditions)
+                return BenchmarkRowResolver.resolve(
+                    name: "Leaf", core: nil,
+                    cached: value.map { .init(state: $0.rowState, measuredAt: $0.publishedAt) }, contextual: nil,
+                    activity: attempt.map { .init(state: $0.rowState, measuredAt: $0.publishedAt) }, now: base
+                )
+            }
+            var notifications = [Int?]()
+            let observer = NotificationCenter.default.addObserver(forName: .speedTestFinishForProxy, object: nil, queue: nil) { _ in
+                notifications.append(render().state.rawDelay)
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+            func publish(_ outcome: ProxyDelayOutcome, offset: Double, url: String? = nil) {
+                GlobalLeafBenchmarkPresentationStore.publish(.init(
+                    identity: LeafProxyBenchmarkIdentity(proxy: node), benchmarkURL: url ?? self.url,
+                    sessionIdentifier: UUID(), rowState: outcome.rowState(name: "Leaf"),
+                    publishedAt: base.addingTimeInterval(offset)
+                ))
+            }
+            publish(.measured(90), offset: 0)
+            publish(.measured(800), offset: 1, url: self.url + "/other")
+            publish(.decode(statusCode: 401, data: Data("{\"message\":\"Unauthorized\"}".utf8), transportFailed: false), offset: 2)
+            XCTAssertEqual(render().state.rawDelay, 90)
+            XCTAssertTrue(render().isHistorical)
+            XCTAssertTrue(render().lastAttemptUnavailable)
+            publish(.failed, offset: 3)
+            XCTAssertEqual(render().state.rawDelay, 0)
+            XCTAssertFalse(render().isHistorical)
+            // A delayed old result cannot overwrite a newer failed probe.
+            publish(.measured(50), offset: -1)
+            XCTAssertEqual(notifications, [90, 90, 90, 0, 0])
+            XCTAssertEqual(render().state.rawDelay, notifications.last!)
+            XCTAssertEqual(snapshot.proxiesMap["Selector"]?.now, "Leaf")
+            finished.fulfill()
+        }
+        wait(for: [finished], timeout: 2)
+    }
+
+    func testLatestFailureWinsAndOldResultsAreExplicitlyHistorical() throws {
+        let base = Date()
+        let data = Data("{\"alive\":false,\"history\":[{\"time\":\"2026-09-19T12:00:00.000+0000\",\"delay\":0}]}".utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .formatted(DateFormatter.js)
+        let core = try decoder.decode(ClashProxyTestState.self, from: data)
+        let result = BenchmarkRowResolver.resolve(name: "Leaf", core: core,
+            cached: .init(state: .measured(displayName: "Leaf", delay: 90), measuredAt: core.history[0].time.addingTimeInterval(-10)),
+            contextual: nil, activity: nil, now: core.history[0].time)
+        XCTAssertEqual(result.state.rawDelay, 0)
+        let old = BenchmarkRowResolver.resolve(name: "Leaf", core: nil,
+            cached: .init(state: .measured(displayName: "Leaf", delay: 90), measuredAt: base.addingTimeInterval(-48 * 3600)),
+            contextual: nil, activity: nil, now: base)
+        XCTAssertEqual(old.state.rawDelay, 90)
+        XCTAssertTrue(old.isHistorical)
+    }
+
+    func testSelectorEvidenceRejectsSameNameReplacementAndChangedPath() throws {
+        let original = snapshot()
+        let plan = SelectorBenchmarkPlan.make(selector: original.proxiesMap["Selector"]!, snapshot: original, benchmarkURL: url, timeout: 5000)
+        XCTAssertEqual(plan.targets.first?.key.coreID, "node-v1")
+        let presentation = SelectorBenchmarkPresentation(selectorName: "Selector", rowName: "Selector",
+            resolvedLeafName: "Leaf", resolvedCoreID: "node-v1", benchmarkURL: url,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Selector", delay: 90))
+        XCTAssertEqual(presentation.reconciled(with: original, currentBenchmarkURL: url).rowState.rawDelay, 90)
+        XCTAssertNil(presentation.reconciled(with: snapshot(id: "node-v2"), currentBenchmarkURL: url).rowState.rawDelay)
+        XCTAssertNil(presentation.reconciled(with: snapshot(now: "Other"), currentBenchmarkURL: url).rowState.rawDelay)
+    }
+
+    func testProductionExecutorDropsCancelledAndDuplicateLateCallbacks() {
+        let snapshot = snapshot()
+        let plan = SelectorBenchmarkPlan.make(selector: snapshot.proxiesMap["Selector"]!, snapshot: snapshot,
+                                             benchmarkURL: url, timeout: 5000)
+        let started = expectation(description: "requests started")
+        started.expectedFulfillmentCount = plan.targets.count
+        let completed = expectation(description: "cancelled executor settled")
+        let lock = NSLock()
+        var cancelled = false
+        var callbacks = [(ProxyDelayOutcome) -> Void]()
+        var published = 0
+        SelectorBenchmarkExecutor.runOutcomes(plan: plan, isCancelled: {
+            lock.lock(); defer { lock.unlock() }
+            return cancelled
+        }, request: { _, callback in
+            lock.lock()
+            callbacks.append(callback)
+            lock.unlock()
+            started.fulfill()
+        }, result: { _, _ in
+            lock.lock(); defer { lock.unlock() }
+            published += 1
+        }, completion: { completed.fulfill() })
+        wait(for: [started], timeout: 2)
+        lock.lock()
+        cancelled = true
+        let pending = callbacks
+        lock.unlock()
+        for callback in pending {
+            callback(.unavailable)
+            callback(.measured(90))
+        }
+        wait(for: [completed], timeout: 2)
+        XCTAssertEqual(published, 0)
     }
 }
 

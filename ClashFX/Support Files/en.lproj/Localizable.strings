@@ -636,3 +636,12 @@
 "This shortcut is commonly reserved by macOS. Use it anyway?" = "This shortcut is commonly reserved by macOS. Use it anyway?";
 "Use Anyway" = "Use Anyway";
 "Configured port: %d; temporary runtime fallback: %d" = "Configured port: %d; temporary runtime fallback: %d";
+
+// Benchmark evidence provenance
+"Last measured: %@" = "Last measured: %@";
+"Historical benchmark result" = "Historical benchmark result";
+"Latest benchmark unavailable; showing the last measurement" = "Latest benchmark unavailable; showing the last measurement";
+"Not tested" = "Not tested";
+
+"No testable proxy nodes" = "No testable proxy nodes";
+"Direct fallback (no proxy nodes)" = "Direct fallback (no proxy nodes)";

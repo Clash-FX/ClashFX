@@ -108,6 +108,7 @@ class RemoteControlManager {
     }
 
     static func updateRemoteControl() {
+        AppDelegate.shared.cancelActiveSpeedTest(reason: "controller change", refreshMenu: false)
         if let config = selectConfig, let url = URL(string: config.url) {
             ConfigManager.shared.overrideApiURL = url
             ConfigManager.shared.overrideSecret = config.secret

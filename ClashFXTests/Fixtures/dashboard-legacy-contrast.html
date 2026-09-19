@@ -1,0 +1,53 @@
+<!doctype html>
+<html data-theme="black">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+  <style>/* DASHBOARD_CSS */</style>
+  <style>
+    /* Deterministic settled states in an offscreen render test. */
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+    body { margin: 0; font-family: sans-serif; }
+  </style>
+</head>
+<body class="bg-base-100 text-base-content">
+  <!-- Actual utility/inline style structure from the bundled 1.266.1 panel.
+       No dashboard runtime, external assets, API calls or persistent storage. -->
+  <main class="p-4">
+    <article id="card" class="bg-base-200 rounded-2xl p-4">
+      <strong>10.0.0.0/8</strong>
+      <span id="tag" class="text-base-content/40">IPCIDR → DIRECT</span>
+      <button id="disabled" disabled class="text-base-content/40 opacity-30">Disabled</button>
+    </article>
+    <span id="chart" class="text-info/50">Chart palette sample</span>
+    <span id="conn" class="conn-td-label">Connection label</span>
+  </main>
+  <div class="fixed inset-x-0 bottom-[4.5rem] z-50 mx-auto w-max lg:hidden">
+    <div id="popup" class="mx-auto flex w-max flex-col overflow-hidden rounded-2xl shadow-xl backdrop-blur-[16px]"
+         style="border:1px solid color-mix(in oklab,var(--color-base-content) 12%,transparent);background:color-mix(in oklab,var(--color-base-300) 95%,transparent)">
+      <a id="popup-link" class="px-5 py-3 text-base-content/70" href="#settings">Settings</a>
+    </div>
+  </div>
+  <nav aria-label="Mobile bottom navigation" class="fixed inset-x-0 bottom-0 z-50 lg:hidden">
+    <div id="nav-surface" class="mx-1 mb-2 overflow-visible rounded-2xl shadow-lg backdrop-blur-[12px] sm:mx-2"
+         style="border:1px solid color-mix(in oklab,var(--color-base-content) 10%,transparent);background:color-mix(in oklab,var(--color-base-300) 90%,transparent)">
+      <div class="grid h-16 w-full grid-cols-5">
+        <a id="inactive" href="#overview" class="group relative flex flex-col items-center justify-center text-base-content/60 hover:text-base-content">
+          <svg width="20" height="20" fill="none" stroke="currentColor"><path d="M2 10 L10 2 L18 10 L18 18 L2 18 Z"/></svg>
+          <span id="inactive-label" class="text-[9px] font-medium opacity-80">Overview</span>
+        </a>
+        <a id="active" href="#rules" class="group relative flex flex-col items-center justify-center text-primary">
+          <div id="active-glow" class="absolute inset-1 rounded-xl bg-primary/10"></div>
+          <div class="absolute top-1 h-1 w-8 rounded-full bg-primary"></div>
+          <svg width="20" height="20" fill="none" stroke="currentColor"><path d="M2 2 H18 V18 H2 Z"/></svg>
+          <span id="active-label" class="relative text-[9px] font-medium opacity-100">Rules</span>
+        </a>
+        <div class="relative flex items-center justify-center">
+          <button id="more" aria-label="More menu" class="relative -top-3 h-14 w-14 rounded-2xl bg-base-content/10 text-base-content">+</button>
+          <span id="more-label" class="absolute bottom-1 text-[9px] text-base-content/60 opacity-80">More</span>
+        </div>
+      </div>
+    </div>
+  </nav>
+</body>
+</html>

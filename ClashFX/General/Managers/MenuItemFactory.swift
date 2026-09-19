@@ -14,6 +14,8 @@ class MenuItemFactory {
     private static var cachedProxyData: ClashProxyResp?
     private static var cachedStructureSignature: ProxyMenuStructureSignature?
     private static var refreshCoordinator = ProxyMenuRefreshCoordinator()
+    private static var benchmarkScope: String?
+    private static var displayedBenchmarkURL: String?
 
     static let useViewToRenderProxy: Bool = AppDelegate.isAboveMacOS152
 
@@ -23,14 +25,23 @@ class MenuItemFactory {
         scheduleRefresh(.incremental)
     }
 
-    static func recreateProxyMenuItems() {
+    static func recreateProxyMenuItems(coreReloaded: Bool = false) {
         let recreate = {
-            GlobalLeafBenchmarkPresentationStore.clearAll()
-            AutomaticGroupBenchmarkPresentationStore.clearAll()
-            AutomaticChildBenchmarkStore.clearAll()
-            // Selector presentations reconcile against the new snapshot and are
-            // pruned below. Clearing them here made valid results disappear on
-            // no-op config reloads and menu reconstruction.
+            // A mode change or reload of the same profile is not a new
+            // benchmark scope. Validate retained evidence against the snapshot
+            // below; changing profiles/controllers must clear every store.
+            reconcileBenchmarkScope()
+            if coreReloaded,
+               cachedProxyData?.proxiesMap.values.contains(where: {
+                   $0.all == nil && !ClashProxyType.isBuiltInProxy($0) && $0.id == nil
+               }) == true {
+                // Older remote cores cannot certify same-name node identity
+                // across config reloads. Fail closed for their retained data.
+                GlobalLeafBenchmarkPresentationStore.clearAll()
+                AutomaticGroupBenchmarkPresentationStore.clearAll()
+                AutomaticChildBenchmarkStore.clearAll()
+                SelectorBenchmarkPresentationStore.clearAll()
+            }
             scheduleRefresh(.rebuild)
         }
         if Thread.isMainThread { recreate() } else { DispatchQueue.main.async(execute: recreate) }
@@ -72,6 +83,7 @@ class MenuItemFactory {
             return
         }
 
+        reconcileBenchmarkScope()
         GlobalLeafBenchmarkPresentationStore.prune(using: info)
         AutomaticGroupBenchmarkPresentationStore.prune(using: info)
         AutomaticChildBenchmarkStore.prune(using: info)
@@ -81,9 +93,11 @@ class MenuItemFactory {
         let requiresRebuild = mode == .rebuild
             || previous == nil
             || structure != cachedStructureSignature
+            || displayedBenchmarkURL != Settings.benchMarkUrl
 
         cachedProxyData = info
         cachedStructureSignature = structure
+        displayedBenchmarkURL = Settings.benchMarkUrl
         guard !requiresRebuild, let previous else {
             refreshMenuItems(mergedData: info)
             return
@@ -118,6 +132,16 @@ class MenuItemFactory {
             }
         }
         updateProxyList(withMenus: Array(menuItems.reversed()))
+    }
+
+    private static func reconcileBenchmarkScope() {
+        let scope = "\(RemoteControlManager.selectConfig?.uuid ?? ConfigManager.selectConfigName)\n\(ConfigManager.apiUrl)"
+        guard benchmarkScope != scope else { return }
+        benchmarkScope = scope
+        GlobalLeafBenchmarkPresentationStore.clearAll()
+        AutomaticGroupBenchmarkPresentationStore.clearAll()
+        AutomaticChildBenchmarkStore.clearAll()
+        SelectorBenchmarkPresentationStore.clearAll()
     }
 
     private static func sortedProxyGroupsForMenu(_ groups: [ClashProxy]) -> [ClashProxy] {

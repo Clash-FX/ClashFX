@@ -64,28 +64,7 @@ private final class LimitedAsyncTaskRunner {
 }
 
 class ApiRequest {
-    enum ProxyGroupDelayResult {
-        case success([ClashProxyName: Int])
-        case empty
-        case httpFailure(statusCode: Int, description: String)
-        case cancelled
-
-        var candidateDelays: [ClashProxyName: Int] {
-            if case let .success(delays) = self {
-                return delays
-            }
-            return [:]
-        }
-
-        var diagnostic: String {
-            switch self {
-            case let .success(delays): return "success: \(delays.count) candidate(s)"
-            case .empty: return "empty candidate response"
-            case let .httpFailure(statusCode, description): return "HTTP \(statusCode): \(description)"
-            case .cancelled: return "cancelled"
-            }
-        }
-    }
+    typealias ProxyGroupDelayResult = ProxyGroupDelayOutcome
 
     struct ProviderProxyBenchmarkTarget: Hashable {
         let providerName: ClashProviderName
@@ -95,7 +74,7 @@ class ApiRequest {
     struct LeafProxyBenchmarkResult {
         let identity: LeafProxyBenchmarkIdentity
         let benchmarkURL: String
-        let delay: Int
+        let outcome: ProxyDelayOutcome
     }
 
     final class BenchmarkSession {
@@ -702,6 +681,15 @@ class ApiRequest {
                               timeout: Int = 5000,
                               session: BenchmarkSession? = nil,
                               callback: @escaping ((Int) -> Void)) {
+        getProxyDelayOutcome(proxyName: proxyName, benchmarkURL: benchmarkURL,
+                             timeout: timeout, session: session) { callback($0.delay ?? 0) }
+    }
+
+    static func getProxyDelayOutcome(proxyName: String,
+                                    benchmarkURL: String,
+                                    timeout: Int,
+                                    session: BenchmarkSession?,
+                                    callback: @escaping (ProxyDelayOutcome) -> Void) {
         requestProxyDelay(
             path: "/proxies/\(proxyName.encoded)/delay",
             description: "proxy '\(proxyName)'",
@@ -718,6 +706,17 @@ class ApiRequest {
                                       timeout: Int = 5000,
                                       session: BenchmarkSession? = nil,
                                       callback: @escaping ((Int) -> Void)) {
+        getProviderProxyDelayOutcome(providerName: providerName, proxyName: proxyName,
+                                     benchmarkURL: benchmarkURL, timeout: timeout,
+                                     session: session) { callback($0.delay ?? 0) }
+    }
+
+    static func getProviderProxyDelayOutcome(providerName: ClashProviderName,
+                                            proxyName: ClashProxyName,
+                                            benchmarkURL: String,
+                                            timeout: Int,
+                                            session: BenchmarkSession?,
+                                            callback: @escaping (ProxyDelayOutcome) -> Void) {
         requestProxyDelay(
             path: "/providers/proxies/\(providerName.encoded)/\(proxyName.encoded)/healthcheck",
             description: "provider '\(providerName)' proxy '\(proxyName)'",
@@ -760,27 +759,11 @@ class ApiRequest {
                     return
                 }
                 let statusCode = res.response?.statusCode ?? -1
-                switch res.result {
-                case let .success(value) where (200 ..< 300).contains(statusCode):
-                    let delays = JSON(value).dictionaryValue.mapValues(\.intValue)
-                    Logger.log(
-                        "[Proxy Delay] Group '\(groupName)' re-evaluated "
-                            + "\(delays.count) candidates, status: \(statusCode)"
-                    )
-                    callback(delays.isEmpty ? .empty : .success(delays))
-                case .success, .failure:
-                    let body = res.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
-                    Logger.log(
-                        "[Proxy Delay] Group '\(groupName)' re-evaluation failed, "
-                            + "status: \(statusCode), error: "
-                            + "\(res.error?.localizedDescription ?? "unknown error"), body: \(body)",
-                        level: .warning
-                    )
-                    callback(.httpFailure(
-                        statusCode: statusCode,
-                        description: res.error?.localizedDescription ?? "unknown error"
-                    ))
-                }
+                let outcome = ProxyGroupDelayOutcome.decode(
+                    statusCode: statusCode, data: res.data, transportFailed: res.error != nil
+                )
+                Logger.log("[Proxy Delay] Group '\(groupName)': \(outcome.diagnostic)")
+                callback(outcome)
             }
     }
 
@@ -847,6 +830,7 @@ class ApiRequest {
                     && proxy.all == nil
                     && proxy.type != .direct
                     && proxy.type != .reject
+                    && !ClashProxyType.isCompatibilityFallback(proxy)
                     && !builtInNames.contains(proxy.name)
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -857,20 +841,16 @@ class ApiRequest {
                     done()
                     return
                 }
-                getProxyDelay(
+                getProxyDelayOutcome(
                     proxyName: proxy.name,
                     benchmarkURL: benchmarkURL,
                     timeout: timeout,
                     session: session
-                ) { delay in
+                ) { outcome in
                     result(LeafProxyBenchmarkResult(
-                        identity: LeafProxyBenchmarkIdentity(
-                            endpoint: .inline,
-                            providerName: nil,
-                            proxyName: proxy.name
-                        ),
+                        identity: LeafProxyBenchmarkIdentity(proxy: proxy),
                         benchmarkURL: benchmarkURL,
-                        delay: delay
+                        outcome: outcome
                     ))
                     done()
                 }
@@ -886,6 +866,7 @@ class ApiRequest {
                 $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }
             for proxy in proxies {
+                guard !ClashProxyType.isCompatibilityFallback(proxy) else { continue }
                 let key = provider.name + "\u{0}" + proxy.name
                 guard providerProxyKeys.insert(key).inserted else { continue }
                 tasks.append { done in
@@ -893,21 +874,17 @@ class ApiRequest {
                         done()
                         return
                     }
-                    getProviderProxyDelay(
+                    getProviderProxyDelayOutcome(
                         providerName: provider.name,
                         proxyName: proxy.name,
                         benchmarkURL: benchmarkURL,
                         timeout: timeout,
                         session: session
-                    ) { delay in
+                    ) { outcome in
                         result(LeafProxyBenchmarkResult(
-                            identity: LeafProxyBenchmarkIdentity(
-                                endpoint: .provider,
-                                providerName: provider.name,
-                                proxyName: proxy.name
-                            ),
+                            identity: LeafProxyBenchmarkIdentity(proxy: proxy),
                             benchmarkURL: benchmarkURL,
-                            delay: delay
+                            outcome: outcome
                         ))
                         done()
                     }
@@ -1004,7 +981,7 @@ class ApiRequest {
         _ plan: SelectorBenchmarkPlan,
         reusing measurements: [SelectorBenchmarkMeasurementKey: Int] = [:],
         session: BenchmarkSession,
-        result: @escaping (SelectorBenchmarkPlan.Target, Int) -> Void,
+        result: @escaping (SelectorBenchmarkPlan.Target, ProxyDelayOutcome) -> Void,
         completion: @escaping () -> Void
     ) {
         guard !session.isCancelled else {
@@ -1016,14 +993,14 @@ class ApiRequest {
         let benchmarkStartedAt = Date()
         var didLogFirstResult = false
 
-        let runTarget: (SelectorBenchmarkPlan.Target, @escaping (Int) -> Void) -> Void = { target, done in
+        let runTarget: (SelectorBenchmarkPlan.Target, @escaping (ProxyDelayOutcome) -> Void) -> Void = { target, done in
             guard !session.isCancelled else {
-                done(0)
+                done(.cancelled)
                 return
             }
             switch target.key.endpoint {
             case .inline:
-                getProxyDelay(
+                getProxyDelayOutcome(
                     proxyName: target.key.proxyName,
                     benchmarkURL: target.key.benchmarkURL,
                     timeout: target.key.timeout,
@@ -1036,10 +1013,10 @@ class ApiRequest {
                         "[Proxy Delay] Selector provider target '\(target.key.proxyName)' has no provider name",
                         level: .error
                     )
-                    done(0)
+                    done(.unavailable)
                     return
                 }
-                getProviderProxyDelay(
+                getProviderProxyDelayOutcome(
                     providerName: providerName,
                     proxyName: target.key.proxyName,
                     benchmarkURL: target.key.benchmarkURL,
@@ -1050,7 +1027,7 @@ class ApiRequest {
             }
         }
 
-        SelectorBenchmarkExecutor.run(
+        SelectorBenchmarkExecutor.runOutcomes(
             plan: plan,
             reusing: measurements,
             isCancelled: { session.isCancelled },
@@ -1101,9 +1078,9 @@ class ApiRequest {
                                           benchmarkURL: String,
                                           timeout: Int,
                                           session: BenchmarkSession?,
-                                          callback: @escaping ((Int) -> Void)) {
+                                          callback: @escaping (ProxyDelayOutcome) -> Void) {
         guard session?.isCancelled != true else {
-            callback(0)
+            callback(.cancelled)
             return
         }
         Logger.log("[Proxy Delay] Testing \(description) with url: \(benchmarkURL)")
@@ -1121,26 +1098,15 @@ class ApiRequest {
                 }
                 guard session?.isCancelled != true else {
                     Logger.log("[Proxy Delay] Cancelled \(description)", level: .debug)
-                    callback(0)
+                    callback(.cancelled)
                     return
                 }
                 let statusCode = res.response?.statusCode ?? -1
-                switch res.result {
-                case let .success(value):
-                    let json = JSON(value)
-                    let delay = json["delay"].intValue
-                    if delay > 0 {
-                        Logger.log("[Proxy Delay] \(description) succeeded: \(delay) ms, status: \(statusCode)")
-                    } else {
-                        let body = String(data: value, encoding: .utf8) ?? "<non-utf8 body>"
-                        Logger.log("[Proxy Delay] \(description) returned no delay, status: \(statusCode), body: \(body)", level: .warning)
-                    }
-                    callback(delay)
-                case .failure:
-                    let body = res.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
-                    Logger.log("[Proxy Delay] \(description) failed, status: \(statusCode), error: \(res.error?.localizedDescription ?? "unknown error"), body: \(body)", level: .error)
-                    callback(0)
-                }
+                let outcome = ProxyDelayOutcome.decode(
+                    statusCode: statusCode, data: res.data, transportFailed: res.error != nil
+                )
+                Logger.log("[Proxy Delay] \(description): \(outcome), status: \(statusCode)")
+                callback(outcome)
             }
     }
 

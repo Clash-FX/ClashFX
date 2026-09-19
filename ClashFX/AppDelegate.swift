@@ -1364,7 +1364,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 self.selectProxyGroupWithMemory()
                 self.selectOutBoundModeWithMenory()
-                MenuItemFactory.recreateProxyMenuItems()
+                MenuItemFactory.recreateProxyMenuItems(coreReloaded: true)
                 NotificationCenter.default.post(name: .reloadDashboard, object: nil)
             }
         }
@@ -4323,12 +4323,8 @@ extension AppDelegate {
                             guard let self,
                                   !session.isCancelled,
                                   self.isActiveBenchmarkSession(session) else { return }
-                            let state: ProxyBenchmarkRowState = result.delay > 0
-                                ? .measured(
-                                    displayName: result.identity.proxyName,
-                                    delay: result.delay
-                                )
-                                : .failed(displayName: result.identity.proxyName)
+                            guard result.outcome != .cancelled else { return }
+                            let state = result.outcome.rowState(name: result.identity.proxyName)
                             GlobalLeafBenchmarkPresentationStore.publish(
                                 GlobalLeafBenchmarkPresentation(
                                     identity: result.identity,
@@ -4355,6 +4351,7 @@ extension AppDelegate {
     }
 
     func beginSpeedTest(showNotifications: Bool) -> ApiRequest.BenchmarkSession? {
+        guard !isConfigUpdating else { return nil }
         guard !isWakeEnhancedModeRestarting else {
             Logger.log(
                 "Benchmark blocked while Enhanced Mode recovery is in progress",
@@ -4412,7 +4409,7 @@ extension AppDelegate {
         return activeBenchmarkSession === session
     }
 
-    private func cancelActiveSpeedTest(reason: String, refreshMenu: Bool = true) {
+    func cancelActiveSpeedTest(reason: String, refreshMenu: Bool = true) {
         guard let session = activeBenchmarkSession else { return }
         Logger.log(
             "Cancelling active benchmark before \(reason)",

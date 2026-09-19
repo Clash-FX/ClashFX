@@ -15,6 +15,7 @@ enum ClashProxyType: String, Codable, Hashable {
     case loadBalance = "LoadBalance"
     case select = "Selector"
     case direct = "Direct"
+    case compatible = "Compatible"
     case reject = "Reject"
     case shadowsocks = "Shadowsocks"
     case shadowsocksR = "ShadowsocksR"
@@ -62,6 +63,10 @@ enum ClashProxyType: String, Codable, Hashable {
         case "DIRECT", "REJECT": return true
         default: return false
         }
+    }
+
+    static func isCompatibilityFallback(_ proxy: ClashProxy) -> Bool {
+        proxy.type == .compatible || proxy.name == "COMPATIBLE"
     }
 }
 
@@ -203,6 +208,7 @@ enum ProxyMenuSnapshotDelta {
     }
 
     private struct Presentation: Equatable {
+        let coreID: String?
         let now: ClashProxyName?
         let alive: Bool?
         let history: History?
@@ -240,7 +246,7 @@ enum ProxyMenuSnapshotDelta {
                 }
             )
         }.sorted { $0.url < $1.url }
-        return Presentation(now: proxy.now, alive: proxy.alive, history: history, extra: extra)
+        return Presentation(coreID: proxy.id, now: proxy.now, alive: proxy.alive, history: history, extra: extra)
     }
 }
 
@@ -289,28 +295,33 @@ struct LeafProxyBenchmarkIdentity: Hashable {
     let endpoint: SelectorBenchmarkEndpoint
     let providerName: ClashProviderName?
     let proxyName: ClashProxyName
+    let coreID: String?
 
     init(endpoint: SelectorBenchmarkEndpoint,
          providerName: ClashProviderName?,
-         proxyName: ClashProxyName) {
+         proxyName: ClashProxyName,
+         coreID: String? = nil) {
         self.endpoint = endpoint
         self.providerName = providerName
         self.proxyName = proxyName
+        self.coreID = coreID
     }
 
     init(proxy: ClashProxy) {
         endpoint = proxy.enclosingProvider == nil ? .inline : .provider
         providerName = proxy.enclosingProvider?.name
         proxyName = proxy.name
+        coreID = proxy.id
     }
 }
 
 struct GlobalLeafBenchmarkPresentation {
     private static let freshCacheAge: TimeInterval = 30 * 60
-    private static let maximumCacheAge: TimeInterval = 24 * 60 * 60
 
     let identity: LeafProxyBenchmarkIdentity
     let benchmarkURL: String
+    let expectedStatus: String?
+    var conditions: BenchmarkConditions { BenchmarkConditions(url: benchmarkURL, expectedStatus: expectedStatus) }
     let sessionIdentifier: UUID
     let rowState: ProxyBenchmarkRowState
     let publishedAt: Date
@@ -321,11 +332,13 @@ struct GlobalLeafBenchmarkPresentation {
 
     init(identity: LeafProxyBenchmarkIdentity,
          benchmarkURL: String,
+         expectedStatus: String? = nil,
          sessionIdentifier: UUID,
          rowState: ProxyBenchmarkRowState,
          publishedAt: Date = .init()) {
         self.identity = identity
         self.benchmarkURL = benchmarkURL
+        self.expectedStatus = expectedStatus
         self.sessionIdentifier = sessionIdentifier
         self.rowState = rowState
         self.publishedAt = publishedAt
@@ -333,8 +346,8 @@ struct GlobalLeafBenchmarkPresentation {
 
     func reconciled(with proxy: ClashProxy,
                     now: Date = .init()) -> GlobalLeafBenchmarkPresentation? {
-        guard now.timeIntervalSince(publishedAt) <= Self.maximumCacheAge,
-              proxy.all == nil,
+        guard proxy.all == nil,
+              !ClashProxyType.isCompatibilityFallback(proxy),
               identity == LeafProxyBenchmarkIdentity(proxy: proxy) else {
             return nil
         }
@@ -363,10 +376,10 @@ enum ProxyBenchmarkPresentationPolicy {
 
 struct SelectorBenchmarkPresentation {
     private static let freshCacheAge: TimeInterval = 30 * 60
-    private static let maximumCacheAge: TimeInterval = 24 * 60 * 60
     let selectorName: ClashProxyName
     let rowName: ClashProxyName
     let resolvedLeafName: ClashProxyName?
+    let resolvedCoreID: String?
     let benchmarkURL: String
     let sessionIdentifier: UUID
     let rowState: ProxyBenchmarkRowState
@@ -380,6 +393,7 @@ struct SelectorBenchmarkPresentation {
         selectorName: ClashProxyName,
         rowName: ClashProxyName,
         resolvedLeafName: ClashProxyName?,
+        resolvedCoreID: String? = nil,
         benchmarkURL: String,
         sessionIdentifier: UUID,
         rowState: ProxyBenchmarkRowState,
@@ -388,6 +402,7 @@ struct SelectorBenchmarkPresentation {
         self.selectorName = selectorName
         self.rowName = rowName
         self.resolvedLeafName = resolvedLeafName
+        self.resolvedCoreID = resolvedCoreID
         self.benchmarkURL = benchmarkURL
         self.sessionIdentifier = sessionIdentifier
         self.rowState = rowState
@@ -398,20 +413,14 @@ struct SelectorBenchmarkPresentation {
         with snapshot: ClashProxyResp,
         currentBenchmarkURL: String
     ) -> SelectorBenchmarkPresentation {
-        guard Date().timeIntervalSince(publishedAt) <= Self.maximumCacheAge else {
-            return unavailable()
-        }
-        let currentAutomaticBenchmarkURL = snapshot.proxiesMap[rowName]
-            .flatMap { $0.type.isAutoGroup ? $0.effectiveBenchmarkURL(fallback: currentBenchmarkURL) : nil }
-        guard benchmarkURL == currentBenchmarkURL
-            || benchmarkURL == currentAutomaticBenchmarkURL else {
+        guard BenchmarkConditions(url: benchmarkURL) == BenchmarkConditions(url: currentBenchmarkURL) else {
             return unavailable()
         }
         guard let resolvedLeafName else {
             return self
         }
         guard case let .resolved(_, leaf) = snapshot.resolveSelectedPath(from: rowName),
-              leaf.name == resolvedLeafName else {
+              leaf.name == resolvedLeafName, leaf.id == resolvedCoreID else {
             return unavailable()
         }
         return self
@@ -426,6 +435,7 @@ struct SelectorBenchmarkPresentation {
                 selectorName: selectorName,
                 rowName: rowName,
                 resolvedLeafName: resolvedLeafName,
+                resolvedCoreID: resolvedCoreID,
                 benchmarkURL: benchmarkURL,
                 sessionIdentifier: sessionIdentifier,
                 rowState: .unavailable(displayName: rowName),
@@ -440,10 +450,14 @@ struct AutomaticGroupBenchmarkIdentity: Equatable {
     let members: [ClashProxyName]
     let benchmarkURL: String
     let expectedStatus: String?
+    let memberIDs: [String: String]
 
     init(group: ClashProxy, fallbackBenchmarkURL: String) {
         groupName = group.name
         members = group.all ?? []
+        memberIDs = (group.all ?? []).reduce(into: [:]) { ids, name in
+            if let id = group.enclosingResp?.proxiesMap[name]?.id { ids[name] = id }
+        }
         benchmarkURL = group.effectiveBenchmarkURL(fallback: fallbackBenchmarkURL)
         expectedStatus = group.expectedStatus.flatMap {
             let value = $0.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -454,7 +468,6 @@ struct AutomaticGroupBenchmarkIdentity: Equatable {
 
 struct AutomaticGroupChildBenchmarkPresentation {
     private static let freshCacheAge: TimeInterval = 30 * 60
-    private static let maximumCacheAge: TimeInterval = 24 * 60 * 60
 
     let identity: AutomaticGroupBenchmarkIdentity
     let rowName: ClashProxyName
@@ -481,8 +494,7 @@ struct AutomaticGroupChildBenchmarkPresentation {
     func reconciled(group: ClashProxy,
                     fallbackBenchmarkURL: String,
                     now: Date = .init()) -> AutomaticGroupChildBenchmarkPresentation? {
-        guard now.timeIntervalSince(publishedAt) <= Self.maximumCacheAge,
-              identity == AutomaticGroupBenchmarkIdentity(
+        guard identity == AutomaticGroupBenchmarkIdentity(
                   group: group,
                   fallbackBenchmarkURL: fallbackBenchmarkURL
               ),
@@ -502,6 +514,7 @@ struct SelectorBenchmarkMeasurementKey: Hashable {
     let proxyName: ClashProxyName
     let benchmarkURL: String
     let timeout: Int
+    var coreID: String? = nil
 }
 
 struct SelectorBenchmarkSchedulingBucket: Hashable {
@@ -511,6 +524,8 @@ struct SelectorBenchmarkSchedulingBucket: Hashable {
 }
 
 enum SelectorBenchmarkUnavailableReason: Hashable {
+    case compatibilityFallback
+    case emptyGroup(ClashProxyName)
     case cycle(ClashProxyName)
     case missingNode(ClashProxyName)
     case missingSelection(ClashProxyName)
@@ -746,18 +761,35 @@ enum SelectorBenchmarkExecutor {
         limitChanged: ((Int, Int) -> Void)? = nil,
         completion: @escaping () -> Void
     ) {
+        runOutcomes(plan: plan, reusing: measurements, isCancelled: isCancelled,
+                    schedulingQueue: schedulingQueue, request: { target, done in
+                        request(target) { done($0 > 0 ? .measured($0) : .failed) }
+                    }, result: { target, outcome in result(target, outcome.delay ?? 0) },
+                    limitChanged: limitChanged, completion: completion)
+    }
+
+    static func runOutcomes(
+        plan: SelectorBenchmarkPlan,
+        reusing measurements: [SelectorBenchmarkMeasurementKey: Int] = [:],
+        isCancelled: @escaping () -> Bool,
+        schedulingQueue: DispatchQueue = DispatchQueue(label: "com.clashfx.selectorBenchmarkExecutor"),
+        request: @escaping (SelectorBenchmarkPlan.Target, @escaping (ProxyDelayOutcome) -> Void) -> Void,
+        result: @escaping (SelectorBenchmarkPlan.Target, ProxyDelayOutcome) -> Void,
+        limitChanged: ((Int, Int) -> Void)? = nil,
+        completion: @escaping () -> Void
+    ) {
         let pending = plan.interleavedTargets.filter { target in
             guard !isCancelled() else { return false }
             guard let delay = measurements[target.key], delay > 0 else { return true }
-            result(target, delay)
+            result(target, .measured(delay))
             return false
         }
         let tasks: [AdaptiveAsyncTaskRunner.Task] = pending.map { target in
             return { done in
                 guard !isCancelled() else { done(false); return }
-                let settlement = ManagedOperationSettlement<Int> { delay in
-                    if !isCancelled() { result(target, delay) }
-                    done(delay > 0)
+                let settlement = ManagedOperationSettlement<ProxyDelayOutcome> { outcome in
+                    if !isCancelled(), outcome != .cancelled { result(target, outcome) }
+                    done((outcome.delay ?? 0) > 0)
                 }
                 request(target) { settlement.finish($0) }
             }
@@ -792,6 +824,8 @@ struct SelectorBenchmarkPlan {
         guard let retest = selectedAutomaticRetest,
               retest.groupName == group.name,
               group.type.isAutoGroup,
+              group.effectiveBenchmarkURL(fallback: retest.benchmarkURL) == retest.benchmarkURL,
+              group.expectedStatus?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
               let snapshot = group.enclosingResp else { return [:] }
         let members = Set(group.all ?? [])
         var measurements = [SelectorBenchmarkMeasurementKey: Int]()
@@ -801,6 +835,7 @@ struct SelectorBenchmarkPlan {
                   key.timeout == timeout,
                   members.contains(key.proxyName),
                   let leaf = snapshot.proxiesMap[key.proxyName],
+                  leaf.id == key.coreID,
                   leaf.all == nil,
                   !ClashProxyType.isProxyGroup(leaf),
                   leaf.enclosingProvider?.name == key.providerName,
@@ -855,6 +890,12 @@ struct SelectorBenchmarkPlan {
             guard let selectedName = selector.now,
                   let selected = snapshot.proxiesMap[selectedName],
                   selected.type.isAutoGroup,
+                  snapshot.hasBenchmarkCandidates(in: selectedName),
+                  // URLTest ignores the URL supplied to /group/.../delay.
+                  // Only reuse that endpoint when its real test semantics match
+                  // this Selector; otherwise benchmark the core-selected leaf.
+                  selected.effectiveBenchmarkURL(fallback: benchmarkURL) == benchmarkURL,
+                  selected.expectedStatus?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
                   visibleNames.contains(selectedName) else { return nil }
             return selected
         }()
@@ -942,7 +983,8 @@ struct SelectorBenchmarkPlan {
                     providerName: providerName,
                     proxyName: proxy.name,
                     benchmarkURL: benchmarkURL,
-                    timeout: timeout
+                    timeout: timeout,
+                    coreID: proxy.id
                 ),
                 schedulingBucket: SelectorBenchmarkSchedulingBucket(
                     endpoint: endpoint,
@@ -1009,6 +1051,7 @@ struct ClashProxyTestState: Codable {
 
 class ClashProxy: Codable {
     let name: ClashProxyName
+    let id: String?
     let type: ClashProxyType
     let all: [ClashProxyName]?
     let history: [ClashProxySpeedHistory]
@@ -1049,7 +1092,7 @@ class ClashProxy: Codable {
     lazy var isSpeedTestable: Bool = !speedtestAble.isEmpty
 
     private enum CodingKeys: String, CodingKey {
-        case type, all, history, now, name, alive, extra, hidden, testUrl, expectedStatus
+        case type, all, history, now, name, id, alive, extra, hidden, testUrl, expectedStatus
     }
 
     func testState(for benchmarkURL: String) -> ClashProxyTestState? {
@@ -1133,6 +1176,11 @@ class ClashProxyResp {
         var currentName = name
 
         while true {
+            // COMPATIBLE can be omitted from older /proxies responses. Its
+            // reserved name still identifies the core's direct fallback.
+            if currentName == "COMPATIBLE" {
+                return .unavailable(path: path + [currentName], reason: .compatibilityFallback)
+            }
             guard let proxy = proxiesMap[currentName] else {
                 let reason: SelectorBenchmarkUnavailableReason = path.isEmpty
                     ? .missingNode(currentName)
@@ -1145,6 +1193,9 @@ class ClashProxyResp {
 
             visited.insert(proxy.name)
             path.append(proxy.name)
+            if ClashProxyType.isCompatibilityFallback(proxy) {
+                return .unavailable(path: path, reason: .compatibilityFallback)
+            }
             guard ClashProxyType.isProxyGroup(proxy) else {
                 guard proxy.all == nil else {
                     return .unavailable(path: path, reason: .nonLeafTerminal(proxy.name))
@@ -1155,8 +1206,33 @@ class ClashProxyResp {
             guard let selectedName = proxy.now, !selectedName.isEmpty else {
                 return .unavailable(path: path, reason: .missingSelection(proxy.name))
             }
+            guard let members = proxy.all, !members.isEmpty else {
+                return .unavailable(path: path, reason: .emptyGroup(proxy.name))
+            }
+            guard members.contains(selectedName) else {
+                return .unavailable(path: path, reason: .unknownTarget(selectedName))
+            }
             currentName = selectedName
         }
+    }
+
+    /// Explicit DIRECT is a legitimate candidate. Only implicit COMPATIBLE,
+    /// missing entries and groups without any reachable real member are absent.
+    func hasBenchmarkCandidates(in name: ClashProxyName) -> Bool {
+        var pending = [name]
+        var visited = Set<ClashProxyName>()
+        while let candidate = pending.popLast() {
+            guard visited.insert(candidate).inserted,
+                  candidate != "COMPATIBLE",
+                  let proxy = proxiesMap[candidate],
+                  !ClashProxyType.isCompatibilityFallback(proxy) else { continue }
+            if ClashProxyType.isProxyGroup(proxy) {
+                pending.append(contentsOf: proxy.all ?? [])
+            } else if proxy.all == nil {
+                return true
+            }
+        }
+        return false
     }
 
     func updateProvider(_ providerResp: ClashProviderResp) {

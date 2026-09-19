@@ -629,3 +629,12 @@
 "This shortcut is commonly reserved by macOS. Use it anyway?" = "Это сочетание обычно зарезервировано macOS. Всё равно использовать?";
 "Use Anyway" = "Всё равно использовать";
 "Configured port: %d; temporary runtime fallback: %d" = "Настроенный порт: %d; временный рабочий порт: %d";
+
+// Benchmark evidence provenance
+"Last measured: %@" = "Последнее измерение: %@";
+"Historical benchmark result" = "Предыдущее измерение задержки";
+"Latest benchmark unavailable; showing the last measurement" = "Новое измерение недоступно; показан предыдущий результат";
+"Not tested" = "Не измерено";
+
+"No testable proxy nodes" = "Нет узлов прокси для проверки";
+"Direct fallback (no proxy nodes)" = "Прямое соединение (нет узлов прокси)";
