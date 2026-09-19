@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.2 (Lab)</h2><ul><li><strong>Correct Proxy Benchmark Results</strong> — Empty regional groups using Mihomo's COMPATIBLE direct fallback no longer display a successful proxy delay. Explicit DIRECT entries remain testable, and results are isolated by node identity, provider, URL and expected status. (#219, #236)</li><li><strong>Reliable Menu Refresh and Retesting</strong> — Preserve valid recent measurements across menu rebuilds, mark historical results, and distinguish API outages from genuine probe failures. Consecutive group tests keep their snapshots valid; cancelled or obsolete callbacks cannot overwrite newer results.</li><li><strong>More Readable Legacy Dashboard Themes</strong> — The old-WebKit fallback now covers bottom navigation and popup backgrounds, improves muted text and selected-state contrast, and handles changing CSS classes with batched updates. Modern WebKit retains upstream styling. (#221)</li><li><strong>Consistent Lab Build Compatibility</strong> — Pin the Actions toolchain to Xcode 26.6 and check Intel/Apple Silicon architectures plus the declared minimum macOS versions of the app, helper and core, including the packaged DMG.</li></ul>
+  ]]></description>
+  <pubDate>Sat, 19 Sep 2026 16:06:04 +0000</pubDate>
+  <sparkle:version>1001011002</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.2/ClashFX.dmg"
+    sparkle:version="1001011002"
+    sparkle:shortVersionString="1.1.11.2"
+    sparkle:edSignature="CrCtae/9axFw+8qFa+v9IxArNX25KEENlMRpc4vfeEk60iZeCqZ23KVtSgo965a/8EoQobL7PFGwLQD6T8P9Cw=="
+    length="95267176"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.1 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.1 (Lab)</h2><ul><li><strong>Claude Proxy Lock Fails Closed on One Chosen Node</strong> — A new menu action pins Claude Desktop, Claude Code process traffic, and Anthropic web domains to one concrete proxy in Enhanced Mode. ClashFX forces Rule mode and System Proxy, restores either if another controller changes them, blocks their manual shutdown while the lock is active, and leaves the local System Proxy sentinel in place on quit so protected clients cannot silently fall back. The dialog states the limits for extensions, app-specific proxies, and software that ignores macOS networking settings.</li><li><strong>Selector Rows Share Comparable Measurements</strong> — A Selector benchmark now tests its selected automatic group with the Selector's own URL and status semantics, then publishes direct-leaf results to the shared store. The same underlying node no longer shows conflicting values merely because it appears in different policy groups; explicit automatic-group retests still use that group's configured URL and Mihomo's fresh `now`. (#219)</li><li><strong>Legacy WebKit Keeps Dark Themes Legible</strong> — The dashboard fallback now parses LCH and OKLCH colors, rejects transparent-black results from unsupported CSS variables, and derives visibly separate base surfaces instead of collapsing multiple dark layers to one black background. (#221)</li></ul>
