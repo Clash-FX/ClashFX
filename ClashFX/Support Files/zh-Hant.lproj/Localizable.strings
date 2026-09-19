@@ -629,3 +629,12 @@
 "This shortcut is commonly reserved by macOS. Use it anyway?" = "此快速鍵通常由 macOS 保留。仍要使用嗎？";
 "Use Anyway" = "仍要使用";
 "Configured port: %d; temporary runtime fallback: %d" = "設定連接埠：%d；暫時執行連接埠：%d";
+
+// Benchmark evidence provenance
+"Last measured: %@" = "上次測量：%@";
+"Historical benchmark result" = "歷史測速結果";
+"Latest benchmark unavailable; showing the last measurement" = "本次測速無法使用；顯示上次測量結果";
+"Not tested" = "未測速";
+
+"No testable proxy nodes" = "無可測速代理節點";
+"Direct fallback (no proxy nodes)" = "直連後備（無代理節點）";

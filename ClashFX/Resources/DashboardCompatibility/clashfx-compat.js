@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var COMPATIBILITY_REVISION = '2026.09.08.1';
+  var COMPATIBILITY_REVISION = '2026.09.19.1';
   var COLOR_MIX_SYNTAX_PROBE = 'color-mix(in oklab, rgb(64, 128, 192) 50%, transparent)';
   var COLOR_MIX_RENDERED_PROBE = 'color-mix(in oklab, var(--clashfx-probe-color) 50%, transparent)';
   var existingDiagnostics = window.__CLASHFX_DASHBOARD_COMPAT__;
@@ -14,6 +14,7 @@
     expectedProbe: { red: 64, green: 128, blue: 192, alpha: 0.5 },
     observedProbe: null,
     fallbackInstalled: false,
+    styleRebuilds: 0,
     themeProbe: {
       startMs: null,
       endMs: null,
@@ -357,6 +358,7 @@
     var styleID = 'clashfx-legacy-color-fallbacks';
     var utilityClasses = {};
     var rebuildScheduled = false;
+    var resolvedColors = {};
     var probe = document.createElement('span');
     probe.setAttribute('aria-hidden', 'true');
     probe.style.position = 'absolute';
@@ -404,7 +406,7 @@
       return parseRenderedColor(value) || colorResult(127, 127, 127, 1, 'safe-fallback');
     }
 
-    function resolvedVariableColor(variableName) {
+    function readVariableColor(variableName) {
       var rootValue = nativeGetComputedStyle(root).getPropertyValue(variableName) || '';
       var parsedRootValue = parseRenderedColor(rootValue);
       if (parsedRootValue && parsedRootValue.alpha > 0) return parsedRootValue;
@@ -425,6 +427,93 @@
         return parsedComputedValue;
       }
       return safeFallbackColor(variableName);
+    }
+
+    function blend(foreground, background, amount) {
+      return colorResult(
+        foreground.red * amount + background.red * (1 - amount),
+        foreground.green * amount + background.green * (1 - amount),
+        foreground.blue * amount + background.blue * (1 - amount), 1, 'blend'
+      );
+    }
+
+    function luminance(color) {
+      var linear = function (channel) {
+        channel = channel / 255;
+        return channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * linear(color.red) + 0.7152 * linear(color.green) + 0.0722 * linear(color.blue);
+    }
+
+    function contrast(first, second) {
+      var a = luminance(first);
+      var b = luminance(second);
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    }
+
+    function resolvedVariableColor(variableName) {
+      if (resolvedColors[variableName]) return resolvedColors[variableName];
+      var color = readVariableColor(variableName);
+      // Some dark themes deliberately use the same near-black surface for
+      // all levels. Without modern translucency those panels disappear.
+      if (/^--color-base-(200|300)$/.test(variableName)) {
+        var base = resolvedVariableColor('--color-base-100');
+        if (luminance(base) < 0.15 && contrast(base, color) < 1.15) {
+          color = blend(resolvedVariableColor('--color-base-content'), base,
+            variableName === '--color-base-300' ? 0.16 : 0.08);
+        }
+      }
+      resolvedColors[variableName] = color;
+      return color;
+    }
+
+    function rgb(color) {
+      return 'rgb(' + Math.round(color.red) + ', ' + Math.round(color.green) + ', ' + Math.round(color.blue) + ')';
+    }
+
+    // Emit an opaque foreground instead of stacking two low alpha values.
+    // Test against each standard surface; leave disabled controls' opacity
+    // alone. The margin accommodates rounding to 8-bit sRGB.
+    function readableColor(variableName, backgrounds, alpha) {
+      var desired = resolvedVariableColor(variableName);
+      desired = blend(desired, backgrounds[0], alpha * desired.alpha);
+      var minimumContrast = function (color) {
+        return Math.min.apply(null, backgrounds.map(function (background) { return contrast(color, background); }));
+      };
+      var white = colorResult(255, 255, 255, 1, 'rgb');
+      var black = colorResult(0, 0, 0, 1, 'rgb');
+      var target = minimumContrast(white) >= minimumContrast(black) ? white : black;
+      for (var step = 0; step <= 20; step++) {
+        var candidate = blend(target, desired, step / 20);
+        if (minimumContrast(candidate) >= 4.7) return rgb(candidate);
+      }
+      return rgb(target);
+    }
+
+    function buildNavigationRules(surfaces, content) {
+      // These are the shipped MobileBottomNav roots (works with both div and
+      // nav versions). Inline color-mix backgrounds cannot be fixed by scanning
+      // slash-opacity utility classes, so handle the two surfaces explicitly.
+      var nav = 'html [class~="fixed"][class~="bottom-0"][class~="lg:hidden"]';
+      var popup = 'html [class~="fixed"][class~="bottom-[4.5rem]"][class~="lg:hidden"]';
+      var surface = surfaces[2];
+      var foreground = readableColor('--color-base-content', [surface], 0.8);
+      var primary = resolvedVariableColor('--color-primary');
+      var accent = readableColor('--color-primary', [surface, blend(primary, surface, 0.10)], 1);
+      return [
+        nav + ' > [class~="rounded-2xl"],' + popup + ' > [class~="rounded-2xl"]{background:' + rgb(surface) + '!important;border:1px solid ' + rgbaFor('--color-base-content', 0.24) + '!important}',
+        nav + ' a,' + popup + ' a{color:' + foreground + '!important}',
+        nav + ' a[class~="text-primary"],' + nav + ' span[class~="text-primary"],' + popup + ' a[class~="text-primary"]{color:' + accent + '!important}',
+        nav + ' span[class~="opacity-80"]{opacity:1!important}',
+        nav + ' div[class~="bg-primary"],' + popup + ' span[class~="bg-primary"]{background-color:' + accent + '!important}',
+        nav + ' button[class~="bg-primary"]{background:' + rgb(primary) + '!important;color:' + readableColor('--color-primary-content', [primary], 1) + '!important}',
+        nav + ' button[class~="text-base-content"]{color:' + foreground + '!important}',
+        'html,html body{background-color:' + rgb(surfaces[0]) + '!important;color:' + content + '!important}',
+        'html [class~="text-base-content"]{color:' + content + '!important}',
+        'html [class~="bg-base-100"]{background-color:' + rgb(surfaces[0]) + '!important}',
+        'html [class~="bg-base-200"]{background-color:' + rgb(surfaces[1]) + '!important}',
+        'html [class~="bg-base-300"]{background-color:' + rgb(surfaces[2]) + '!important}'
+      ];
     }
 
     function rgbaFor(variableName, alpha) {
@@ -464,14 +553,14 @@
       return changed;
     }
 
-    function buildConnectionRules() {
+    function buildConnectionRules(readableContent) {
       var content = function (alpha) { return rgbaFor('--color-base-content', alpha); };
       var primary = function (alpha) { return rgbaFor('--color-primary', alpha); };
       var error = function (alpha) { return rgbaFor('--color-error', alpha); };
       return [
         '.conn-table-container{--conn-border:' + content(0.10) + '!important}',
-        '.conn-th{color:' + content(0.70) + '!important}',
-        '.conn-group-btn,.conn-group-count,.conn-card-group-count,.conn-empty,.conn-td-label{color:' + content(0.50) + '!important}',
+        '.conn-th{color:' + readableContent + '!important}',
+        '.conn-group-btn,.conn-group-count,.conn-card-group-count,.conn-empty,.conn-td-label{color:' + readableContent + '!important}',
         '.conn-group-btn:hover,.conn-copy-btn:hover{background:' + primary(0.10) + '!important}',
         '.conn-group-row,.conn-card-group{background:' + primary(0.05) + '!important}',
         '.conn-group-row:hover,.conn-card-group:hover{background:' + primary(0.10) + '!important}',
@@ -481,9 +570,9 @@
         '.conn-td{border-bottom-color:' + content(0.05) + '!important}',
         '.conn-card{border-color:' + content(0.08) + '!important}',
         '.conn-card:hover{border-color:' + content(0.15) + '!important}',
-        '.conn-card__process{color:' + content(0.75) + '!important}',
-        '.conn-card__aux,.conn-aux{color:' + content(0.58) + '!important}',
-        '.conn-copy-btn{color:' + content(0.45) + '!important}',
+        '.conn-card__process{color:' + readableContent + '!important}',
+        '.conn-card__aux,.conn-aux{color:' + readableContent + '!important}',
+        '.conn-copy-btn{color:' + readableContent + '!important}',
         '.conn-close-btn{background:' + error(0.10) + '!important}',
         '.conn-close-btn:hover{background:' + error(0.20) + '!important}'
       ];
@@ -491,17 +580,24 @@
 
     function rebuildStyles() {
       rebuildScheduled = false;
+      resolvedColors = {};
+      diagnostics.styleRebuilds += 1;
       var existingStyle = document.getElementById(styleID);
       if (existingStyle) existingStyle.remove();
       var style = document.createElement('style');
       style.id = styleID;
-      var rules = buildConnectionRules();
+      var surfaces = ['--color-base-100', '--color-base-200', '--color-base-300'].map(resolvedVariableColor);
+      var readableContent = readableColor('--color-base-content', surfaces, 0.8);
+      var rules = buildConnectionRules(readableContent);
       Object.keys(utilityClasses).forEach(function (className) {
         var descriptor = utilityClasses[className];
         var escapedName = className.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        rules.push('html [class~="' + escapedName + '"]{' + descriptor.property + ':' +
-          rgbaFor(descriptor.variable, descriptor.alpha) + '!important}');
+        var value = descriptor.property === 'color' && descriptor.variable === '--color-base-content' && descriptor.alpha > 0
+          ? readableColor(descriptor.variable, surfaces, descriptor.alpha)
+          : rgbaFor(descriptor.variable, descriptor.alpha);
+        rules.push('html [class~="' + escapedName + '"]{' + descriptor.property + ':' + value + '!important}');
       });
+      rules = rules.concat(buildNavigationRules(surfaces, readableColor('--color-base-content', surfaces, 1)));
       style.textContent = rules.join('\n');
       (document.head || root).appendChild(style);
     }
@@ -518,12 +614,20 @@
     new MutationObserver(function (mutations) {
       var changed = false;
       for (var i = 0; i < mutations.length; i++) {
+        if (mutations[i].type === 'attributes') {
+          // Only inspect this element for class changes; rescanning a whole
+          // subtree for each reactive update makes the theme picker sluggish.
+          var classes = mutations[i].target.classList;
+          for (var k = 0; classes && k < classes.length; k++) {
+            if (addUtilityClass(classes.item(k))) changed = true;
+          }
+        }
         for (var j = 0; j < mutations[i].addedNodes.length; j++) {
           if (collectUtilityClasses(mutations[i].addedNodes[j])) changed = true;
         }
       }
       if (changed) scheduleRebuild();
-    }).observe(root, { childList: true, subtree: true });
+    }).observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 
     new MutationObserver(scheduleRebuild).observe(root, {
       attributes: true,

@@ -8,43 +8,6 @@
 
 import Cocoa
 
-enum GlobalLeafBenchmarkPresentationStore {
-    private static var presentations = [LeafProxyBenchmarkIdentity: GlobalLeafBenchmarkPresentation]()
-
-    static func publish(_ presentation: GlobalLeafBenchmarkPresentation) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        presentations[presentation.identity] = presentation
-        NotificationCenter.default.post(
-            name: .speedTestFinishForProxy,
-            object: presentation
-        )
-    }
-
-    static func presentation(for proxy: ClashProxy) -> GlobalLeafBenchmarkPresentation? {
-        dispatchPrecondition(condition: .onQueue(.main))
-        let identity = LeafProxyBenchmarkIdentity(proxy: proxy)
-        guard let current = presentations[identity] else { return nil }
-        guard let reconciled = current.reconciled(with: proxy) else {
-            presentations[identity] = nil
-            return nil
-        }
-        return reconciled
-    }
-
-    static func prune(using snapshot: ClashProxyResp) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        let validIdentities = Set(snapshot.proxies.compactMap { proxy -> LeafProxyBenchmarkIdentity? in
-            proxy.all == nil ? LeafProxyBenchmarkIdentity(proxy: proxy) : nil
-        })
-        presentations = presentations.filter { validIdentities.contains($0.key) }
-    }
-
-    static func clearAll() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        presentations.removeAll()
-    }
-}
-
 enum SelectorBenchmarkPresentationStore {
     private struct Key: Hashable {
         let selectorName: ClashProxyName
@@ -130,6 +93,7 @@ enum AutomaticChildBenchmarkStore {
 
     static func settle(group: ClashProxy,
                        candidateDelays: [ClashProxyName: Int],
+                       hasProbeEvidence: Bool,
                        sessionIdentifier: UUID) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard presentations.contains(where: {
@@ -147,12 +111,22 @@ enum AutomaticChildBenchmarkStore {
         }
         for rowName in identity.members {
             let state: ProxyBenchmarkRowState
-            if let delay = candidateDelays[rowName] {
+            let proxy = group.enclosingResp?.proxiesMap[rowName]
+            if rowName == "COMPATIBLE" || proxy.map(ClashProxyType.isCompatibilityFallback) == true {
+                state = .unavailable(displayName: rowName)
+            } else if let delay = candidateDelays[rowName] {
                 state = delay > 0
                     ? .measured(displayName: rowName, delay: delay)
                     : .failed(displayName: rowName)
             } else {
-                state = .unavailable(displayName: rowName)
+                state = hasProbeEvidence ? .failed(displayName: rowName) : .unavailable(displayName: rowName)
+            }
+            if let proxy, proxy.all == nil, !ClashProxyType.isCompatibilityFallback(proxy) {
+                GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+                    identity: LeafProxyBenchmarkIdentity(proxy: proxy),
+                    benchmarkURL: identity.benchmarkURL, expectedStatus: identity.expectedStatus,
+                    sessionIdentifier: sessionIdentifier, rowState: state
+                ))
             }
             publish(AutomaticGroupChildBenchmarkPresentation(
                 identity: identity,
@@ -228,14 +202,9 @@ class ProxyMenuItem: NSMenuItem {
     let maxProxyNameLength: CGFloat
     private let parentGroupName: ClashProxyName
     private let parentGroupType: ClashProxyType
-    private let parentConfiguredBenchmarkURL: String?
-    private let benchmarkIdentity: LeafProxyBenchmarkIdentity
     private var presentationName: String
-    private var selectorBenchmarkPresentation: SelectorBenchmarkPresentation?
-
-    private var parentBenchmarkURL: String {
-        parentConfiguredBenchmarkURL ?? Settings.benchMarkUrl
-    }
+    private var latestProxy: ClashProxy
+    private var latestSnapshot: ClashProxyResp?
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -252,11 +221,8 @@ class ProxyMenuItem: NSMenuItem {
         proxyName = proxy.name
         parentGroupName = group.name
         parentGroupType = group.type
-        benchmarkIdentity = LeafProxyBenchmarkIdentity(proxy: proxy)
-        parentConfiguredBenchmarkURL = group.testUrl.flatMap {
-            let value = $0.trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
+        latestProxy = proxy
+        latestSnapshot = proxy.enclosingResp
         presentationName = proxy.name
 
         maxProxyNameLength = simpleItem ? 0 : group.maxProxyNameLength
@@ -272,9 +238,9 @@ class ProxyMenuItem: NSMenuItem {
         updateSelected(selected)
 
         if !simpleItem, group.type == .select {
-            updateSelectorBenchmarkPresentation(from: proxy)
+            refreshBenchmark(from: proxy)
         } else if !simpleItem, group.type.isAutoGroup {
-            updateAutomaticChildBenchmarkPresentation(from: proxy)
+            refreshBenchmark(from: proxy)
         }
 
         NotificationCenter.default.addObserver(self, selector: #selector(proxyGroupInfoUpdate(note:)), name: .proxyUpdate(for: group.name), object: nil)
@@ -304,24 +270,18 @@ class ProxyMenuItem: NSMenuItem {
             }
             return
         }
-        guard let presentation = note.object as? SelectorBenchmarkPresentation,
-              presentation.selectorName == parentGroupName,
-              presentation.rowName == proxyName else {
-            guard let presentation = note.object as? AutomaticGroupChildBenchmarkPresentation,
-                  presentation.identity.groupName == parentGroupName,
-                  presentation.rowName == proxyName else {
-                guard let presentation = note.object as? GlobalLeafBenchmarkPresentation,
-                      presentation.identity == benchmarkIdentity,
-                      ProxyBenchmarkPresentationPolicy.allowsGlobalLeafFallback(
-                          in: parentGroupType
-                      ) else { return }
-                applyGlobalLeafBenchmarkPresentation(presentation)
-                return
-            }
-            applyAutomaticChildBenchmarkPresentation(presentation)
+        if let presentation = note.object as? SelectorBenchmarkPresentation {
+            guard presentation.selectorName == parentGroupName, presentation.rowName == proxyName else { return }
+        } else if let presentation = note.object as? AutomaticGroupChildBenchmarkPresentation {
+            guard presentation.identity.groupName == parentGroupName, presentation.rowName == proxyName else { return }
+        } else if let presentation = note.object as? GlobalLeafBenchmarkPresentation {
+            guard let leaf = finalLeaf(from: latestProxy),
+                  presentation.identity == LeafProxyBenchmarkIdentity(proxy: leaf),
+                  ProxyBenchmarkPresentationPolicy.allowsGlobalLeafFallback(in: parentGroupType) else { return }
+        } else {
             return
         }
-        applySelectorBenchmarkPresentation(presentation)
+        refreshBenchmark(from: latestProxy)
     }
 
     @objc private func proxyInfoUpdate(note: Notification) {
@@ -331,16 +291,16 @@ class ProxyMenuItem: NSMenuItem {
             }
             return
         }
-        guard let info = note.object as? ClashProxy else {
-            assertionFailure()
-            return
-        }
+        // Automatic-group progress shares this notification name with core
+        // snapshots. A nested Selector row also observes that group: progress
+        // is not a replacement ClashProxy and must not trigger an assertion.
+        guard let info = note.object as? ClashProxy else { return }
         if parentGroupType == .select {
-            updateSelectorBenchmarkPresentation(from: info)
+            refreshBenchmark(from: info)
             return
         }
         if parentGroupType.isAutoGroup {
-            updateAutomaticChildBenchmarkPresentation(from: info)
+            refreshBenchmark(from: info)
             return
         }
         if info.alive == false {
@@ -361,6 +321,12 @@ class ProxyMenuItem: NSMenuItem {
         guard ClashProxyType.isProxyGroup(group) else { return }
         let selected = group.now == proxyName
         updateSelected(selected)
+        if let snapshot = group.enclosingResp,
+           let proxy = snapshot.proxiesMap[proxyName],
+           parentGroupType == .select || parentGroupType.isAutoGroup {
+            latestSnapshot = snapshot
+            refreshBenchmark(from: proxy)
+        }
     }
 
     private func updateSelected(_ selected: Bool) {
@@ -375,184 +341,87 @@ class ProxyMenuItem: NSMenuItem {
         updatePresentation(name: presentationName, delay: delay, rawValue: rawValue)
     }
 
-    private func applySelectorBenchmarkPresentation(
-        _ presentation: SelectorBenchmarkPresentation
-    ) {
-        selectorBenchmarkPresentation = presentation
-        presentationName = presentation.rowState.presentationName
-        toolTip = presentation.resolvedLeafName.flatMap {
-            $0 == proxyName ? nil : $0
-        }
-        updatePresentation(
-            name: presentationName,
-            delay: presentation.rowState.delayDisplay,
-            rawValue: presentation.rowState.rawDelay
+    private func refreshBenchmark(from info: ClashProxy) {
+        latestProxy = info
+        if let snapshot = info.enclosingResp { latestSnapshot = snapshot }
+        guard let snapshot = latestSnapshot,
+              let group = snapshot.proxiesMap[parentGroupName] else { return }
+        let conditions = BenchmarkConditions(
+            url: group.effectiveBenchmarkURL(fallback: Settings.benchMarkUrl),
+            expectedStatus: group.type.isAutoGroup ? group.expectedStatus : nil
         )
-    }
+        let resolution = snapshot.resolveSelectedPath(from: proxyName)
+        let isFallback: Bool
+        if case .unavailable(_, .compatibilityFallback) = resolution { isFallback = true } else { isFallback = false }
+        if isFallback || !snapshot.hasBenchmarkCandidates(in: proxyName) {
+            // Never let old group/leaf history turn an empty regional group
+            // into a successful proxy measurement through core direct fallback.
+            presentationName = proxyName
+            let message = NSLocalizedString(isFallback ? "Direct fallback (no proxy nodes)" : "No testable proxy nodes", comment: "")
+            toolTip = message + "\n" + conditions.url
+            updatePresentation(name: proxyName, delay: message, rawValue: nil)
+            return
+        }
+        var contextual: BenchmarkRowResolver.Evidence?
+        if group.type == .select,
+           let presentation = SelectorBenchmarkPresentationStore.presentation(
+               selectorName: parentGroupName, rowName: proxyName,
+               currentBenchmarkURL: conditions.url, snapshot: snapshot
+           ) {
+            contextual = .init(state: presentation.rowState, measuredAt: presentation.publishedAt)
+        } else if group.type.isAutoGroup,
+                  let presentation = AutomaticChildBenchmarkStore.presentation(group: group, rowName: proxyName) {
+            contextual = .init(state: presentation.rowState, measuredAt: presentation.publishedAt)
+        }
 
-    private func applyAutomaticChildBenchmarkPresentation(
-        _ presentation: AutomaticGroupChildBenchmarkPresentation
-    ) {
-        presentationName = presentation.rowName
-        updatePresentation(
-            name: presentation.rowName,
-            delay: presentation.rowState.delayDisplay,
-            rawValue: presentation.rowState.rawDelay
+        let leaf = finalLeaf(from: info)
+        let cached = leaf.flatMap {
+            GlobalLeafBenchmarkPresentationStore.presentation(for: $0, conditions: conditions)
+        }
+        let attempt = leaf.flatMap {
+            GlobalLeafBenchmarkPresentationStore.attempt(for: $0, conditions: conditions)
+        }
+        let globalActivity = attempt.map {
+            BenchmarkRowResolver.Evidence(state: $0.rowState, measuredAt: $0.publishedAt)
+        }
+        let activity = [contextual, globalActivity].compactMap { $0 }
+            .max { $0.measuredAt < $1.measuredAt }
+        // Core extra history is URL-scoped, but exposes no expected-status
+        // provenance. Only our explicit retest evidence can certify that case.
+        let core = conditions.expectedStatus == nil ? leaf?.testState(for: conditions.url) : nil
+        let presentation = BenchmarkRowResolver.resolve(
+            name: proxyName, core: core,
+            cached: cached.map { .init(state: $0.rowState, measuredAt: $0.publishedAt) },
+            contextual: contextual, activity: activity
         )
-    }
-
-    private func applyGlobalLeafBenchmarkPresentation(
-        _ presentation: GlobalLeafBenchmarkPresentation
-    ) {
         presentationName = proxyName
-        toolTip = presentation.benchmarkURL == parentBenchmarkURL
-            ? nil
-            : presentation.benchmarkURL
-        updatePresentation(
-            name: proxyName,
-            delay: presentation.rowState.delayDisplay,
-            rawValue: presentation.rowState.rawDelay
-        )
-    }
-
-    private func updateAutomaticChildBenchmarkPresentation(from info: ClashProxy) {
-        guard let snapshot = info.enclosingResp,
-              let group = snapshot.proxiesMap[parentGroupName] else {
-            updatePresentation(name: proxyName, delay: nil, rawValue: nil)
-            return
+        var tooltip = [String]()
+        if let leaf, leaf.name != proxyName { tooltip.append(leaf.name) }
+        tooltip.append(conditions.url)
+        if let date = presentation.measuredAt {
+            let timestamp = DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)
+            tooltip.append(String(format: NSLocalizedString("Last measured: %@", comment: ""), timestamp))
         }
-        let globalPresentation = info.all == nil
-            ? GlobalLeafBenchmarkPresentationStore.presentation(for: info)
-            : nil
-        if let presentation = AutomaticChildBenchmarkStore.presentation(
-            group: group,
-            rowName: proxyName
-        ) {
-            if let globalPresentation,
-               ProxyBenchmarkPresentationPolicy.prefersGlobal(
-                   publishedAt: globalPresentation.publishedAt,
-                   over: presentation.publishedAt
-               ) {
-                applyGlobalLeafBenchmarkPresentation(globalPresentation)
-            } else {
-                applyAutomaticChildBenchmarkPresentation(presentation)
-            }
-            return
+        if presentation.isHistorical {
+            tooltip.append(NSLocalizedString("Historical benchmark result", comment: ""))
         }
-
-        presentationName = proxyName
-        let evidenceProxy = info.testState(for: parentBenchmarkURL) == nil
-            ? (finalLeaf(from: info) ?? info)
-            : info
-        let state = evidenceProxy.testState(for: parentBenchmarkURL)
-        if let globalPresentation,
-           globalPresentation.isNewer(than: state) {
-            applyGlobalLeafBenchmarkPresentation(globalPresentation)
-            return
+        if presentation.lastAttemptUnavailable {
+            tooltip.append(NSLocalizedString("Latest benchmark unavailable; showing the last measurement", comment: ""))
         }
-        guard let state,
-              let history = state.history.last else {
-            updatePresentation(name: proxyName, delay: nil, rawValue: nil)
-            return
+        toolTip = tooltip.joined(separator: "\n")
+        var delay = presentation.state.delayDisplay
+        if presentation.measuredAt == nil, activity == nil {
+            delay = NSLocalizedString("Not tested", comment: "")
+        } else if presentation.isHistorical {
+            delay = delay.map { $0 + " *" }
         }
-        if !state.alive || history.delay == 0 {
-            updatePresentation(
-                name: proxyName,
-                delay: NSLocalizedString("fail", comment: ""),
-                rawValue: 0
-            )
-        } else {
-            updatePresentation(
-                name: proxyName,
-                delay: history.delayDisplay,
-                rawValue: history.delay
-            )
-        }
-    }
-
-    private func updateSelectorBenchmarkPresentation(from info: ClashProxy) {
-        guard let snapshot = info.enclosingResp else {
-            updatePresentation(name: proxyName, delay: nil, rawValue: nil)
-            return
-        }
-        let globalPresentation = info.all == nil
-            ? GlobalLeafBenchmarkPresentationStore.presentation(for: info)
-            : nil
-
-        if let presentation = SelectorBenchmarkPresentationStore.presentation(
-            selectorName: parentGroupName,
-            rowName: proxyName,
-            currentBenchmarkURL: parentBenchmarkURL,
-            snapshot: snapshot
-        ) {
-            if selectorBenchmarkPresentation?.rowState.rawDelay != nil,
-               presentation.rowState.rawDelay == nil {
-                Logger.log(
-                    "[Proxy Delay] Selector row '\(proxyName)' invalidated because its path or benchmark URL changed",
-                    level: .warning
-                )
-            }
-            if case .unavailable = presentation.rowState {
-                selectorBenchmarkPresentation = nil
-            } else if let globalPresentation,
-                      globalPresentation.publishedAt > presentation.publishedAt {
-                selectorBenchmarkPresentation = nil
-                applyGlobalLeafBenchmarkPresentation(globalPresentation)
-                return
-            } else {
-                applySelectorBenchmarkPresentation(presentation)
-                return
-            }
-        }
-
-        selectorBenchmarkPresentation = nil
-        presentationName = proxyName
-        toolTip = nil
-        guard let leaf = finalLeaf(from: info) else {
-            updatePresentation(name: proxyName, delay: nil, rawValue: nil)
-            return
-        }
-        let state = leaf.testState(for: parentBenchmarkURL)
-        if let globalPresentation,
-           globalPresentation.isNewer(than: state) {
-            applyGlobalLeafBenchmarkPresentation(globalPresentation)
-            return
-        }
-        guard let state,
-              let history = state.history.last else {
-            updatePresentation(name: proxyName, delay: nil, rawValue: nil)
-            return
-        }
-        if !state.alive || history.delay == 0 {
-            updatePresentation(
-                name: proxyName,
-                delay: NSLocalizedString("fail", comment: ""),
-                rawValue: 0
-            )
-        } else {
-            updatePresentation(
-                name: proxyName,
-                delay: history.delayDisplay,
-                rawValue: history.delay
-            )
-        }
+        updatePresentation(name: proxyName, delay: delay, rawValue: presentation.state.rawDelay)
     }
 
     private func finalLeaf(from root: ClashProxy) -> ClashProxy? {
-        var current = root
-        var visited = Set<ClashProxyName>()
-
-        while ClashProxyType.isProxyGroup(current) {
-            guard visited.insert(current.name).inserted,
-                  let nextName = current.now,
-                  !nextName.isEmpty,
-                  let next = current.enclosingResp?.proxiesMap[nextName] else {
-                return nil
-            }
-            current = next
-        }
-
-        return current.all == nil ? current : nil
+        guard let snapshot = root.enclosingResp ?? latestSnapshot,
+              case let .resolved(_, leaf) = snapshot.resolveSelectedPath(from: root.name) else { return nil }
+        return leaf
     }
 
     private func updatePresentation(name: String, delay: String?, rawValue: Int?) {

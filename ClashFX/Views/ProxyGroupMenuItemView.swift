@@ -7,11 +7,11 @@ import Cocoa
 
 struct AutomaticGroupBenchmarkPresentation {
     private static let freshCacheAge: TimeInterval = 30 * 60
-    private static let maximumCacheAge: TimeInterval = 24 * 60 * 60
 
     let identity: AutomaticGroupBenchmarkIdentity
     let selectedPath: [ClashProxyName]
     let finalLeaf: ClashProxyName?
+    let finalLeafID: String?
     let sessionIdentifier: UUID
     let rowState: ProxyBenchmarkRowState
     let publishedAt: Date
@@ -27,19 +27,21 @@ struct AutomaticGroupBenchmarkPresentation {
     init(identity: AutomaticGroupBenchmarkIdentity,
          selectedPath: [ClashProxyName],
          finalLeaf: ClashProxyName?,
+         finalLeafID: String? = nil,
          sessionIdentifier: UUID,
          rowState: ProxyBenchmarkRowState,
          publishedAt: Date = .init()) {
         self.identity = identity
         self.selectedPath = selectedPath
         self.finalLeaf = finalLeaf
+        self.finalLeafID = finalLeafID
         self.sessionIdentifier = sessionIdentifier
         self.rowState = rowState
         self.publishedAt = publishedAt
     }
 
     func isValid(for group: ClashProxy) -> Bool {
-        return Date().timeIntervalSince(publishedAt) <= Self.maximumCacheAge
+        return finalLeaf.flatMap { group.enclosingResp?.proxiesMap[$0]?.id } == finalLeafID
             && identity == AutomaticGroupBenchmarkIdentity(
                 group: group,
                 fallbackBenchmarkURL: Settings.benchMarkUrl
@@ -62,6 +64,7 @@ enum AutomaticGroupBenchmarkPresentationStore {
             ),
             selectedPath: path,
             finalLeaf: path.last,
+            finalLeafID: path.last.flatMap { group.enclosingResp?.proxiesMap[$0]?.id },
             sessionIdentifier: sessionIdentifier,
             rowState: .testing(displayName: displayName(groupName: group.name, finalLeaf: path.last))
         )
@@ -88,6 +91,7 @@ enum AutomaticGroupBenchmarkPresentationStore {
             identity: presentation.identity,
             selectedPath: presentation.selectedPath,
             finalLeaf: finalLeaf ?? presentation.finalLeaf,
+            finalLeafID: presentation.finalLeafID,
             sessionIdentifier: presentation.sessionIdentifier,
             rowState: .unavailable(displayName: displayName(
                 groupName: groupName,
@@ -125,6 +129,7 @@ enum AutomaticGroupBenchmarkPresentationStore {
                 identity: current.identity,
                 selectedPath: path,
                 finalLeaf: finalLeaf,
+                finalLeafID: group.enclosingResp?.proxiesMap[finalLeaf ?? ""]?.id,
                 sessionIdentifier: current.sessionIdentifier,
                 rowState: replacement
             )
@@ -167,6 +172,7 @@ enum AutomaticGroupBenchmarkPresentationStore {
 
 class ProxyGroupMenuItemView: MenuItemBaseView {
     private let groupName: ClashProxyName
+    private var latestSnapshot: ClashProxyResp?
     private let groupNameLabel: NSTextField
     private let selectProxyLabel: NSTextField
     private let arrowLabel: NSControl = {
@@ -191,6 +197,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
 
     init(proxyGroup: ClashProxy, targetProxy: ClashProxyName, hasLeftPadding: Bool) {
         groupName = proxyGroup.name
+        latestSnapshot = proxyGroup.enclosingResp
         groupNameLabel = VibrancyTextField(labelWithString: proxyGroup.name)
         selectProxyLabel = VibrancyTextField(labelWithString: targetProxy)
         super.init(autolayout: true)
@@ -230,7 +237,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         selectProxyLabel.textColor = NSColor.secondaryLabelColor
 
         NotificationCenter.default.addObserver(self, selector: #selector(proxyInfoDidUpdate(note:)), name: .proxyUpdate(for: proxyGroup.name), object: nil)
-        if proxyGroup.type.isAutoGroup,
+        if !showMissingCandidates(proxyGroup), proxyGroup.type.isAutoGroup,
            let presentation = AutomaticGroupBenchmarkPresentationStore.reconcile(group: proxyGroup) {
             render(presentation)
         }
@@ -262,22 +269,62 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
             return
         }
         guard let info = note.object as? ClashProxy, info.name == groupName else { return }
+        latestSnapshot = info.enclosingResp
+        if showMissingCandidates(info) { return }
         if info.type.isAutoGroup,
            let presentation = AutomaticGroupBenchmarkPresentationStore.reconcile(group: info) {
             render(presentation)
             return
         }
         selectProxyLabel.stringValue = info.now ?? ""
+        toolTip = nil
     }
 
     private func render(_ presentation: AutomaticGroupBenchmarkPresentation) {
         effectView.alphaValue = 1
         let leaf = presentation.finalLeaf ?? presentation.rowState.presentationName
-        if let result = presentation.rowState.delayDisplay {
-            selectProxyLabel.stringValue = "\(leaf) · \(result)"
-        } else {
-            selectProxyLabel.stringValue = leaf
+        if presentation.selectedPath.contains("COMPATIBLE")
+            || latestSnapshot?.proxiesMap[leaf].map(ClashProxyType.isCompatibilityFallback) == true {
+            selectProxyLabel.stringValue = NSLocalizedString("Direct fallback (no proxy nodes)", comment: "")
+            toolTip = selectProxyLabel.stringValue
+            return
         }
+        let conditions = BenchmarkConditions(url: presentation.identity.benchmarkURL,
+                                             expectedStatus: presentation.identity.expectedStatus)
+        let proxy = latestSnapshot?.proxiesMap[leaf]
+        let cached = proxy.flatMap { GlobalLeafBenchmarkPresentationStore.presentation(for: $0, conditions: conditions) }
+        let resolved = BenchmarkRowResolver.resolve(
+            name: leaf, core: conditions.expectedStatus == nil ? proxy?.testState(for: conditions.url) : nil,
+            cached: cached.map { .init(state: $0.rowState, measuredAt: $0.publishedAt) },
+            contextual: .init(state: presentation.rowState, measuredAt: presentation.publishedAt),
+            activity: .init(state: presentation.rowState, measuredAt: presentation.publishedAt)
+        )
+        let suffix = resolved.isHistorical ? " *" : ""
+        selectProxyLabel.stringValue = "\(leaf) · \(resolved.state.delayDisplay ?? "")\(suffix)"
+        var details = [conditions.url]
+        if let date = resolved.measuredAt {
+            details.append(String(format: NSLocalizedString("Last measured: %@", comment: ""),
+                                  DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)))
+        }
+        if resolved.isHistorical { details.append(NSLocalizedString("Historical benchmark result", comment: "")) }
+        if resolved.lastAttemptUnavailable {
+            details.append(NSLocalizedString("Latest benchmark unavailable; showing the last measurement", comment: ""))
+        }
+        toolTip = details.joined(separator: "\n")
+    }
+
+    private func showMissingCandidates(_ group: ClashProxy) -> Bool {
+        guard let snapshot = group.enclosingResp else { return false }
+        let isFallback: Bool
+        if case .unavailable(_, .compatibilityFallback) = snapshot.resolveSelectedPath(from: group.name) {
+            isFallback = true
+        } else {
+            isFallback = false
+        }
+        guard isFallback || !snapshot.hasBenchmarkCandidates(in: group.name) else { return false }
+        selectProxyLabel.stringValue = NSLocalizedString(isFallback ? "Direct fallback (no proxy nodes)" : "No testable proxy nodes", comment: "")
+        toolTip = selectProxyLabel.stringValue
+        return true
     }
 
     @objc private func showLeftPaddingUpdate(note: NSNotification) {

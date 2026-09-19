@@ -101,6 +101,8 @@ class ProxyItemView: MenuItemBaseView {
     }
 
     func update(selected: Bool) {
+        needsLayout = true
+        needsDisplay = true
         if selected {
             if imageView == nil {
                 let image: NSImage

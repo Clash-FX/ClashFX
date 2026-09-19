@@ -629,3 +629,12 @@
 "This shortcut is commonly reserved by macOS. Use it anyway?" = "このショートカットは通常 macOS で予約されています。それでも使用しますか？";
 "Use Anyway" = "このまま使用";
 "Configured port: %d; temporary runtime fallback: %d" = "設定ポート：%d、一時実行ポート：%d";
+
+// Benchmark evidence provenance
+"Last measured: %@" = "最終測定：%@";
+"Historical benchmark result" = "過去の測定結果";
+"Latest benchmark unavailable; showing the last measurement" = "今回の測定は利用できません。前回の測定結果を表示しています";
+"Not tested" = "未測定";
+
+"No testable proxy nodes" = "測定可能なプロキシノードがありません";
+"Direct fallback (no proxy nodes)" = "直接接続にフォールバック（プロキシノードなし）";

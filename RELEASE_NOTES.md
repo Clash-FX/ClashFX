@@ -1,3 +1,24 @@
+### Bug Fixes
+
+- **Correct Proxy Benchmark Results** — Empty regional groups using Mihomo's COMPATIBLE direct fallback no longer display a successful proxy delay. Explicit DIRECT entries remain testable, and results are isolated by node identity, provider, URL and expected status. (#219, #236)
+- **Reliable Menu Refresh and Retesting** — Preserve valid recent measurements across menu rebuilds, mark historical results, and distinguish API outages from genuine probe failures. Consecutive group tests keep their snapshots valid; cancelled or obsolete callbacks cannot overwrite newer results.
+- **More Readable Legacy Dashboard Themes** — The old-WebKit fallback now covers bottom navigation and popup backgrounds, improves muted text and selected-state contrast, and handles changing CSS classes with batched updates. Modern WebKit retains upstream styling. (#221)
+- **Consistent Lab Build Compatibility** — Pin the Actions toolchain to Xcode 26.6 and check Intel/Apple Silicon architectures plus the declared minimum macOS versions of the app, helper and core, including the packaged DMG.
+
+Validation: 142 isolated regression tests and a separate real-Mihomo/local-node menu workflow passed. Original reporter configurations and WebKit 605.1.15 still need field confirmation.
+
+---
+
+### 改进
+
+- **修正代理测速结果归属** — 空地区组落到 Mihomo 的 COMPATIBLE 直连兜底时，不再显示虚假的代理延迟。显式 DIRECT 仍可测速；结果按节点身份、provider、URL 和预期状态隔离。 (#219, #236)
+- **稳定菜单刷新与连续复测** — 菜单重建保留仍有效的最近测量并标注历史状态，区分接口不可用与节点探测失败。连续测试不同组时保持快照有效，取消或过期回调不会覆盖新结果。
+- **改善旧 WebKit 面板可读性** — 补齐底部导航和弹层背景，改善辅助文字与选中状态的对比度，并合并处理动态 CSS 类变化。现代 WebKit 保留上游样式。 (#221)
+- **固定 Lab 构建兼容性** — Actions 固定使用 Xcode 26.6，检查 App、helper、核心及最终 DMG 的 Intel/Apple Silicon 架构和最低系统版本声明。
+
+验证：142 项隔离回归及独立真实 Mihomo／本地节点菜单验证通过；原反馈者配置和 WebKit 605.1.15 仍需实机确认。
+---
+
 ### Features
 
 - **Claude Proxy Lock Fails Closed on One Chosen Node** — A new menu action pins Claude Desktop, Claude Code process traffic, and Anthropic web domains to one concrete proxy in Enhanced Mode. ClashFX forces Rule mode and System Proxy, restores either if another controller changes them, blocks their manual shutdown while the lock is active, and leaves the local System Proxy sentinel in place on quit so protected clients cannot silently fall back. The dialog states the limits for extensions, app-specific proxies, and software that ignores macOS networking settings.

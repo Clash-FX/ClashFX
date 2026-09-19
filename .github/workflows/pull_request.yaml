@@ -24,7 +24,10 @@ jobs:
 
     - uses: maxim-lobanov/setup-xcode@v1
       with:
-        xcode-version: latest-stable
+        xcode-version: '26.6'
+
+    - name: verify deployment toolchain
+      run: python3 scripts/verify-release-compatibility.py --sdk
 
     - name: install deps
       run: |
@@ -38,6 +41,13 @@ jobs:
         sudo rm -rf /usr/local/share/dotnet 2>/dev/null || true
         rm -rf ~/Library/Caches/CocoaPods 2>/dev/null || true
         echo "After cleanup: $(df -h / | tail -1 | awk '{print $4}') available"
+
+    - name: isolated regression tests
+      run: |
+        xcodebuild -workspace ClashFX.xcworkspace -scheme ClashFX \
+          -destination 'platform=macOS,arch=arm64' \
+          -skip-testing:ClashFXTests/RealCoreMenuIntegrationTests \
+          test CODE_SIGNING_ALLOWED=NO
 
     - name: build
       run: |
@@ -59,3 +69,4 @@ jobs:
         fi
 
         echo "Build complete! App at: $APP_PATH"
+        python3 scripts/verify-release-compatibility.py --app "$APP_PATH"
