@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.3 (Lab)</h2><ul><li><strong>Benchmark Details Stay Out of the Way</strong> — Benchmark details no longer appear as a whole-row tooltip while testing. After completion, they are available only when hovering the delay value, use the clearer “Measured at” wording, and continue to mark retained historical results with `*`. Text-only legacy menus avoid restoring a disruptive row-wide tooltip. (#219, #236)</li><li><strong>Choose How Menu-Bar Speeds Align</strong> — Appearance settings now offer left, center, and right alignment for the upload/download speed lines. Changes apply immediately and persist across launches; right alignment remains the default. Both the legacy label renderer and the macOS 26+ direct-drawing path are covered.</li></ul>
+  ]]></description>
+  <pubDate>Sun, 20 Sep 2026 03:21:29 +0000</pubDate>
+  <sparkle:version>1001011003</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.3/ClashFX.dmg"
+    sparkle:version="1001011003"
+    sparkle:shortVersionString="1.1.11.3"
+    sparkle:edSignature="D+TNoswqzLm662j79J/LiiYFV7RhpveUq+KsqZHwSQAhm+p+4UisQI3pKgGkYmp9XL6uPhlvbax6Es4lQTExAQ=="
+    length="95288274"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.2 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.2 (Lab)</h2><ul><li><strong>Correct Proxy Benchmark Results</strong> — Empty regional groups using Mihomo's COMPATIBLE direct fallback no longer display a successful proxy delay. Explicit DIRECT entries remain testable, and results are isolated by node identity, provider, URL and expected status. (#219, #236)</li><li><strong>Reliable Menu Refresh and Retesting</strong> — Preserve valid recent measurements across menu rebuilds, mark historical results, and distinguish API outages from genuine probe failures. Consecutive group tests keep their snapshots valid; cancelled or obsolete callbacks cannot overwrite newer results.</li><li><strong>More Readable Legacy Dashboard Themes</strong> — The old-WebKit fallback now covers bottom navigation and popup backgrounds, improves muted text and selected-state contrast, and handles changing CSS classes with batched updates. Modern WebKit retains upstream styling. (#221)</li><li><strong>Consistent Lab Build Compatibility</strong> — Pin the Actions toolchain to Xcode 26.6 and check Intel/Apple Silicon architectures plus the declared minimum macOS versions of the app, helper and core, including the packaged DMG.</li></ul>
