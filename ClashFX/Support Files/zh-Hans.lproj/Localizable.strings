@@ -424,6 +424,11 @@
 
 /* No comment provided by engineer. */
 "Tray Icon" = "菜单栏图标";
+"Menu Bar Speed" = "菜单栏速度";
+"Speed alignment" = "速度对齐";
+"Speed Align Left" = "左";
+"Speed Align Center" = "居中";
+"Speed Align Right" = "右";
 
 /* No comment provided by engineer. */
 "The file could not be loaded as an image." = "无法将该文件加载为图片。";
@@ -672,7 +677,7 @@
 "Configured port: %d; temporary runtime fallback: %d" = "配置端口：%d；临时运行端口：%d";
 
 // Benchmark evidence provenance
-"Last measured: %@" = "上次测量：%@";
+"Measured at: %@" = "测量时间：%@";
 "Historical benchmark result" = "历史测速结果";
 "Latest benchmark unavailable; showing the last measurement" = "本次测速不可用；显示上次测量结果";
 "Not tested" = "未测速";

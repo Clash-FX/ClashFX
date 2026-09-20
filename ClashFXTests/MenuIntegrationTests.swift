@@ -202,7 +202,17 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertTrue(selected(automatic, "Leaf-B"))
         XCTAssertEqual(text(automatic, "Leaf-B"), "80 ms")
         let labels = header!.effectView.subviews.compactMap { ($0 as? NSTextField)?.stringValue }
-        XCTAssertTrue(labels.contains { $0.contains("Leaf-B") && $0.contains("80 ms") }, "\(labels)")
+        XCTAssertTrue(labels.contains { $0.contains("Leaf-B") }, "\(labels)")
+        XCTAssertEqual(header!.delayLabel.stringValue, "80 ms")
+        XCTAssertNil(header!.toolTip)
+        XCTAssertTrue(header!.delayLabel.toolTip?.contains(urlB) == true)
+        header!.frame = NSRect(x: 0, y: 0, width: 360, height: 22)
+        header!.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(header!.delayLabel.frame.width, 0)
+        XCTAssertLessThan(header!.delayLabel.frame.width, 100)
+        let nodeLabel = header!.effectView.subviews.compactMap { $0 as? NSTextField }
+            .first { $0.stringValue.contains("Leaf-B") }!
+        XCTAssertLessThanOrEqual(nodeLabel.frame.maxX, header!.delayLabel.frame.minX)
         let request = MihomoMenuURLProtocol.requests.first { $0.url!.path == "/group/Automatic/delay" }!
         XCTAssertTrue(request.url!.absoluteString.contains("test-b.invalid"))
     }
@@ -221,8 +231,76 @@ final class MenuIntegrationTests: XCTestCase {
         clickBenchmark(reopened)
         finish(reopened)
         XCTAssertEqual(text(reopened, "Leaf-A"), "90 ms *")
-        XCTAssertTrue(row(reopened, "Leaf-A").toolTip!.contains(NSLocalizedString("Latest benchmark unavailable; showing the last measurement", comment: "")))
+        XCTAssertNil(row(reopened, "Leaf-A").toolTip)
+        XCTAssertTrue((row(reopened, "Leaf-A").view as! ProxyItemView).delayLabel.toolTip!.contains(NSLocalizedString("Latest benchmark unavailable; showing the last measurement", comment: "")))
         XCTAssertEqual(text(first, "Leaf-A"), text(reopened, "Leaf-A"))
+    }
+
+    func testBenchmarkTooltipOnlyOnDelayAndClearedDuringRetest() {
+        let menu = menu()
+        let item = row(menu, "Leaf-A")
+        let view = item.view as! ProxyItemView
+        XCTAssertNil(view.delayLabel.toolTip)
+        configure("Leaf-A", urlA, 83)
+        clickBenchmark(menu)
+        finish(menu)
+        XCTAssertNil(item.toolTip)
+        XCTAssertNil(view.toolTip)
+        XCTAssertNil(view.nameLabel.toolTip)
+        XCTAssertTrue(view.delayLabel.toolTip?.contains(urlA) == true)
+        XCTAssertTrue(view.delayLabel.toolTip?.contains("Measured at:") == true)
+
+        MihomoMenuURLProtocol.hold = true
+        clickBenchmark(menu)
+        waitUntil("retest held") { !MihomoMenuURLProtocol.held.isEmpty }
+        XCTAssertNil(view.delayLabel.toolTip)
+        refresh()
+        XCTAssertNil(view.delayLabel.toolTip)
+        AppDelegate.shared.cancel()
+        finish(menu)
+        XCTAssertNil(item.toolTip)
+        XCTAssertNotNil(view.delayLabel.toolTip)
+        XCTAssertTrue(view.delayLabel.stringValue.contains("*"))
+    }
+
+    func testAutomaticHeaderTooltipClearsWhileTestingAndAfterEvidenceReset() {
+        let automatic = menu("Automatic")
+        let group = snapshot.proxiesMap["Automatic"]!
+        header = ProxyGroupMenuItemView(proxyGroup: group, targetProxy: "Leaf-A", hasLeftPadding: true)
+        MihomoMenuURLProtocol.groupReply = .init(body: ["Leaf-A": 20, "Leaf-B": 80])
+        clickBenchmark(automatic)
+        finish(automatic)
+        XCTAssertNotNil(header!.delayLabel.toolTip)
+        XCTAssertNil(header!.toolTip)
+        for label in header!.effectView.subviews.compactMap({ $0 as? NSTextField }) where label !== header!.delayLabel {
+            XCTAssertNil(label.toolTip)
+        }
+        MihomoMenuURLProtocol.hold = true
+        clickBenchmark(automatic)
+        waitUntil("automatic retest held") { !MihomoMenuURLProtocol.held.isEmpty }
+        XCTAssertNil(header!.delayLabel.toolTip)
+        XCTAssertNil(header!.toolTip)
+        MihomoMenuURLProtocol.hold = false
+        MihomoMenuURLProtocol.releaseHeld()
+        finish(automatic)
+        XCTAssertNotNil(header!.delayLabel.toolTip)
+        AutomaticGroupBenchmarkPresentationStore.clearAll()
+        setNow("Automatic", "Leaf-B")
+        refresh()
+        XCTAssertNil(header!.delayLabel.toolTip)
+        XCTAssertEqual(header!.delayLabel.stringValue, "")
+    }
+
+    func testTextOnlyMenuDoesNotRestoreWholeRowTooltip() {
+        MenuItemFactory.useViewToRenderProxy = false
+        defer { MenuItemFactory.useViewToRenderProxy = true }
+        let menu = menu()
+        configure("Leaf-A", urlA, 83)
+        clickBenchmark(menu)
+        finish(menu)
+        XCTAssertNil(row(menu, "Leaf-A").view)
+        XCTAssertNil(row(menu, "Leaf-A").toolTip)
+        XCTAssertTrue(text(menu, "Leaf-A").contains("83 ms"))
     }
 
     func testDifferentURLsStayIsolatedDuringNotificationsAndReopen() {

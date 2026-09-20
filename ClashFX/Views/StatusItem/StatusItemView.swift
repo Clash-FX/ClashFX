@@ -14,6 +14,7 @@ class StatusItemView: NSView, StatusItemViewProtocol {
     @IBOutlet var speedContainerView: NSView!
 
     private var speedTextView: SpeedTextView!
+    private var speedAlignmentObserver: NSObjectProtocol?
     private let iconOnlyWidth: CGFloat = 25
     private let speedTextPadding: CGFloat = 7
 
@@ -69,6 +70,21 @@ class StatusItemView: NSView, StatusItemViewProtocol {
 
         imageView.setContentCompressionResistancePriority(.required, for: .horizontal)
         imageView.setContentHuggingPriority(.required, for: .horizontal)
+
+        speedAlignmentObserver = NotificationCenter.default.addObserver(
+            forName: Settings.menuBarSpeedAlignmentDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let alignment = note.object as? MenuBarSpeedAlignment ?? Settings.menuBarSpeedAlignment
+            self?.speedTextView.updateAlignment(alignment)
+        }
+    }
+
+    deinit {
+        if let speedAlignmentObserver {
+            NotificationCenter.default.removeObserver(speedAlignmentObserver)
+        }
     }
 
     func updateSize(width: CGFloat) {

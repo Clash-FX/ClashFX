@@ -1,3 +1,23 @@
+### Improvements
+
+- **Benchmark Details Stay Out of the Way** — Benchmark details no longer appear as a whole-row tooltip while testing. After completion, they are available only when hovering the delay value, use the clearer “Measured at” wording, and continue to mark retained historical results with `*`. Text-only legacy menus avoid restoring a disruptive row-wide tooltip. (#219, #236)
+- **Choose How Menu-Bar Speeds Align** — Appearance settings now offer left, center, and right alignment for the upload/download speed lines. Changes apply immediately and persist across launches; right alignment remains the default. Both the legacy label renderer and the macOS 26+ direct-drawing path are covered.
+
+Validation: 149 isolated regression tests passed, including real AppKit menu rows and the production speed view switching through all three alignments. The running ClashFX process, Mihomo process, and system proxy configuration remained unchanged throughout testing.
+
+---
+
+### 改进
+
+- **测速详情不再干扰菜单操作** — 测速过程中不再显示整行悬浮提示；完成后仅在鼠标停留于延迟数值时显示详情，文案改为更清晰的“测量时间”，保留的历史结果继续使用 `*` 标记。旧系统的纯文本菜单不会重新出现整行提示。 (#219, #236)
+- **菜单栏速度支持自定义对齐** — “外观”设置新增左、居中、右三种上传／下载速度对齐方式，修改后立即生效并跨启动保存；默认仍为原来的右对齐。同时覆盖旧版标签渲染和 macOS 26+ 直接绘制路径。
+
+验证：149 项隔离回归测试通过，包括真实 AppKit 菜单行以及生产速度视图的三种对齐切换；测试期间正在运行的 ClashFX、Mihomo 和系统代理配置均未改变。
+
+<!-- Previous release notes -->
+
+---
+
 ### Bug Fixes
 
 - **Correct Proxy Benchmark Results** — Empty regional groups using Mihomo's COMPATIBLE direct fallback no longer display a successful proxy delay. Explicit DIRECT entries remain testable, and results are isolated by node identity, provider, URL and expected status. (#219, #236)

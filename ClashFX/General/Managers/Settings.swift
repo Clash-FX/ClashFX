@@ -190,6 +190,21 @@ enum Settings {
     @UserDefault("disableMenubarNotice", defaultValue: false)
     static var disableMenubarNotice: Bool
 
+    @UserDefault("menuBarSpeedAlignment", defaultValue: MenuBarSpeedAlignment.right.rawValue)
+    private static var menuBarSpeedAlignmentRawValue: Int
+
+    static var menuBarSpeedAlignment: MenuBarSpeedAlignment {
+        return MenuBarSpeedAlignment.persisted(rawValue: menuBarSpeedAlignmentRawValue)
+    }
+
+    static let menuBarSpeedAlignmentDidChange = Notification.Name("ClashFX.menuBarSpeedAlignmentDidChange")
+
+    static func setMenuBarSpeedAlignment(_ alignment: MenuBarSpeedAlignment) {
+        guard alignment != menuBarSpeedAlignment else { return }
+        menuBarSpeedAlignmentRawValue = alignment.rawValue
+        NotificationCenter.default.post(name: menuBarSpeedAlignmentDidChange, object: alignment)
+    }
+
     @UserDefault("proxyPort", defaultValue: 0)
     static var proxyPort: Int
 
