@@ -358,7 +358,7 @@ class ProxyMenuItem: NSMenuItem {
             // into a successful proxy measurement through core direct fallback.
             presentationName = proxyName
             let message = NSLocalizedString(isFallback ? "Direct fallback (no proxy nodes)" : "No testable proxy nodes", comment: "")
-            toolTip = message + "\n" + conditions.url
+            updateBenchmarkToolTip(nil)
             updatePresentation(name: proxyName, delay: message, rawValue: nil)
             return
         }
@@ -400,7 +400,7 @@ class ProxyMenuItem: NSMenuItem {
         tooltip.append(conditions.url)
         if let date = presentation.measuredAt {
             let timestamp = DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)
-            tooltip.append(String(format: NSLocalizedString("Last measured: %@", comment: ""), timestamp))
+            tooltip.append(String(format: NSLocalizedString("Measured at: %@", comment: ""), timestamp))
         }
         if presentation.isHistorical {
             tooltip.append(NSLocalizedString("Historical benchmark result", comment: ""))
@@ -408,7 +408,11 @@ class ProxyMenuItem: NSMenuItem {
         if presentation.lastAttemptUnavailable {
             tooltip.append(NSLocalizedString("Latest benchmark unavailable; showing the last measurement", comment: ""))
         }
-        toolTip = tooltip.joined(separator: "\n")
+        if case .testing = presentation.state {
+            updateBenchmarkToolTip(nil)
+        } else {
+            updateBenchmarkToolTip(presentation.measuredAt == nil ? nil : tooltip.joined(separator: "\n"))
+        }
         var delay = presentation.state.delayDisplay
         if presentation.measuredAt == nil, activity == nil {
             delay = NSLocalizedString("Not tested", comment: "")
@@ -422,6 +426,13 @@ class ProxyMenuItem: NSMenuItem {
         guard let snapshot = root.enclosingResp ?? latestSnapshot,
               case let .resolved(_, leaf) = snapshot.resolveSelectedPath(from: root.name) else { return nil }
         return leaf
+    }
+
+    private func updateBenchmarkToolTip(_ details: String?) {
+        // Native text-only menu items cannot restrict their tooltip to the
+        // delay suffix. Do not fall back to a disruptive whole-row tooltip.
+        toolTip = nil
+        (view as? ProxyItemView)?.delayLabel.toolTip = details
     }
 
     private func updatePresentation(name: String, delay: String?, rawValue: Int?) {

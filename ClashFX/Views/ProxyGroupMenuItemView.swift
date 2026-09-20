@@ -175,6 +175,8 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
     private var latestSnapshot: ClashProxyResp?
     private let groupNameLabel: NSTextField
     private let selectProxyLabel: NSTextField
+    let delayLabel = VibrancyTextField(labelWithString: "")
+    private var delaySpacingConstraint: NSLayoutConstraint?
     private let arrowLabel: NSControl = {
         if #available(macOS 11, *) {
             let image = NSImage(named: NSImage.goForwardTemplateName)!.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .bold, scale: .small))!
@@ -192,7 +194,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
     private let leftPadding: CGFloat = 20
 
     override var cells: [NSCell?] {
-        return [groupNameLabel.cell, selectProxyLabel.cell, arrowLabel.cell]
+        return [groupNameLabel.cell, selectProxyLabel.cell, delayLabel.cell, arrowLabel.cell]
     }
 
     init(proxyGroup: ClashProxy, targetProxy: ClashProxyName, hasLeftPadding: Bool) {
@@ -220,21 +222,30 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
 
         selectProxyLabel.translatesAutoresizingMaskIntoConstraints = false
         effectView.addSubview(selectProxyLabel)
-        selectProxyLabel.rightAnchor.constraint(equalTo: effectView.rightAnchor, constant: -30).isActive = true
+        delayLabel.translatesAutoresizingMaskIntoConstraints = false
+        effectView.addSubview(delayLabel)
+        delayLabel.rightAnchor.constraint(equalTo: effectView.rightAnchor, constant: -30).isActive = true
+        delayLabel.centerYAnchor.constraint(equalTo: effectView.centerYAnchor).isActive = true
+        delayLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        delayLabel.setContentHuggingPriority(.required, for: .horizontal)
+        delaySpacingConstraint = delayLabel.leftAnchor.constraint(equalTo: selectProxyLabel.rightAnchor)
+        delaySpacingConstraint?.isActive = true
         selectProxyLabel.centerYAnchor.constraint(equalTo: effectView.centerYAnchor).isActive = true
         selectProxyLabel.lineBreakMode = .byTruncatingHead
         selectProxyLabel.leftAnchor.constraint(greaterThanOrEqualTo: groupNameLabel.rightAnchor, constant: 20).isActive = true
 
         effectView.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         if #available(macOS 14, *) {
-            selectProxyLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
+            delayLabel.rightAnchor.constraint(lessThanOrEqualTo: selectProxyLabel.leftAnchor, constant: 200).isActive = true
         } else {
             effectView.widthAnchor.constraint(lessThanOrEqualToConstant: 330).isActive = true
         }
         groupNameLabel.font = type(of: self).labelFont
         selectProxyLabel.font = type(of: self).labelFont
+        delayLabel.font = type(of: self).labelFont
         groupNameLabel.textColor = NSColor.labelColor
         selectProxyLabel.textColor = NSColor.secondaryLabelColor
+        delayLabel.textColor = NSColor.secondaryLabelColor
 
         NotificationCenter.default.addObserver(self, selector: #selector(proxyInfoDidUpdate(note:)), name: .proxyUpdate(for: proxyGroup.name), object: nil)
         if !showMissingCandidates(proxyGroup), proxyGroup.type.isAutoGroup,
@@ -277,16 +288,16 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
             return
         }
         selectProxyLabel.stringValue = info.now ?? ""
-        toolTip = nil
+        clearBenchmarkDetails()
     }
 
     private func render(_ presentation: AutomaticGroupBenchmarkPresentation) {
+        clearBenchmarkDetails()
         effectView.alphaValue = 1
         let leaf = presentation.finalLeaf ?? presentation.rowState.presentationName
         if presentation.selectedPath.contains("COMPATIBLE")
             || latestSnapshot?.proxiesMap[leaf].map(ClashProxyType.isCompatibilityFallback) == true {
             selectProxyLabel.stringValue = NSLocalizedString("Direct fallback (no proxy nodes)", comment: "")
-            toolTip = selectProxyLabel.stringValue
             return
         }
         let conditions = BenchmarkConditions(url: presentation.identity.benchmarkURL,
@@ -300,17 +311,27 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
             activity: .init(state: presentation.rowState, measuredAt: presentation.publishedAt)
         )
         let suffix = resolved.isHistorical ? " *" : ""
-        selectProxyLabel.stringValue = "\(leaf) · \(resolved.state.delayDisplay ?? "")\(suffix)"
+        selectProxyLabel.stringValue = "\(leaf) ·"
+        delayLabel.stringValue = "\(resolved.state.delayDisplay ?? "")\(suffix)"
+        delaySpacingConstraint?.constant = 4
         var details = [conditions.url]
         if let date = resolved.measuredAt {
-            details.append(String(format: NSLocalizedString("Last measured: %@", comment: ""),
+            details.append(String(format: NSLocalizedString("Measured at: %@", comment: ""),
                                   DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)))
         }
         if resolved.isHistorical { details.append(NSLocalizedString("Historical benchmark result", comment: "")) }
         if resolved.lastAttemptUnavailable {
             details.append(NSLocalizedString("Latest benchmark unavailable; showing the last measurement", comment: ""))
         }
-        toolTip = details.joined(separator: "\n")
+        if case .testing = resolved.state { return }
+        delayLabel.toolTip = resolved.measuredAt == nil ? nil : details.joined(separator: "\n")
+    }
+
+    private func clearBenchmarkDetails() {
+        toolTip = nil
+        delayLabel.toolTip = nil
+        delayLabel.stringValue = ""
+        delaySpacingConstraint?.constant = 0
     }
 
     private func showMissingCandidates(_ group: ClashProxy) -> Bool {
@@ -323,7 +344,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         }
         guard isFallback || !snapshot.hasBenchmarkCandidates(in: group.name) else { return false }
         selectProxyLabel.stringValue = NSLocalizedString(isFallback ? "Direct fallback (no proxy nodes)" : "No testable proxy nodes", comment: "")
-        toolTip = selectProxyLabel.stringValue
+        clearBenchmarkDetails()
         return true
     }
 

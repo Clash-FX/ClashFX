@@ -386,6 +386,11 @@
 
 /* No comment provided by engineer. */
 "Tray Icon" = "Tray Icon";
+"Menu Bar Speed" = "Menu Bar Speed";
+"Speed alignment" = "Speed alignment";
+"Speed Align Left" = "Left";
+"Speed Align Center" = "Center";
+"Speed Align Right" = "Right";
 
 /* No comment provided by engineer. */
 "The file could not be loaded as an image." = "The file could not be loaded as an image.";
@@ -638,7 +643,7 @@
 "Configured port: %d; temporary runtime fallback: %d" = "Configured port: %d; temporary runtime fallback: %d";
 
 // Benchmark evidence provenance
-"Last measured: %@" = "Last measured: %@";
+"Measured at: %@" = "Measured at: %@";
 "Historical benchmark result" = "Historical benchmark result";
 "Latest benchmark unavailable; showing the last measurement" = "Latest benchmark unavailable; showing the last measurement";
 "Not tested" = "Not tested";

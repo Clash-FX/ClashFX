@@ -23,6 +23,7 @@ class SpeedTextView: NSView {
 
     private var upLabel: NSTextField?
     private var downLabel: NSTextField?
+    private(set) var speedAlignment = Settings.menuBarSpeedAlignment
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -54,11 +55,14 @@ class SpeedTextView: NSView {
 
         NSLayoutConstraint.activate([
             up.topAnchor.constraint(equalTo: topAnchor, constant: 0),
+            up.leadingAnchor.constraint(equalTo: leadingAnchor),
             up.trailingAnchor.constraint(equalTo: trailingAnchor),
             down.bottomAnchor.constraint(equalTo: bottomAnchor, constant: 0),
+            down.leadingAnchor.constraint(equalTo: leadingAnchor),
             down.trailingAnchor.constraint(equalTo: trailingAnchor)
         ])
 
+        applySpeedAlignment()
         update(up: upSpeed, down: downSpeed)
     }
 
@@ -67,7 +71,6 @@ class SpeedTextView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = StatusItemTool.speedFont
         label.textColor = .labelColor
-        label.alignment = .right
         label.backgroundColor = .clear
         label.isBezeled = false
         label.isBordered = false
@@ -93,6 +96,19 @@ class SpeedTextView: NSView {
         needsDisplay = true
     }
 
+    func updateAlignment(_ alignment: MenuBarSpeedAlignment) {
+        guard speedAlignment != alignment else { return }
+        speedAlignment = alignment
+        applySpeedAlignment()
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    private func applySpeedAlignment() {
+        upLabel?.alignment = speedAlignment.textAlignment
+        downLabel?.alignment = speedAlignment.textAlignment
+    }
+
     override func layout() {
         super.layout()
         // Auto Layout may resolve bounds after the initial draw call (which
@@ -115,9 +131,8 @@ class SpeedTextView: NSView {
         let upSize = (upSpeed as NSString).size(withAttributes: attrs)
         let downSize = (downSpeed as NSString).size(withAttributes: attrs)
 
-        // Right-aligned text
-        let upX = bounds.width - upSize.width
-        let downX = bounds.width - downSize.width
+        let upX = speedAlignment.textOriginX(containerWidth: bounds.width, textWidth: upSize.width)
+        let downX = speedAlignment.textOriginX(containerWidth: bounds.width, textWidth: downSize.width)
 
         // Top half: upload speed
         (upSpeed as NSString).draw(at: NSPoint(x: upX, y: 1), withAttributes: attrs)

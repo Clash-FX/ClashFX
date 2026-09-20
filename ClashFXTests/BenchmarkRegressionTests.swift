@@ -3,6 +3,54 @@ import JavaScriptCore
 import WebKit
 import XCTest
 
+final class MenuBarSpeedAlignmentTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        _ = NSApplication.shared
+        Settings.menuBarSpeedAlignment = .right
+    }
+
+    func testInvalidPersistedValueFallsBackToExistingRightAlignment() {
+        XCTAssertEqual(MenuBarSpeedAlignment.persisted(rawValue: -1), .right)
+        XCTAssertEqual(MenuBarSpeedAlignment.persisted(rawValue: 99), .right)
+        XCTAssertEqual(MenuBarSpeedAlignment.persisted(rawValue: 0), .left)
+        XCTAssertEqual(MenuBarSpeedAlignment.persisted(rawValue: 1), .center)
+        XCTAssertEqual(MenuBarSpeedAlignment.persisted(rawValue: 2), .right)
+    }
+
+    func testEachAlignmentUsesTheExpectedDrawingOriginAndLegacyTextAlignment() {
+        XCTAssertEqual(MenuBarSpeedAlignment.left.textOriginX(containerWidth: 100, textWidth: 40), 0)
+        XCTAssertEqual(MenuBarSpeedAlignment.center.textOriginX(containerWidth: 100, textWidth: 40), 30)
+        XCTAssertEqual(MenuBarSpeedAlignment.right.textOriginX(containerWidth: 100, textWidth: 40), 60)
+        XCTAssertEqual(MenuBarSpeedAlignment.left.textAlignment, .left)
+        XCTAssertEqual(MenuBarSpeedAlignment.center.textAlignment, .center)
+        XCTAssertEqual(MenuBarSpeedAlignment.right.textAlignment, .right)
+    }
+
+    func testTextWiderThanContainerNeverProducesANegativeOrigin() {
+        for alignment in MenuBarSpeedAlignment.allCases {
+            XCTAssertEqual(
+                alignment.textOriginX(containerWidth: 20, textWidth: 40),
+                0
+            )
+        }
+    }
+
+    func testProductionSpeedViewSwitchesAlignmentWithoutChangingItsWidth() {
+        let view = SpeedTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 22))
+        let width = view.textWidth
+        view.update(up: "2.7KB/s", down: "15.1MB/s")
+
+        for alignment in MenuBarSpeedAlignment.allCases {
+            view.updateAlignment(alignment)
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            XCTAssertEqual(view.speedAlignment, alignment)
+            XCTAssertEqual(view.textWidth, width)
+        }
+    }
+}
+
 final class DashboardWebsiteDataPolicyTests: XCTestCase {
     func testCacheCleanupPreservesPersistentDashboardState() {
         let availableTypes = WKWebsiteDataStore.allWebsiteDataTypes()

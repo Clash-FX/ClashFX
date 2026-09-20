@@ -386,6 +386,11 @@
 
 /* No comment provided by engineer. */
 "Tray Icon" = "トレイアイコン";
+"Menu Bar Speed" = "メニューバーの速度";
+"Speed alignment" = "速度の配置";
+"Speed Align Left" = "左";
+"Speed Align Center" = "中央";
+"Speed Align Right" = "右";
 
 /* No comment provided by engineer. */
 "The file could not be loaded as an image." = "ファイルを画像として読み込めませんでした。";
@@ -631,7 +636,7 @@
 "Configured port: %d; temporary runtime fallback: %d" = "設定ポート：%d、一時実行ポート：%d";
 
 // Benchmark evidence provenance
-"Last measured: %@" = "最終測定：%@";
+"Measured at: %@" = "測定日時：%@";
 "Historical benchmark result" = "過去の測定結果";
 "Latest benchmark unavailable; showing the last measurement" = "今回の測定は利用できません。前回の測定結果を表示しています";
 "Not tested" = "未測定";

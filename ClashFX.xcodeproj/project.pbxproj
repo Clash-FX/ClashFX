@@ -21,6 +21,10 @@
         C23600000000000000000002 /* BenchmarkEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C23600000000000000000001 /* BenchmarkEvidence.swift */; };
         C23600000000000000000003 /* BenchmarkEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C23600000000000000000001 /* BenchmarkEvidence.swift */; };
         C23600000000000000000004 /* Notification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4913C82221157D0200F6B87C /* Notification.swift */; };
+        C31200000000000000000002 /* MenuBarSpeedAlignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C31200000000000000000001 /* MenuBarSpeedAlignment.swift */; };
+        C31200000000000000000003 /* MenuBarSpeedAlignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C31200000000000000000001 /* MenuBarSpeedAlignment.swift */; };
+        C31300000000000000000001 /* SpeedTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE4369C17354E29 /* SpeedTextView.swift */; };
+        C31300000000000000000002 /* StatusItemTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49D6A45129AEEC15006487EF /* StatusItemTool.swift */; };
         D14700000000000000000001 /* SystemProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F935B2FB23085515009E4D33; };
         D14700000000000000000002 /* SystemProxyManager+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14700000000000000000003; };
         D14700000000000000000004 /* IsolatedOperationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14700000000000000000005; };
@@ -239,6 +243,7 @@
         C23700000000000000000010 /* MenuIntegrationSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuIntegrationSupport.swift; sourceTree = "<group>"; };
         C23700000000000000000012 /* MenuIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuIntegrationTests.swift; sourceTree = "<group>"; };
         C23600000000000000000001 /* BenchmarkEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkEvidence.swift; sourceTree = "<group>"; };
+        C31200000000000000000001 /* MenuBarSpeedAlignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarSpeedAlignment.swift; sourceTree = "<group>"; };
         D14700000000000000000003 /* SystemProxyManager+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SystemProxyManager+Live.swift"; sourceTree = "<group>"; };
         D14700000000000000000005 /* IsolatedOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsolatedOperationTests.swift; sourceTree = "<group>"; };
 		C30100000000000000000001 /* BenchmarkRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkRegressionTests.swift; sourceTree = "<group>"; };
@@ -577,6 +582,7 @@
 				49862F9F218418C600A1D5EC /* ClashRule.swift */,
 				49C9EF63223E78F5005D8B6A /* ClashProxy.swift */,
                 C23600000000000000000001 /* BenchmarkEvidence.swift */,
+                C31200000000000000000001 /* MenuBarSpeedAlignment.swift */,
 				499A485722ED715200F6C675 /* RemoteConfigModel.swift */,
 				C1F00002270000000000C027 /* SubscriptionInfoFormatter.swift */,
 				F915A4612366ADEF004840BE /* ClashConnection.swift */,
@@ -1149,6 +1155,9 @@
                 D14700000000000000000004 /* IsolatedOperationTests.swift in Sources */,
 				C30100000000000000000013 /* ClashProxy.swift in Sources */,
                 C23600000000000000000003 /* BenchmarkEvidence.swift in Sources */,
+                C31200000000000000000003 /* MenuBarSpeedAlignment.swift in Sources */,
+                C31300000000000000000001 /* SpeedTextView.swift in Sources */,
+                C31300000000000000000002 /* StatusItemTool.swift in Sources */,
                 C23600000000000000000004 /* Notification.swift in Sources */,
 				C30100000000000000000014 /* ClashProvider.swift in Sources */,
 				C30200000000000000000003 /* StartupProxyRecoveryPolicy.swift in Sources */,
@@ -1287,6 +1296,7 @@
 				49CCDA362A55126A00FF1E13 /* ConnectionDetailInfoView.swift in Sources */,
 				49C9EF64223E78F5005D8B6A /* ClashProxy.swift in Sources */,
                 C23600000000000000000002 /* BenchmarkEvidence.swift in Sources */,
+                C31200000000000000000002 /* MenuBarSpeedAlignment.swift in Sources */,
 				4929F684258CE07500A435F6 /* UserDefaultWrapper.swift in Sources */,
 				F9E8F34623A12B89002DE5E8 /* String+Encode.swift in Sources */,
 				49B445162457CDF000B27E3E /* ClashStatusTool.swift in Sources */,

@@ -6,6 +6,8 @@ import XCTest
 // proxy. An explicitly provided manifest can opt into a separate fixture core.
 enum Settings {
     static var benchMarkUrl = "https://test-a.invalid/204"
+    static var menuBarSpeedAlignment: MenuBarSpeedAlignment = .right
+    static var selectedMenuIconID = "default"
 }
 
 enum MenuItemFactory {

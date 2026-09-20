@@ -68,6 +68,44 @@ class AppearanceSettingViewController: NSViewController {
             ])
         }
 
+        let speedBox = SettingsGroupBox()
+        speedBox.translatesAutoresizingMaskIntoConstraints = false
+        speedBox.title = NSLocalizedString("Menu Bar Speed", comment: "")
+
+        let speedAlignmentLabel = NSTextField(
+            labelWithString: NSLocalizedString("Speed alignment", comment: "")
+        )
+        let speedAlignmentControl = NSSegmentedControl(
+            labels: [
+                NSLocalizedString("Speed Align Left", comment: ""),
+                NSLocalizedString("Speed Align Center", comment: ""),
+                NSLocalizedString("Speed Align Right", comment: "")
+            ],
+            trackingMode: .selectOne,
+            target: self,
+            action: #selector(speedAlignmentChanged(_:))
+        )
+        speedAlignmentControl.selectedSegment = Settings.menuBarSpeedAlignment.rawValue
+        speedAlignmentControl.setAccessibilityLabel(NSLocalizedString("Speed alignment", comment: ""))
+        speedAlignmentControl.setContentHuggingPriority(.required, for: .horizontal)
+
+        let speedAlignmentRow = NSStackView(views: [speedAlignmentLabel, speedAlignmentControl])
+        speedAlignmentRow.translatesAutoresizingMaskIntoConstraints = false
+        speedAlignmentRow.orientation = .horizontal
+        speedAlignmentRow.alignment = .centerY
+        speedAlignmentRow.distribution = .fill
+        speedAlignmentRow.spacing = 12
+        speedBox.contentView?.addSubview(speedAlignmentRow)
+
+        if let cv = speedBox.contentView {
+            NSLayoutConstraint.activate([
+                speedAlignmentRow.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12),
+                speedAlignmentRow.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 16),
+                speedAlignmentRow.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -16),
+                cv.bottomAnchor.constraint(equalTo: speedAlignmentRow.bottomAnchor, constant: 12)
+            ])
+        }
+
         let menuBox = SettingsGroupBox()
         menuBox.translatesAutoresizingMaskIntoConstraints = false
         menuBox.title = NSLocalizedString("Tray Menu", comment: "")
@@ -87,6 +125,7 @@ class AppearanceSettingViewController: NSViewController {
 
         contentView.addSubview(scrollView)
         documentView.addSubview(trayBox)
+        documentView.addSubview(speedBox)
         documentView.addSubview(logoBox)
         documentView.addSubview(menuBox)
 
@@ -105,7 +144,11 @@ class AppearanceSettingViewController: NSViewController {
             trayBox.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 20),
             trayBox.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -20),
 
-            logoBox.topAnchor.constraint(equalTo: trayBox.bottomAnchor, constant: 30),
+            speedBox.topAnchor.constraint(equalTo: trayBox.bottomAnchor, constant: 30),
+            speedBox.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 20),
+            speedBox.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -20),
+
+            logoBox.topAnchor.constraint(equalTo: speedBox.bottomAnchor, constant: 30),
             logoBox.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 20),
             logoBox.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -20),
 
@@ -119,5 +162,10 @@ class AppearanceSettingViewController: NSViewController {
         view = contentView
         title = NSLocalizedString("Appearance", comment: "")
         preferredContentSize = NSSize(width: 420, height: 520)
+    }
+
+    @objc private func speedAlignmentChanged(_ sender: NSSegmentedControl) {
+        guard let alignment = MenuBarSpeedAlignment(rawValue: sender.selectedSegment) else { return }
+        Settings.setMenuBarSpeedAlignment(alignment)
     }
 }

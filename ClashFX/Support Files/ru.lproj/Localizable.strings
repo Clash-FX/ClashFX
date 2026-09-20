@@ -386,6 +386,11 @@
 
 /* No comment provided by engineer. */
 "Tray Icon" = "Иконка трея";
+"Menu Bar Speed" = "Скорость в строке меню";
+"Speed alignment" = "Выравнивание скорости";
+"Speed Align Left" = "Слева";
+"Speed Align Center" = "Центр";
+"Speed Align Right" = "Справа";
 
 /* No comment provided by engineer. */
 "The file could not be loaded as an image." = "Не удалось загрузить файл как изображение.";
@@ -631,7 +636,7 @@
 "Configured port: %d; temporary runtime fallback: %d" = "Настроенный порт: %d; временный рабочий порт: %d";
 
 // Benchmark evidence provenance
-"Last measured: %@" = "Последнее измерение: %@";
+"Measured at: %@" = "Время измерения: %@";
 "Historical benchmark result" = "Предыдущее измерение задержки";
 "Latest benchmark unavailable; showing the last measurement" = "Новое измерение недоступно; показан предыдущий результат";
 "Not tested" = "Не измерено";
