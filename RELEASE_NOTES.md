@@ -1,3 +1,21 @@
+### Bug Fixes
+
+- **Reach a Locked Residential Proxy Through the Fast Relay** — Claude Proxy Lock still sends Claude Desktop, Claude Helper, and the Anthropic domains out through the selected node. The connection to that node's server is now dialed by the proxy currently selected in the MATCH rule, instead of directly from this Mac.
+
+Validation: 7 Claude lock policy tests passed. A local Xcode run confirmed Claude web and Claude Helper traffic exit through the locked Korea ISP node, the connection to that node's server uses Final, and Final's selected node was Japan 27. Those connections had no dial errors.
+
+---
+
+### 修复
+
+- **锁定的住宅代理改由快速节点去连接** — Claude 专用代理锁定仍把 Claude 桌面版、Claude Helper 和 Anthropic 域名的出口固定到所选节点。连向该节点服务器的连接，改由当前 MATCH 规则选中的代理去拨号，不再从本机直连。
+
+验证：7 项 Claude 锁定策略测试通过。本机 Xcode 运行确认 Claude 网页和 Claude Helper 的出口是锁定的韩国 ISP 节点，连向该节点服务器的连接使用 Final，Final 当前选中日本 27，这些连接没有拨号失败。
+
+<!-- Previous release notes -->
+
+---
+
 ### Improvements
 
 - **Benchmark Details Stay Out of the Way** — Benchmark details no longer appear as a whole-row tooltip while testing. After completion, they are available only when hovering the delay value, use the clearer “Measured at” wording, and continue to mark retained historical results with `*`. Text-only legacy menus avoid restoring a disruptive row-wide tooltip. (#219, #236)

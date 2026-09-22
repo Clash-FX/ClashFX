@@ -534,8 +534,7 @@ final class TerminationCleanupPolicyTests: XCTestCase {
 final class ClaudeProxyLockPolicyTests: XCTestCase {
     func testRulesCoverClaudeProcessesAndOfficialDomains() {
         XCTAssertEqual(ClaudeProxyLockPolicy.rules(target: "IPRoyal Korea"), [
-            "PROCESS-NAME,Claude,IPRoyal Korea",
-            "PROCESS-NAME,claude,IPRoyal Korea",
+            "PROCESS-NAME-REGEX,^claude( helper.*)?$,IPRoyal Korea",
             "DOMAIN-SUFFIX,claude.ai,IPRoyal Korea",
             "DOMAIN-SUFFIX,claude.com,IPRoyal Korea",
             "DOMAIN-SUFFIX,anthropic.com,IPRoyal Korea"
@@ -548,18 +547,127 @@ final class ClaudeProxyLockPolicyTests: XCTestCase {
             "find-process-mode": "off",
             "rules": ["MATCH,DIRECT"]
         ]
-        XCTAssertTrue(ClaudeProxyLockPolicy.apply(to: &root, target: "Korea"))
+        let outcome = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
+        XCTAssertTrue(outcome.applied)
         XCTAssertEqual(root["mode"] as? String, "rule")
         XCTAssertEqual(root["find-process-mode"] as? String, "always")
         let rules = root["rules"] as? [String]
         XCTAssertEqual(rules?.last, "MATCH,DIRECT")
-        XCTAssertEqual(rules?.first, "PROCESS-NAME,Claude,Korea")
+        XCTAssertEqual(rules?.first, "PROCESS-NAME-REGEX,^claude( helper.*)?$,Korea")
+    }
+
+    func testLockReachesTheProxyServerThroughTheMatchGroup() {
+        var root: [String: Any] = [
+            "rules": ["MATCH,Final"],
+            "proxy-groups": [[
+                "name": "Final",
+                "type": "select",
+                "now": "Japan 27",
+                "proxies": ["Japan 27", "Korea"]
+            ]],
+            "proxies": [[
+                "name": "Korea",
+                "type": "socks5",
+                "server": "147.125.251.178",
+                "port": 12323,
+                "dialer-proxy": "Japan"
+            ]]
+        ]
+        let outcome = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
+        XCTAssertTrue(outcome.applied)
+        XCTAssertEqual(outcome.relayProxy, "Final")
+        XCTAssertEqual(outcome.serverHost, "147.125.251.178")
+        let proxies = root["proxies"] as? [[String: Any]]
+        XCTAssertEqual(proxies?.first?["dialer-proxy"] as? String, "Final")
+        XCTAssertEqual(root["rules"] as? [String], [
+            "PROCESS-NAME-REGEX,^claude( helper.*)?$,Korea",
+            "DOMAIN-SUFFIX,claude.ai,Korea",
+            "DOMAIN-SUFFIX,claude.com,Korea",
+            "DOMAIN-SUFFIX,anthropic.com,Korea",
+            "MATCH,Final"
+        ])
+    }
+
+    func testLockDoesNotRelayThroughTheLockedNode() {
+        var root: [String: Any] = [
+            "rules": ["MATCH,Final"],
+            "proxy-groups": [[
+                "name": "Final",
+                "type": "select",
+                "now": "Korea"
+            ]],
+            "proxies": [[
+                "name": "Korea",
+                "type": "http",
+                "server": "147.125.251.178",
+                "port": 12323
+            ]]
+        ]
+        let outcome = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
+        XCTAssertNil(outcome.relayProxy)
+        XCTAssertNil((root["proxies"] as? [[String: Any]])?.first?["dialer-proxy"])
+    }
+
+    func testProviderNodeUsesTheMatchGroupAsItsDialer() {
+        var root: [String: Any] = [
+            "rules": ["MATCH,Final"],
+            "proxy-groups": [["name": "Final", "type": "select", "now": "Japan"]],
+            "proxy-providers": [
+                "airport": [
+                    "type": "http",
+                    "path": "providers/airport.yaml",
+                    "dialer-proxy": "Japan",
+                    "exclude-filter": "Ads"
+                ]
+            ]
+        ]
+        let providers = [
+            ClaudeProxyLockPolicy.ProviderSnapshot(
+                name: "airport",
+                dialerProxy: "Japan",
+                overrideDialerProxy: nil,
+                proxies: [[
+                    "name": "A (B)",
+                    "type": "socks5",
+                    "server": "203.0.113.8",
+                    "port": 1080
+                ]]
+            )
+        ]
+        let outcome = ClaudeProxyLockPolicy.apply(
+            to: &root,
+            target: "A (B)",
+            providers: providers
+        )
+        XCTAssertEqual(outcome.relayProxy, "Final")
+        XCTAssertEqual(outcome.serverHost, "203.0.113.8")
+        let proxies = root["proxies"] as? [[String: Any]]
+        XCTAssertEqual(proxies?.first?["name"] as? String, "A (B)")
+        XCTAssertEqual(proxies?.first?["dialer-proxy"] as? String, "Final")
+        let provider = (root["proxy-providers"] as? [String: Any])?["airport"] as? [String: Any]
+        XCTAssertEqual(provider?["exclude-filter"] as? String, "Ads`^A \\(B\\)$")
+        XCTAssertEqual((root["rules"] as? [String])?.first, "PROCESS-NAME-REGEX,^claude( helper.*)?$,A (B)")
+    }
+
+    func testApplyingLockTwiceDoesNotDuplicateRules() {
+        var root: [String: Any] = [
+            "rules": ["MATCH,DIRECT"],
+            "proxies": [["name": "Korea", "server": "147.125.251.178"]]
+        ]
+        _ = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
+        let once = root["rules"] as? [String]
+        let again = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
+        XCTAssertNil(again.relayProxy)
+        XCTAssertEqual(root["rules"] as? [String], once)
     }
 
     func testUnsafeOrFallbackTargetsAreRejected() {
         XCTAssertFalse(ClaudeProxyLockPolicy.isValidTarget("DIRECT"))
         XCTAssertFalse(ClaudeProxyLockPolicy.isValidTarget("bad,target"))
         XCTAssertTrue(ClaudeProxyLockPolicy.rules(target: "bad,target").isEmpty)
+        var root: [String: Any] = ["rules": ["MATCH,DIRECT"]]
+        XCTAssertFalse(ClaudeProxyLockPolicy.apply(to: &root, target: "DIRECT").applied)
+        XCTAssertEqual(root["rules"] as? [String], ["MATCH,DIRECT"])
     }
 }
 
@@ -836,8 +944,8 @@ final class BenchmarkRegressionTests: XCTestCase {
             ["name": "DIRECT", "type": "Direct", "id": "direct-id", "history": []],
             ["name": "Real", "type": "Vless", "id": "real-id", "history": []]
         ])
-        let plan = SelectorBenchmarkPlan.make(selector: try XCTUnwrap(response.proxiesMap["Selector"]),
-                                             snapshot: response, benchmarkURL: "https://test.invalid", timeout: 5000)
+        let plan = try SelectorBenchmarkPlan.make(selector: XCTUnwrap(response.proxiesMap["Selector"]),
+                                                  snapshot: response, benchmarkURL: "https://test.invalid", timeout: 5000)
         XCTAssertNil(plan.selectedAutomaticRetest)
         XCTAssertEqual(Set(plan.targets.map(\.key.proxyName)), ["DIRECT", "Real"])
         for row in plan.orderedRows.prefix(2) {
@@ -852,7 +960,7 @@ final class BenchmarkRegressionTests: XCTestCase {
         }
         let proxy = try XCTUnwrap(response.proxiesMap["COMPATIBLE"])
         let value = GlobalLeafBenchmarkPresentation(identity: .init(proxy: proxy), benchmarkURL: "https://test.invalid",
-            sessionIdentifier: UUID(), rowState: .measured(displayName: "COMPATIBLE", delay: 532))
+                                                    sessionIdentifier: UUID(), rowState: .measured(displayName: "COMPATIBLE", delay: 532))
         var cache = BenchmarkEvidenceCache()
         cache.publish(value)
         XCTAssertNil(value.reconciled(with: proxy))
@@ -1471,7 +1579,7 @@ final class BenchmarkRegressionTests: XCTestCase {
             sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf", delay: 90), publishedAt: date
         )
         XCTAssertEqual(measurement.reconciled(with: leaf)?.rowState.rawDelay, 90)
-        XCTAssertNil(measurement.reconciled(with: try XCTUnwrap(response.proxiesMap["Other"])))
+        XCTAssertNil(try measurement.reconciled(with: XCTUnwrap(response.proxiesMap["Other"])))
         let child = AutomaticGroupChildBenchmarkPresentation(
             identity: AutomaticGroupBenchmarkIdentity(group: group, fallbackBenchmarkURL: url),
             rowName: "Leaf", sessionIdentifier: UUID(),
@@ -1481,7 +1589,7 @@ final class BenchmarkRegressionTests: XCTestCase {
         let changed = snapshot([
             ["name": "Auto", "type": "URLTest", "all": ["Other"], "now": "Other", "testUrl": url, "history": []]
         ])
-        XCTAssertNil(child.reconciled(group: try XCTUnwrap(changed.proxiesMap["Auto"]), fallbackBenchmarkURL: url))
+        XCTAssertNil(try child.reconciled(group: XCTUnwrap(changed.proxiesMap["Auto"]), fallbackBenchmarkURL: url))
     }
 
     func testSelectorPresentationRetainsLastMeasurementAfterOneDay() {
@@ -1681,7 +1789,7 @@ final class BenchmarkEvidenceFlowTests: XCTestCase {
         return ClashProxyResp(try! JSONSerialization.data(withJSONObject: ["proxies": proxies]))
     }
 
-    func testResponseClassificationNeverTurnsAPIErrorsIntoDeadNodes() throws {
+    func testResponseClassificationNeverTurnsAPIErrorsIntoDeadNodes() {
         func decode(_ code: Int, _ body: String, failed: Bool = false) -> ProxyDelayOutcome {
             ProxyDelayOutcome.decode(statusCode: code, data: Data(body.utf8), transportFailed: failed)
         }
@@ -1726,7 +1834,7 @@ final class BenchmarkEvidenceFlowTests: XCTestCase {
         XCTAssertEqual(cache.measurement(for: node, conditions: .init(url: url + "/other"))?.rowState.rawDelay, 130)
         XCTAssertEqual(cache.measurement(for: node, conditions: .init(url: url, expectedStatus: "204"))?.rowState.rawDelay, 150)
         let replacement = snapshot(id: "node-v2")
-        XCTAssertNil(cache.measurement(for: try XCTUnwrap(replacement.proxiesMap["Leaf"]), conditions: .init(url: url)))
+        XCTAssertNil(try cache.measurement(for: XCTUnwrap(replacement.proxiesMap["Leaf"]), conditions: .init(url: url)))
         cache.prune(using: replacement)
         XCTAssertNil(cache.measurement(for: node, conditions: .init(url: url)))
     }
@@ -1787,32 +1895,32 @@ final class BenchmarkEvidenceFlowTests: XCTestCase {
         decoder.dateDecodingStrategy = .formatted(DateFormatter.js)
         let core = try decoder.decode(ClashProxyTestState.self, from: data)
         let result = BenchmarkRowResolver.resolve(name: "Leaf", core: core,
-            cached: .init(state: .measured(displayName: "Leaf", delay: 90), measuredAt: core.history[0].time.addingTimeInterval(-10)),
-            contextual: nil, activity: nil, now: core.history[0].time)
+                                                  cached: .init(state: .measured(displayName: "Leaf", delay: 90), measuredAt: core.history[0].time.addingTimeInterval(-10)),
+                                                  contextual: nil, activity: nil, now: core.history[0].time)
         XCTAssertEqual(result.state.rawDelay, 0)
         let old = BenchmarkRowResolver.resolve(name: "Leaf", core: nil,
-            cached: .init(state: .measured(displayName: "Leaf", delay: 90), measuredAt: base.addingTimeInterval(-48 * 3600)),
-            contextual: nil, activity: nil, now: base)
+                                               cached: .init(state: .measured(displayName: "Leaf", delay: 90), measuredAt: base.addingTimeInterval(-48 * 3600)),
+                                               contextual: nil, activity: nil, now: base)
         XCTAssertEqual(old.state.rawDelay, 90)
         XCTAssertTrue(old.isHistorical)
     }
 
     func testSelectorEvidenceRejectsSameNameReplacementAndChangedPath() throws {
         let original = snapshot()
-        let plan = SelectorBenchmarkPlan.make(selector: original.proxiesMap["Selector"]!, snapshot: original, benchmarkURL: url, timeout: 5000)
+        let plan = try SelectorBenchmarkPlan.make(selector: XCTUnwrap(original.proxiesMap["Selector"]), snapshot: original, benchmarkURL: url, timeout: 5000)
         XCTAssertEqual(plan.targets.first?.key.coreID, "node-v1")
         let presentation = SelectorBenchmarkPresentation(selectorName: "Selector", rowName: "Selector",
-            resolvedLeafName: "Leaf", resolvedCoreID: "node-v1", benchmarkURL: url,
-            sessionIdentifier: UUID(), rowState: .measured(displayName: "Selector", delay: 90))
+                                                         resolvedLeafName: "Leaf", resolvedCoreID: "node-v1", benchmarkURL: url,
+                                                         sessionIdentifier: UUID(), rowState: .measured(displayName: "Selector", delay: 90))
         XCTAssertEqual(presentation.reconciled(with: original, currentBenchmarkURL: url).rowState.rawDelay, 90)
         XCTAssertNil(presentation.reconciled(with: snapshot(id: "node-v2"), currentBenchmarkURL: url).rowState.rawDelay)
         XCTAssertNil(presentation.reconciled(with: snapshot(now: "Other"), currentBenchmarkURL: url).rowState.rawDelay)
     }
 
-    func testProductionExecutorDropsCancelledAndDuplicateLateCallbacks() {
+    func testProductionExecutorDropsCancelledAndDuplicateLateCallbacks() throws {
         let snapshot = snapshot()
-        let plan = SelectorBenchmarkPlan.make(selector: snapshot.proxiesMap["Selector"]!, snapshot: snapshot,
-                                             benchmarkURL: url, timeout: 5000)
+        let plan = try SelectorBenchmarkPlan.make(selector: XCTUnwrap(snapshot.proxiesMap["Selector"]), snapshot: snapshot,
+                                                  benchmarkURL: url, timeout: 5000)
         let started = expectation(description: "requests started")
         started.expectedFulfillmentCount = plan.targets.count
         let completed = expectation(description: "cancelled executor settled")
