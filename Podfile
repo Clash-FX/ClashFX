@@ -8,10 +8,8 @@ post_install do |installer|
         config.build_settings['SWIFT_VERSION'] = '5.0'
       end
 
-      # Ensure minimum deployment target
-      if config.build_settings['MACOSX_DEPLOYMENT_TARGET'] == '' || Gem::Version.new(config.build_settings['MACOSX_DEPLOYMENT_TARGET']) < Gem::Version.new("10.14")
-        config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '10.14'
-      end
+      # Keep the historical macOS 10.14 floor, including pods that request a newer target.
+      config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '10.14'
     end
   end
 end
