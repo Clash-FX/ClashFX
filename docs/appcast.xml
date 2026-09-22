@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.4 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.4 (Lab)</h2><ul><li><strong>Reach a Locked Residential Proxy Through the Fast Relay</strong> — Claude Proxy Lock still sends Claude Desktop, Claude Helper, and the Anthropic domains out through the selected node. The connection to that node's server is now dialed by the proxy currently selected in the MATCH rule, instead of directly from this Mac.</li></ul>
+  ]]></description>
+  <pubDate>Tue, 22 Sep 2026 10:55:08 +0000</pubDate>
+  <sparkle:version>1001011004</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.4</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.4/ClashFX.dmg"
+    sparkle:version="1001011004"
+    sparkle:shortVersionString="1.1.11.4"
+    sparkle:edSignature="GU+am8vYhqI+Kjid9rdEOwFFtAJTtE9kRt55OLPTwHRSl3JpOw7OqJa4VsqF8dENdETRwDDWzfuh240aDr6VAg=="
+    length="95320277"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.3 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.3 (Lab)</h2><ul><li><strong>Benchmark Details Stay Out of the Way</strong> — Benchmark details no longer appear as a whole-row tooltip while testing. After completion, they are available only when hovering the delay value, use the clearer “Measured at” wording, and continue to mark retained historical results with `*`. Text-only legacy menus avoid restoring a disruptive row-wide tooltip. (#219, #236)</li><li><strong>Choose How Menu-Bar Speeds Align</strong> — Appearance settings now offer left, center, and right alignment for the upload/download speed lines. Changes apply immediately and persist across launches; right alignment remains the default. Both the legacy label renderer and the macOS 26+ direct-drawing path are covered.</li></ul>
