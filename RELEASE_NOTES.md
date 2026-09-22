@@ -1,5 +1,23 @@
 ### Bug Fixes
 
+- **Keep the macOS 10.14 Minimum** — The app and CocoaPods stay on macOS 10.14. A newer deployment target requested by a pod, or set locally to satisfy a current Xcode, is not used for Lab builds.
+
+Validation: The app target and Podfile both pin `MACOSX_DEPLOYMENT_TARGET` to 10.14. The local Pods project that had been raised to 14.6 was set back to 10.14. No running ClashFX process was replaced by this check.
+
+---
+
+### 修复
+
+- **最低系统版本保持 macOS 10.14** — 应用和 CocoaPods 继续以 macOS 10.14 为最低版本。某个 Pod 要求更高版本，或为了适应当前 Xcode 而在本机调高的部署目标，都不会进入 Lab 构建。
+
+验证：应用 target 和 Podfile 都把 `MACOSX_DEPLOYMENT_TARGET` 固定为 10.14。本机曾被改成 14.6 的 Pods 工程已改回 10.14。这次检查没有替换正在运行的 ClashFX。
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Reach a Locked Residential Proxy Through the Fast Relay** — Claude Proxy Lock still sends Claude Desktop, Claude Helper, and the Anthropic domains out through the selected node. The connection to that node's server is now dialed by the proxy currently selected in the MATCH rule, instead of directly from this Mac.
 
 Validation: 7 Claude lock policy tests passed. A local Xcode run confirmed Claude web and Claude Helper traffic exit through the locked Korea ISP node, the connection to that node's server uses Final, and Final's selected node was Japan 27. Those connections had no dial errors.
