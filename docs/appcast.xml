@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.5 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.5 (Lab)</h2><ul><li><strong>Keep the macOS 10.14 Minimum</strong> — The app and CocoaPods stay on macOS 10.14. A newer deployment target requested by a pod, or set locally to satisfy a current Xcode, is not used for Lab builds.</li></ul>
+  ]]></description>
+  <pubDate>Tue, 22 Sep 2026 11:31:02 +0000</pubDate>
+  <sparkle:version>1001011005</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.5</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.5/ClashFX.dmg"
+    sparkle:version="1001011005"
+    sparkle:shortVersionString="1.1.11.5"
+    sparkle:edSignature="Wq3LHLZ1VXziaxT3zBMHtj+yTNYx/9pivvXM6bwqhk+Q9XoHA2qUwP5e1vcT3RqQBPmHPdL4emPRnZBpBbLwDA=="
+    length="95296573"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.4 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.4 (Lab)</h2><ul><li><strong>Reach a Locked Residential Proxy Through the Fast Relay</strong> — Claude Proxy Lock still sends Claude Desktop, Claude Helper, and the Anthropic domains out through the selected node. The connection to that node's server is now dialed by the proxy currently selected in the MATCH rule, instead of directly from this Mac.</li></ul>
