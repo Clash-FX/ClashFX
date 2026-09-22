@@ -1413,11 +1413,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func requestConfigUpdateApplyingRuntimePatch(configName: String, callback: @escaping ((ErrorString?) -> Void)) {
         ConfigManager.getConfigPath(configName: configName) { [weak self] sourcePath in
             guard let self = self else { return }
-            if let patchedPath = self.writeRuntimePatchedConfigIfNeeded(
+            let patch = self.writeRuntimePatchedConfigIfNeeded(
                 for: configName,
                 sourcePath: sourcePath,
                 includeRulePatch: true
-            ) {
+            )
+            if let patchedPath = patch.path {
                 ApiRequest.requestConfigUpdate(configPath: patchedPath, callback: callback)
             } else {
                 ApiRequest.requestConfigUpdate(configPath: sourcePath, callback: callback)
@@ -1425,18 +1426,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private struct RuntimeConfigPatch {
+        var path: String?
+        var routeExcludeEntries: [String] = []
+    }
+
     private func writeRuntimePatchedConfigIfNeeded(
         for configName: String,
         sourcePath: String,
         includeRulePatch: Bool
-    ) -> String? {
+    ) -> RuntimeConfigPatch {
         let removePatched: () -> Void = {
             try? FileManager.default.removeItem(atPath: Self.runtimePatchedConfigPath)
         }
 
         guard FileManager.default.fileExists(atPath: sourcePath) else {
             removePatched()
-            return nil
+            return RuntimeConfigPatch()
         }
 
         do {
@@ -1444,7 +1450,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard var root = try Yams.load(yaml: yaml) as? [String: Any] else {
                 Logger.log("[Runtime Patch] YAML root is not a dictionary, skipping", level: .warning)
                 removePatched()
-                return nil
+                return RuntimeConfigPatch()
             }
 
             var changed = applyProfileRuleDirectives(in: &root)
@@ -1452,10 +1458,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             if Settings.claudeProxyLockEnabled {
                 if ClaudeProxyLockPolicy.isValidTarget(Settings.claudeProxyLockTarget) {
-                    changed = ClaudeProxyLockPolicy.apply(
+                    let target = Settings.claudeProxyLockTarget
+                    let providers = claudeLockProviderSnapshots(in: root)
+                    let outcome = ClaudeProxyLockPolicy.apply(
                         to: &root,
-                        target: Settings.claudeProxyLockTarget
-                    ) || changed
+                        target: target,
+                        providers: providers
+                    )
+                    changed = outcome.applied || changed
+                    logClaudeProxyLockOutcome(outcome, target: target)
                 } else {
                     Logger.log("[Claude Proxy Lock] Invalid target; blocking the runtime config", level: .error)
                     root["mode"] = "rule"
@@ -1472,7 +1483,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         guard let parsedRules = rules as? [String] else {
                             Logger.log("[Runtime Patch] YAML rules is not a string array, skipping", level: .warning)
                             removePatched()
-                            return nil
+                            return RuntimeConfigPatch()
                         }
                         existingRules = parsedRules
                     } else {
@@ -1485,18 +1496,83 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             guard changed else {
                 removePatched()
-                return nil
+                return RuntimeConfigPatch()
             }
 
             let patched = try Yams.dump(object: root)
             try patched.write(toFile: Self.runtimePatchedConfigPath, atomically: true, encoding: .utf8)
             Logger.log("[Runtime Patch] Wrote runtime config for \(configName) to \(Self.runtimePatchedConfigPath)")
-            return Self.runtimePatchedConfigPath
+            return RuntimeConfigPatch(path: Self.runtimePatchedConfigPath)
         } catch {
             Logger.log("[Runtime Patch] Failed: \(error.localizedDescription)", level: .warning)
             removePatched()
-            return nil
+            return RuntimeConfigPatch()
         }
+    }
+
+    private func logClaudeProxyLockOutcome(
+        _ outcome: ClaudeProxyLockPolicy.ApplyOutcome,
+        target: String
+    ) {
+        if let relay = outcome.relayProxy {
+            Logger.log("[Claude Proxy Lock] \(target) exits on the locked node; its server is reached through \(relay)")
+        } else {
+            Logger.log(
+                "[Claude Proxy Lock] \(target) has no fast relay, so its server is dialed directly",
+                level: .warning
+            )
+        }
+    }
+
+    private func claudeLockProviderSnapshots(in root: [String: Any]) -> [ClaudeProxyLockPolicy.ProviderSnapshot] {
+        guard let providers = root["proxy-providers"] as? [String: Any] else { return [] }
+        return providers.keys.sorted().compactMap { name in
+            guard let provider = providers[name] as? [String: Any] else { return nil }
+            var proxies = proxyDictionaries(from: provider["payload"])
+            if let path = provider["path"] as? String {
+                let fullPath = resolvedClaudeProviderPath(path)
+                if let yaml = try? String(contentsOfFile: fullPath, encoding: .utf8),
+                   let fileRoot = try? Yams.load(yaml: yaml) as? [String: Any] {
+                    proxies.append(contentsOf: proxyDictionaries(from: fileRoot["proxies"]))
+                }
+            }
+            let override = provider["override"] as? [String: Any]
+            return ClaudeProxyLockPolicy.ProviderSnapshot(
+                name: name,
+                dialerProxy: provider["dialer-proxy"] as? String,
+                overrideDialerProxy: override?["dialer-proxy"] as? String,
+                proxies: proxies
+            )
+        }
+    }
+
+    private func proxyDictionaries(from value: Any?) -> [[String: Any]] {
+        if let proxies = value as? [[String: Any]] {
+            return proxies
+        }
+        if let proxies = value as? [Any] {
+            return proxies.compactMap { $0 as? [String: Any] }
+        }
+        return []
+    }
+
+    private func resolvedClaudeProviderPath(_ path: String) -> String {
+        if path.hasPrefix("/") {
+            return path
+        }
+        let relative = path.hasPrefix("./") ? String(path.dropFirst(2)) : path
+        return (kConfigFolderPath as NSString).appendingPathComponent(relative)
+    }
+
+    private func mergedTunRouteExcludeList(_ extras: [String]) -> String {
+        var seen = Set<String>()
+        var merged: [String] = []
+        for entry in Settings.normalizeAndPersistTunRouteExcludeList() + extras {
+            let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
+            merged.append(trimmed)
+        }
+        return merged.joined(separator: ",")
     }
 
     private func applyProfileMixin(to root: inout [String: Any]) -> Bool {
@@ -3231,11 +3307,12 @@ extension AppDelegate {
         ConfigManager.getConfigPath(configName: selectedConfigName) { selectedConfigPath in
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self = self else { return }
-                let runtimeConfigPath = self.writeRuntimePatchedConfigIfNeeded(
+                let runtimePatch = self.writeRuntimePatchedConfigIfNeeded(
                     for: selectedConfigName,
                     sourcePath: selectedConfigPath,
                     includeRulePatch: false
-                ) ?? selectedConfigPath
+                )
+                let runtimeConfigPath = runtimePatch.path ?? selectedConfigPath
 
                 if Settings.enhancedModeUseCustomConfig {
                     let launchInfo = self.readCustomEnhancedModeLaunchInfo(configPath: runtimeConfigPath)
@@ -3251,10 +3328,11 @@ extension AppDelegate {
                     return
                 }
 
+                let tunRouteExcludes = self.mergedTunRouteExcludeList(runtimePatch.routeExcludeEntries)
                 let writeResult = clashWriteEnhancedConfig(
                     runtimeConfigPath.goStringBuffer(),
                     tempConfigPath.goStringBuffer(),
-                    Settings.normalizeAndPersistTunRouteExcludeList().joined(separator: ",").goStringBuffer(),
+                    tunRouteExcludes.goStringBuffer(),
                     GoUint32(Settings.tunMTU),
                     Settings.tunInterfaceName.goStringBuffer(),
                     Settings.bypassChineseApps ? 1 : 0
