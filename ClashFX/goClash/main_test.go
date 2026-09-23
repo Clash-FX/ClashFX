@@ -376,3 +376,58 @@ func TestResolveTunStack(t *testing.T) {
 		}
 	}
 }
+
+func TestAlignEnhancedDNSListenKeepsProxyServerNameserverOn7874(t *testing.T) {
+	dns := map[string]interface{}{
+		"listen": "127.0.0.1:49659",
+		"proxy-server-nameserver": []interface{}{
+			"udp://127.0.0.1:7874",
+		},
+		"nameserver": []interface{}{
+			"https://doh.pub/dns-query",
+		},
+	}
+	alignEnhancedDNSListenWith(dns, func(int) bool { return true }, func() (int, error) {
+		t.Fatal("did not expect a fallback port")
+		return 0, nil
+	})
+	if dns["listen"] != "127.0.0.1:7874" {
+		t.Fatalf("listen = %v", dns["listen"])
+	}
+	servers := dns["proxy-server-nameserver"].([]interface{})
+	if servers[0] != "udp://127.0.0.1:7874" {
+		t.Fatalf("proxy-server-nameserver = %v", servers)
+	}
+}
+
+func TestAlignEnhancedDNSListenRewritesStalePortWhenPreferredIsBusy(t *testing.T) {
+	dns := map[string]interface{}{
+		"proxy-server-nameserver": []interface{}{"udp://127.0.0.1:7874"},
+		"nameserver-policy": map[string]interface{}{
+			"example.com": "127.0.0.1:7874",
+		},
+	}
+	alignEnhancedDNSListenWith(dns, func(port int) bool { return port != 7874 }, func() (int, error) {
+		return 63385, nil
+	})
+	if dns["listen"] != "127.0.0.1:63385" {
+		t.Fatalf("listen = %v", dns["listen"])
+	}
+	servers := dns["proxy-server-nameserver"].([]interface{})
+	if servers[0] != "udp://127.0.0.1:63385" {
+		t.Fatalf("proxy-server-nameserver = %v", servers)
+	}
+	policy := dns["nameserver-policy"].(map[string]interface{})
+	if policy["example.com"] != "127.0.0.1:63385" {
+		t.Fatalf("nameserver-policy = %v", policy)
+	}
+}
+
+func TestRetargetLoopbackDNSServerLeavesPublicResolvers(t *testing.T) {
+	if got := retargetLoopbackDNSServer("tls://223.5.5.5:853", 7874); got != "tls://223.5.5.5:853" {
+		t.Fatalf("public resolver changed to %s", got)
+	}
+	if got := retargetLoopbackDNSServer("https://127.0.0.1:1053/dns-query", 7874); got != "https://127.0.0.1:7874/dns-query" {
+		t.Fatalf("loopback resolver = %s", got)
+	}
+}

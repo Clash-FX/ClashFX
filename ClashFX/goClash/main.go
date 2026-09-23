@@ -106,6 +106,186 @@ func checkPortAvailable(port int) bool {
 	return true
 }
 
+const preferredEnhancedDNSPort = 7874
+
+func alignEnhancedDNSListen(dns map[string]interface{}) {
+	alignEnhancedDNSListenWith(dns, checkPortAvailable, freeport.GetFreePort)
+}
+
+func alignEnhancedDNSListenWith(dns map[string]interface{}, available func(int) bool, freePort func() (int, error)) {
+	chosen := chooseEnhancedDNSPort(dns, available, freePort)
+	rewriteLoopbackDNSPorts(dns, chosen)
+	dns["listen"] = "127.0.0.1:" + strconv.Itoa(chosen)
+}
+
+func chooseEnhancedDNSPort(dns map[string]interface{}, available func(int) bool, freePort func() (int, error)) int {
+	referenced := loopbackDNSPorts(dns)
+	profile := listenPort(dns["listen"])
+	chosen := preferredEnhancedDNSPort
+	switch {
+	case containsInt(referenced, preferredEnhancedDNSPort) || profile == preferredEnhancedDNSPort:
+		chosen = preferredEnhancedDNSPort
+	case profile > 0:
+		chosen = profile
+	case len(referenced) == 1:
+		chosen = referenced[0]
+	}
+	if available(chosen) {
+		return chosen
+	}
+	if port, err := freePort(); err == nil && port > 0 && port != chosen {
+		return port
+	}
+	return 11053
+}
+
+func rewriteLoopbackDNSPorts(dns map[string]interface{}, port int) {
+	for _, key := range []string{"nameserver", "default-nameserver", "fallback", "proxy-server-nameserver"} {
+		dns[key] = rewriteDNSServerList(dns[key], port)
+	}
+	policy, ok := dns["nameserver-policy"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	for name, value := range policy {
+		switch server := value.(type) {
+		case string:
+			policy[name] = retargetLoopbackDNSServer(server, port)
+		default:
+			policy[name] = rewriteDNSServerList(value, port)
+		}
+	}
+}
+
+func rewriteDNSServerList(value interface{}, port int) interface{} {
+	switch servers := value.(type) {
+	case []string:
+		rewritten := make([]string, len(servers))
+		for i, server := range servers {
+			rewritten[i] = retargetLoopbackDNSServer(server, port)
+		}
+		return rewritten
+	case []interface{}:
+		rewritten := make([]interface{}, len(servers))
+		for i, server := range servers {
+			if text, ok := server.(string); ok {
+				rewritten[i] = retargetLoopbackDNSServer(text, port)
+			} else {
+				rewritten[i] = server
+			}
+		}
+		return rewritten
+	default:
+		return value
+	}
+}
+
+func loopbackDNSPorts(dns map[string]interface{}) []int {
+	var ports []int
+	collect := func(value interface{}) {
+		switch servers := value.(type) {
+		case []string:
+			for _, server := range servers {
+				if port, ok := loopbackDNSPort(server); ok {
+					ports = append(ports, port)
+				}
+			}
+		case []interface{}:
+			for _, server := range servers {
+				text, ok := server.(string)
+				if !ok {
+					continue
+				}
+				if port, ok := loopbackDNSPort(text); ok {
+					ports = append(ports, port)
+				}
+			}
+		}
+	}
+	for _, key := range []string{"nameserver", "default-nameserver", "fallback", "proxy-server-nameserver"} {
+		collect(dns[key])
+	}
+	return ports
+}
+
+func listenPort(value interface{}) int {
+	text, ok := value.(string)
+	if !ok {
+		return 0
+	}
+	_, portText, err := net.SplitHostPort(strings.TrimSpace(text))
+	if err != nil {
+		return 0
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return 0
+	}
+	return port
+}
+
+func retargetLoopbackDNSServer(raw string, port int) string {
+	trimmed := strings.TrimSpace(raw)
+	scheme := ""
+	rest := trimmed
+	if i := strings.Index(rest, "://"); i >= 0 {
+		scheme = rest[:i+3]
+		rest = rest[i+3:]
+	}
+	hostport := rest
+	suffix := ""
+	if slash := strings.Index(rest, "/"); slash >= 0 {
+		hostport = rest[:slash]
+		suffix = rest[slash:]
+	}
+	current, ok := loopbackDNSPort(trimmed)
+	if !ok || current == port {
+		return raw
+	}
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return raw
+	}
+	return scheme + net.JoinHostPort(host, strconv.Itoa(port)) + suffix
+}
+
+func loopbackDNSPort(raw string) (int, bool) {
+	rest := strings.TrimSpace(raw)
+	if i := strings.Index(rest, "://"); i >= 0 {
+		rest = rest[i+3:]
+	}
+	if slash := strings.Index(rest, "/"); slash >= 0 {
+		rest = rest[:slash]
+	}
+	host, portText, err := net.SplitHostPort(rest)
+	if err != nil || !isLoopbackHost(host) {
+		return 0, false
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, false
+	}
+	return port, true
+}
+
+func isLoopbackHost(host string) bool {
+	switch strings.Trim(strings.ToLower(host), "[]") {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	default:
+		return false
+	}
+}
+
+func containsInt(values []int, target int) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 func mergeUniqueStrings(base []string, additions []string) []string {
 	seen := make(map[string]struct{}, len(base)+len(additions))
 	result := make([]string, 0, len(base)+len(additions))
@@ -1064,12 +1244,10 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	if dns["default-nameserver"] == nil {
 		dns["default-nameserver"] = []string{"114.114.114.114", "223.5.5.5", "119.29.29.29"}
 	}
-	// Use a free port for DNS listen to avoid conflict with in-process clash core
-	if dnsPort, err := freeport.GetFreePort(); err == nil {
-		dns["listen"] = "127.0.0.1:" + strconv.Itoa(dnsPort)
-	} else {
-		dns["listen"] = "127.0.0.1:11053"
-	}
+	// Keep one loopback DNS port across rebuilds. Subscriptions often pin
+	// proxy-server-nameserver to that port; a fresh free port leaves them
+	// querying an address nothing listens on.
+	alignEnhancedDNSListen(dns)
 	rawMap["dns"] = dns
 	if len(prefixes) > 0 {
 		tunMap, _ := rawMap["tun"].(map[string]interface{})
@@ -1141,9 +1319,11 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	}
 
 	secret, _ := rawMap["secret"].(string)
+	dnsListen, _ := dns["listen"].(string)
 	portInfo := map[string]string{
 		"externalController": ec,
 		"secret":             secret,
+		"dnsListen":          dnsListen,
 	}
 	jsonString, err := json.Marshal(portInfo)
 	if err != nil {

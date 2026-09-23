@@ -164,6 +164,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var coreCPUStatusRequestGeneration = 0
     private var coreCPUWatchdogPolicy = CoreCPUWatchdogPolicy()
     private var latestTrafficBytesPerSecond = 0
+    private var expectedEnhancedDNSPort = 0
     private var latestTrafficUpdateTime = Date.distantPast
     private var consecutiveEnhancedModeHealthFailures = 0
     private var consecutiveEnhancedModeDataPlaneFailures = 0
@@ -1798,6 +1799,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.consecutiveEnhancedModeHealthFailures = 0
                 self.checkEnhancedModeDataPlaneIfDue()
             case let .unhealthy(reason):
+                if self.enhancedModeTrafficIsFlowing() {
+                    self.isEnhancedModeHealthCheckInFlight = false
+                    self.enhancedModeRuntimeHealthSummary =
+                        "control plane reported \(reason); traffic still flowing"
+                    Logger.log(
+                        "Enhanced Mode health failed (\(reason)) while traffic is still flowing; not rebuilding",
+                        level: .warning
+                    )
+                    return
+                }
                 self.isEnhancedModeHealthCheckInFlight = false
                 self.consecutiveEnhancedModeDataPlaneFailures = 0
                 self.consecutiveEnhancedModeHealthFailures += 1
@@ -3315,6 +3326,7 @@ extension AppDelegate {
                 let runtimeConfigPath = runtimePatch.path ?? selectedConfigPath
 
                 if Settings.enhancedModeUseCustomConfig {
+                    self.expectedEnhancedDNSPort = 0
                     let launchInfo = self.readCustomEnhancedModeLaunchInfo(configPath: runtimeConfigPath)
                     DispatchQueue.main.async {
                         self.finishEnhancedModeLaunchPreparation(
@@ -3353,6 +3365,7 @@ extension AppDelegate {
                         completion(NSLocalizedString("Failed to parse enhanced config", comment: ""))
                         return
                     }
+                    self.expectedEnhancedDNSPort = self.listenPort(from: portInfo["dnsListen"])
 
                     self.finishEnhancedModeLaunchPreparation(
                         result: .success(port: port, secret: portInfo["secret"] ?? ""),
@@ -3674,7 +3687,8 @@ extension AppDelegate {
                     return mixed > 0 || httpPort > 0
                 }()
 
-                if listenersUp {
+                let dnsReady = self.expectedEnhancedDNSPortIsReachable()
+                if listenersUp && dnsReady {
                     Logger.log("External core API + listeners ready on port \(port)")
                     self.enhancedModeHealthGraceUntil = Date().addingTimeInterval(
                         Self.enhancedModeHealthGracePeriod
@@ -3685,6 +3699,12 @@ extension AppDelegate {
                         "waiting for post-start data-plane health check"
                     ready(true)
                 } else if retriesLeft > 0 {
+                    if listenersUp {
+                        Logger.log(
+                            "External core is up but DNS port \(self.expectedEnhancedDNSPort) is not accepting connections",
+                            level: .warning
+                        )
+                    }
                     Logger.log("Waiting for external core listeners (\(retriesLeft) retries left)...", level: .debug)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                         self?.waitForExternalCore(port: port, secret: secret, retriesLeft: retriesLeft - 1, ready: ready)
@@ -3782,6 +3802,38 @@ extension AppDelegate {
         }
 
         return statesByName.values.sorted { $0.name < $1.name }
+    }
+
+    private func enhancedModeTrafficIsFlowing() -> Bool {
+        let age = Date().timeIntervalSince(latestTrafficUpdateTime)
+        return age >= 0 &&
+            age < Self.coreCPUActiveTrafficFreshness &&
+            latestTrafficBytesPerSecond > 0
+    }
+
+    private func listenPort(from address: String?) -> Int {
+        guard let address else { return 0 }
+        guard let port = address.split(separator: ":").last else { return 0 }
+        return Int(port) ?? 0
+    }
+
+    private func expectedEnhancedDNSPortIsReachable() -> Bool {
+        let port = expectedEnhancedDNSPort
+        guard port > 0 else { return true }
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(port).bigEndian
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return connected == 0
     }
 
     private func hasUsableEnhancedTunInterface(expectedDevice: String?) -> Bool {
