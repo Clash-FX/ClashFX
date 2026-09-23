@@ -1,5 +1,23 @@
 ### Bug Fixes
 
+- **Keep Enhanced Mode DNS on a Stable Port** — Rebuilding Enhanced Mode no longer assigns a new random DNS port. When a profile resolves proxy servers through `127.0.0.1:7874`, that port stays in use. If it is busy, the fallback port is also written into the local DNS server list, so proxy hostnames are not queried against a closed port. The core is not rebuilt while traffic is still flowing, and startup does not count as ready until the DNS port accepts connections.
+
+Validation: Go tests cover keeping `7874`, rewriting a stale loopback DNS port when that port is busy, and leaving public resolvers unchanged. The app build succeeded. The previous failure was confirmed from the 2026-09-23 logs: DNS moved to `63385` while `proxy-server-nameserver` still used `7874`.
+
+---
+
+### 修复
+
+- **增强模式 DNS 保持固定端口** — 重建增强模式时不再随机更换 DNS 端口。订阅若通过 `127.0.0.1:7874` 解析节点服务器，就继续使用这个端口。端口被占用时，备用端口会同步写进本地 DNS 列表，避免节点域名打到已经关闭的端口。流量仍在转发时不会因为健康检查拆掉核心。核心在 DNS 端口能够接受连接之前，不会被当成启动成功。
+
+验证：Go 测试覆盖了保留 `7874`、端口被占用时改写过期的本机 DNS 地址，以及不改动公共 DNS。应用编译通过。上一次故障已由 2026-09-23 的日志确认：DNS 改听 `63385`，而 `proxy-server-nameserver` 仍指向 `7874`。
+
+<!-- Previous release notes -->
+
+---
+
+### Bug Fixes
+
 - **Keep the macOS 10.14 Minimum** — The app and CocoaPods stay on macOS 10.14. A newer deployment target requested by a pod, or set locally to satisfy a current Xcode, is not used for Lab builds.
 
 Validation: The app target and Podfile both pin `MACOSX_DEPLOYMENT_TARGET` to 10.14. The local Pods project that had been raised to 14.6 was set back to 10.14. No running ClashFX process was replaced by this check.
