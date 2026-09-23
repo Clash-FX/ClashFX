@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.6 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.6 (Lab)</h2><ul><li><strong>Keep Enhanced Mode DNS on a Stable Port</strong> — Rebuilding Enhanced Mode no longer assigns a new random DNS port. When a profile resolves proxy servers through `127.0.0.1:7874`, that port stays in use. If it is busy, the fallback port is also written into the local DNS server list, so proxy hostnames are not queried against a closed port. The core is not rebuilt while traffic is still flowing, and startup does not count as ready until the DNS port accepts connections.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 23 Sep 2026 09:40:34 +0000</pubDate>
+  <sparkle:version>1001011006</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.6</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.6/ClashFX.dmg"
+    sparkle:version="1001011006"
+    sparkle:shortVersionString="1.1.11.6"
+    sparkle:edSignature="yBnX8kp8n/U/sjSFip49DfZtgSR1C/3XW3Y9Fw4UQlCyL4NWxyocnPfNsdto014KmoK/BOgfllG5arr5C81+Bw=="
+    length="95328927"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.5 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.5 (Lab)</h2><ul><li><strong>Keep the macOS 10.14 Minimum</strong> — The app and CocoaPods stay on macOS 10.14. A newer deployment target requested by a pod, or set locally to satisfy a current Xcode, is not used for Lab builds.</li></ul>
