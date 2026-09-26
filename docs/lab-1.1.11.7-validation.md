@@ -14,9 +14,10 @@ Enhanced Mode lifecycle/readiness and port restoration fixes, DNS header parsing
 - All main-project and Pods Debug/Release deployment settings and Podfile are restored to macOS 10.14. Native local test artifacts have been removed/restored; CI must regenerate the universal core from source.
 
 ## Required before publication
-- [ ] Candidate CI passes with the deployment-compatible toolchain, unhosted tests, universal release build, and app/helper/core architecture/minimum-version gates.
+- [x] CI run [36219432971](https://github.com/Clash-FX/ClashFX/actions/runs/36219432971) passed the Xcode 26.6 SDK floor check (10.13), all 169 unhosted XCTest cases, Release build, and packaged App/Helper/core architecture and minimum-version gates. Reported minimums: App x86_64 10.14 / arm64 11.0; Helper x86_64 10.14 / arm64 11.0; core x86_64 10.13 / arm64 11.0.
+- [ ] Runtime smoke test on macOS 10.14 remains required; CI checked deployment metadata but did not run the app on that OS.
 - [x] Sleep/wake core health passed at 12:22. At 12:55/12:56, phone-hotspot and Wi-Fi return checks passed with unchanged core PID and proxy settings; user confirmed browsing on the hotspot. A separate installed/debug duplicate-instance Helper replacement after the earlier wake test is documented as a test-environment conflict, not a successful concurrent-instance scenario.
 - [x] User confirmed browsing with TUN off and System Proxy on; logs confirmed restoration to the configured port and DNS restoration completion. This does not assert an independently captured scutil snapshot during the disabled interval.
 - [ ] Verify final Lab packaging/update-channel output when release is authorized to proceed past these gates.
 
-This is a release candidate record, not a claim that all Lab acceptance criteria have passed. CI and packaging checks must still pass before the candidate is published. Run a single ClashFX instance during validation; installed/debug builds share the privileged Helper and configuration directory.
+This is a release candidate record, not a claim that all Lab acceptance criteria have passed. CI build and compatibility gates passed, while old-system runtime and final Lab packaging/update-channel verification remain pending. Run a single ClashFX instance during validation; installed/debug builds share the privileged Helper and configuration directory.
