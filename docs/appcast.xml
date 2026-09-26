@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.7 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.7 (Lab)</h2><ul><li><strong>Enhanced Mode Confirms DNS Readiness for the Current Launch</strong> — Fixed DNS response parsing that read QDCOUNT and RCODE from the wrong bytes. Startup now waits for valid DNS responses over both UDP and TCP from the listeners owned by the current core launch. Live Xcode validation confirmed TUN startup and a disable/re-enable cycle with System Proxy enabled.</li><li><strong>Enable System Proxy with Disconnected Adapters</strong> — Old loopback proxy settings on an inactive adapter no longer block enabling System Proxy on the current network; original per-service settings are preserved for restoration.</li><li><strong>Configured Proxy Ports Stay Predictable</strong> — Enhanced Mode checks that the current launch owns the configured proxy ports, and reports conflicts without stopping another app. A busy configured mixed port is reported instead of being silently replaced; DNS fallback selection checks both TCP and UDP availability.</li><li><strong>Benchmark Controls Show When Testing Is Busy</strong> — Benchmark actions now show a clear busy state and ignore repeat clicks while a run is active, without closing the menu.</li></ul>
+  ]]></description>
+  <pubDate>Sat, 26 Sep 2026 07:33:10 +0000</pubDate>
+  <sparkle:version>1001011007</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.7</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.7/ClashFX.dmg"
+    sparkle:version="1001011007"
+    sparkle:shortVersionString="1.1.11.7"
+    sparkle:edSignature="cZokY/anCOLhO9umEJ4QMuHg9UkQg5UvRRY6c6DwOlq95CInGHLep4AguElLuU1LCf1kgeQpOtkko7XSycipCQ=="
+    length="95430432"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.6 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.6 (Lab)</h2><ul><li><strong>Keep Enhanced Mode DNS on a Stable Port</strong> — Rebuilding Enhanced Mode no longer assigns a new random DNS port. When a profile resolves proxy servers through `127.0.0.1:7874`, that port stays in use. If it is busy, the fallback port is also written into the local DNS server list, so proxy hostnames are not queried against a closed port. The core is not rebuilt while traffic is still flowing, and startup does not count as ready until the DNS port accepts connections.</li></ul>
