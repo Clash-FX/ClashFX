@@ -17,8 +17,15 @@ class ClashStatusTool {
         guard ConfigManager.shared.isRunning else { return }
         guard let cfg = cfg else { return }
         if cfg.usedHttpPort == 0 {
-            if ConfigManager.shared.isEnhancedModeActive {
-                Logger.log("checkPortConfig: skipping HTTP port fatal check while Enhanced Mode is active, mixedPort: \(cfg.mixedPort)", level: .warning)
+            let enhancedModeRecoveryInProgress = Settings.enhancedMode ||
+                ConfigManager.shared.isEnhancedModeActive
+            let configUpdateInProgress = AppDelegate.shared.isConfigUpdating
+            if enhancedModeRecoveryInProgress || configUpdateInProgress {
+                Logger.log(
+                    "checkPortConfig: deferring HTTP port fatal check during " +
+                        "Enhanced Mode/config recovery, mixedPort: \(cfg.mixedPort)",
+                    level: .warning
+                )
                 return
             }
 

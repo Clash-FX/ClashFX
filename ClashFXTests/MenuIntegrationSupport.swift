@@ -1,9 +1,9 @@
 import Cocoa
 import XCTest
 
-// Test-target-only boundaries. Production AppDelegate/Settings/ApiRequest are
-// deliberately not linked: no production core, helper, preferences or system
-// proxy. An explicitly provided manifest can opt into a separate fixture core.
+/// Test-target-only boundaries. Production AppDelegate/Settings/ApiRequest are
+/// deliberately not linked: no production core, helper, preferences or system
+/// proxy. An explicitly provided manifest can opt into a separate fixture core.
 enum Settings {
     static var benchMarkUrl = "https://test-a.invalid/204"
     static var menuBarSpeedAlignment: MenuBarSpeedAlignment = .right
@@ -18,6 +18,9 @@ final class AppDelegate {
     static let shared = AppDelegate()
     private(set) var active: ApiRequest.BenchmarkSession?
     var onFinish: (() -> Void)?
+    var isSpeedTesting: Bool {
+        active != nil
+    }
 
     func beginSpeedTest(showNotifications: Bool) -> ApiRequest.BenchmarkSession? {
         dispatchPrecondition(condition: .onQueue(.main))
@@ -27,7 +30,9 @@ final class AppDelegate {
         return session
     }
 
-    func isActiveBenchmarkSession(_ session: ApiRequest.BenchmarkSession) -> Bool { active === session }
+    func isActiveBenchmarkSession(_ session: ApiRequest.BenchmarkSession) -> Bool {
+        active === session
+    }
 
     func finishSpeedTest(session: ApiRequest.BenchmarkSession, showNotifications: Bool) {
         guard active === session else { return }
@@ -38,8 +43,8 @@ final class AppDelegate {
 
     func cancel() {
         guard let session = active else { return }
-        active = nil
         session.cancel()
+        active = nil
     }
 }
 
@@ -60,7 +65,9 @@ final class MihomoMenuURLProtocol: URLProtocol {
     static var held = [() -> Void]()
     static var delivered = 0
 
-    static func key(_ name: String, _ url: String) -> String { name + "\n" + url }
+    static func key(_ name: String, _ url: String) -> String {
+        name + "\n" + url
+    }
 
     static func reset() {
         topology = [:]
@@ -79,8 +86,13 @@ final class MihomoMenuURLProtocol: URLProtocol {
         pending.forEach { $0() }
     }
 
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
 
     override func startLoading() {
         DispatchQueue.main.async { [self] in
@@ -136,6 +148,7 @@ enum ApiRequest {
         let endpoint: URL
         let secret: String
     }
+
     // Opt-in for the separate real-core test only. Ordinary tests continue to
     // intercept every request through MihomoMenuURLProtocol.
     static var loopbackFixture: LoopbackFixture?
@@ -149,6 +162,7 @@ enum ApiRequest {
             completionHandler(nil)
         }
     }
+
     static let loopbackTransport: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.connectionProxyDictionary = ["HTTPEnable": 0, "HTTPSEnable": 0, "SOCKSEnable": 0,
@@ -165,7 +179,10 @@ enum ApiRequest {
         private var cancelled = false
         private var terminated = false
         private var observers = [() -> Void]()
-        var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+        var isCancelled: Bool {
+            lock.lock(); defer { lock.unlock() }; return cancelled
+        }
+
         func onTermination(_ action: @escaping () -> Void) {
             lock.lock()
             let invoke = terminated
@@ -173,7 +190,11 @@ enum ApiRequest {
             lock.unlock()
             if invoke { action() }
         }
-        func cancel() { lock.lock(); cancelled = true; lock.unlock(); terminate() }
+
+        func cancel() {
+            lock.lock(); cancelled = true; lock.unlock(); terminate()
+        }
+
         func terminate() {
             lock.lock()
             guard !terminated else { lock.unlock(); return }
@@ -247,18 +268,18 @@ enum ApiRequest {
     }
 
     static func benchmarkSelectorPlan(_ plan: SelectorBenchmarkPlan,
-                                     reusing measurements: [SelectorBenchmarkMeasurementKey: Int],
-                                     session: BenchmarkSession,
-                                     result: @escaping (SelectorBenchmarkPlan.Target, ProxyDelayOutcome) -> Void,
-                                     completion: @escaping () -> Void) {
+                                      reusing measurements: [SelectorBenchmarkMeasurementKey: Int],
+                                      session: BenchmarkSession,
+                                      result: @escaping (SelectorBenchmarkPlan.Target, ProxyDelayOutcome) -> Void,
+                                      completion: @escaping () -> Void) {
         SelectorBenchmarkExecutor.runOutcomes(plan: plan, reusing: measurements,
-            isCancelled: { session.isCancelled }, request: { target, done in
-                let path = target.key.providerName.map {
-                    "/providers/proxies/\($0)/\(target.key.proxyName)/healthcheck"
-                } ?? "/proxies/\(target.key.proxyName)/delay"
-                request(path, query: ["url": target.key.benchmarkURL, "timeout": String(target.key.timeout)]) { status, data, failed in
-                    done(.decode(statusCode: status, data: data, transportFailed: failed, cancelled: session.isCancelled))
-                }
-            }, result: result, completion: completion)
+                                              isCancelled: { session.isCancelled }, request: { target, done in
+                                                  let path = target.key.providerName.map {
+                                                      "/providers/proxies/\($0)/\(target.key.proxyName)/healthcheck"
+                                                  } ?? "/proxies/\(target.key.proxyName)/delay"
+                                                  request(path, query: ["url": target.key.benchmarkURL, "timeout": String(target.key.timeout)]) { status, data, failed in
+                                                      done(.decode(statusCode: status, data: data, transportFailed: failed, cancelled: session.isCancelled))
+                                                  }
+                                              }, result: result, completion: completion)
     }
 }

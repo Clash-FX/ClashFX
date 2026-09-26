@@ -43,7 +43,7 @@ final class RealCoreMenuIntegrationTests: XCTestCase {
         ApiRequest.loopbackTransport.dataTask(with: request) { data, response, error in
             failure = error
             if let response = response as? HTTPURLResponse {
-                XCTAssertTrue((200..<300).contains(response.statusCode), "\(path): \(response.statusCode)")
+                XCTAssertTrue((200 ..< 300).contains(response.statusCode), "\(path): \(response.statusCode)")
             }
             if let data, !data.isEmpty { payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:] }
             done.fulfill()
@@ -113,8 +113,8 @@ final class RealCoreMenuIntegrationTests: XCTestCase {
         }
         XCTAssertTrue(Thread.isMainThread)
         let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: file))) as? [String: Any])
-        endpoint = try XCTUnwrap(URL(string: try XCTUnwrap(manifest["endpoint"] as? String)))
-        origin = try XCTUnwrap(URL(string: try XCTUnwrap(manifest["origin"] as? String)))
+        endpoint = try XCTUnwrap(try URL(string: XCTUnwrap(manifest["endpoint"] as? String)))
+        origin = try XCTUnwrap(try URL(string: XCTUnwrap(manifest["origin"] as? String)))
         secret = try XCTUnwrap(manifest["secret"] as? String)
         guard endpoint.host == "127.0.0.1", origin.host == "127.0.0.1" else { throw URLError(.badURL) }
         _ = NSApplication.shared
@@ -162,7 +162,7 @@ final class RealCoreMenuIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(try text(selector, "Local-Broken"), NSLocalizedString("fail", comment: ""))
         XCTAssertFalse(ApiRequest.loopbackPaths.contains { $0.contains("COMPATIBLE") || $0.hasPrefix("/group/Empty-") })
-        print("REAL_CORE_SELECTOR: A=\(try text(selector, "Local-A")), B=\(try text(selector, "Local-B")), DIRECT=\(try text(selector, "DIRECT")), broken=\(try text(selector, "Local-Broken")); empty groups rejected")
+        try print("REAL_CORE_SELECTOR: A=\(text(selector, "Local-A")), B=\(text(selector, "Local-B")), DIRECT=\(text(selector, "DIRECT")), broken=\(text(selector, "Local-Broken")); empty groups rejected")
 
         let empty = try menu("Empty-SG")
         let requestCount = ApiRequest.loopbackPaths.count
@@ -176,8 +176,8 @@ final class RealCoreMenuIntegrationTests: XCTestCase {
         try call(origin, "fixture-delays", method: "POST", body: ["Local-A": 0.25, "Local-B": 0.03])
         try benchmark(automatic)
         XCTAssertEqual(snapshot.proxiesMap["Automatic"]?.now, "Local-B")
-        XCTAssertNotNil((try row(automatic, "Local-B").view as? ProxyItemView)?.imageView)
-        XCTAssertNil((try row(automatic, "Local-A").view as? ProxyItemView)?.imageView)
+        XCTAssertNotNil(try (row(automatic, "Local-B").view as? ProxyItemView)?.imageView)
+        XCTAssertNil(try (row(automatic, "Local-A").view as? ProxyItemView)?.imageView)
         print("REAL_CORE_AUTOMATIC: now changed Local-A -> Local-B, native checkmark agrees")
 
         let first = try menu("URL-A")

@@ -233,7 +233,12 @@ final class SystemProxyManager: NSObject {
                         self.fail(.captureFailed("helper returned an invalid proxy snapshot"), complete: complete)
                         return
                     }
-                    guard !SystemProxyOperationPolicy.isClashFXOwnedSnapshot(snapshot, httpPort: port, socksPort: socksPort) else {
+                    // Capture includes disconnected services too. Their old
+                    // loopback settings must not block enabling the current
+                    // network; preserve them exactly for later restoration.
+                    let alreadyOwnsLiveProxy = self.dependencies.liveSystemPointsToClashFX() &&
+                        SystemProxyOperationPolicy.isClashFXOwnedSnapshot(snapshot, httpPort: port, socksPort: socksPort)
+                    guard !alreadyOwnsLiveProxy else {
                         self.fail(.captureFailed("current proxy settings already belong to ClashFX; no original snapshot is available"), complete: complete)
                         return
                     }

@@ -1,6 +1,9 @@
 package main
 
-import "strconv"
+import (
+	"fmt"
+	"strconv"
+)
 
 const defaultMixedPort = 7890
 
@@ -66,4 +69,17 @@ func ensureDefaultProxyPort(rawMap map[string]interface{}) {
 	if portValueOrZero(rawMap["socks-port"]) == mixedPort {
 		delete(rawMap, "socks-port")
 	}
+}
+
+// resolveConfiguredMixedPort keeps the user's configured port authoritative.
+// A random fallback hides a real conflict and makes the UI appear to have
+// changed its port. Let startup report the occupied port instead.
+func resolveConfiguredMixedPort(port int, available func(int) bool) (int, error) {
+	if port < 1 || port > 65535 {
+		return 0, fmt.Errorf("invalid configured mixed-port %d", port)
+	}
+	if available(port) {
+		return port, nil
+	}
+	return 0, fmt.Errorf("configured mixed-port %d is already in use", port)
 }

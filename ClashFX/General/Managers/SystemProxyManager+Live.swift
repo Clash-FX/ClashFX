@@ -27,6 +27,12 @@ extension SystemProxyManager {
         disableRestoreProxy: { Settings.disableRestoreProxy },
         filterInterface: { Settings.filterInterface },
         proxyIgnoreList: { Settings.proxyIgnoreList },
-        liveSystemPointsToClashFX: { NetworkChangeNotifier.isCurrentSystemSetToClash() }
+        liveSystemPointsToClashFX: {
+            SystemProxyOperationPolicy.isClashFXOwnedSnapshot(
+                ["active": NetworkChangeNotifier.getRawProxySetting()],
+                httpPort: ConfigManager.shared.currentConfig?.usedHttpPort ?? 0,
+                socksPort: ConfigManager.shared.currentConfig?.usedSocksPort ?? 0
+            )
+        }
     ))
 }

@@ -321,7 +321,10 @@ struct GlobalLeafBenchmarkPresentation {
     let identity: LeafProxyBenchmarkIdentity
     let benchmarkURL: String
     let expectedStatus: String?
-    var conditions: BenchmarkConditions { BenchmarkConditions(url: benchmarkURL, expectedStatus: expectedStatus) }
+    var conditions: BenchmarkConditions {
+        BenchmarkConditions(url: benchmarkURL, expectedStatus: expectedStatus)
+    }
+
     let sessionIdentifier: UUID
     let rowState: ProxyBenchmarkRowState
     let publishedAt: Date
@@ -495,10 +498,10 @@ struct AutomaticGroupChildBenchmarkPresentation {
                     fallbackBenchmarkURL: String,
                     now: Date = .init()) -> AutomaticGroupChildBenchmarkPresentation? {
         guard identity == AutomaticGroupBenchmarkIdentity(
-                  group: group,
-                  fallbackBenchmarkURL: fallbackBenchmarkURL
-              ),
-              identity.members.contains(rowName) else { return nil }
+            group: group,
+            fallbackBenchmarkURL: fallbackBenchmarkURL
+        ),
+            identity.members.contains(rowName) else { return nil }
         return self
     }
 }
@@ -514,7 +517,7 @@ struct SelectorBenchmarkMeasurementKey: Hashable {
     let proxyName: ClashProxyName
     let benchmarkURL: String
     let timeout: Int
-    var coreID: String? = nil
+    var coreID: String?
 }
 
 struct SelectorBenchmarkSchedulingBucket: Hashable {
