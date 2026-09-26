@@ -1,3 +1,27 @@
+<!-- Lab 1.1.11.7 candidate -->
+
+### Bug Fixes and Improvements
+
+- **Enhanced Mode Confirms DNS Readiness for the Current Launch** — Fixed DNS response parsing that read QDCOUNT and RCODE from the wrong bytes. Startup now waits for valid DNS responses over both UDP and TCP from the listeners owned by the current core launch. Live Xcode validation confirmed TUN startup and a disable/re-enable cycle with System Proxy enabled.
+- **Enable System Proxy with Disconnected Adapters** — Old loopback proxy settings on an inactive adapter no longer block enabling System Proxy on the current network; original per-service settings are preserved for restoration.
+- **Configured Proxy Ports Stay Predictable** — Enhanced Mode checks that the current launch owns the configured proxy ports, and reports conflicts without stopping another app. A busy configured mixed port is reported instead of being silently replaced; DNS fallback selection checks both TCP and UDP availability.
+- **Benchmark Controls Show When Testing Is Busy** — Benchmark actions now show a clear busy state and ignore repeat clicks while a run is active, without closing the menu.
+
+Validation: 169 isolated XCTest cases passed, the macOS 14 diagnostic App/Helper build succeeded, and live Xcode checks covered Enhanced Mode start, disable/re-enable, System Proxy browsing with TUN off, and switching to a phone hotspot and back. Sleep/wake health checks also passed; a later installed/debug dual-instance Helper conflict was recorded separately. CI run 36219432971 passed the SDK floor, Release build, and App/Helper/core architecture and minimum-version gates. Runtime testing on macOS 10.14 and final Lab packaging remain pending.
+
+---
+
+### 修复与改进
+
+- **增强模式会确认本次启动的 DNS 已就绪** — 修正了从错误字节读取 QDCOUNT 和 RCODE 的 DNS 响应解析问题。启动现在会等待本次核心启动所持有的 DNS 监听器通过 UDP 和 TCP 返回有效响应。Xcode 实机验证确认 TUN 启动及关闭后重新开启成功，且系统代理已开启。
+- **闲置网卡不再阻止开启系统代理** — 当前网络未启用代理时，其他网卡残留的本机代理设置不会再导致启用失败；各网卡原有设置仍会保存并用于恢复。
+- **配置的代理端口保持可预测** — 增强模式会核对当前启动是否持有配置中的代理端口；发现冲突时会明确报告，不会停止其他应用。配置的混合端口被占用时会报告错误，不再静默替换为随机端口；DNS 备用端口选择会同时检查 TCP 和 UDP。
+- **测速操作会显示忙碌状态** — 测速期间操作项会清楚显示忙碌状态并忽略重复点击，同时保持菜单打开。
+
+验证：169 项隔离 XCTest 通过；macOS 14 诊断版 App/Helper 构建成功；Xcode 实机验证覆盖增强模式启停、关闭 TUN 后通过系统代理浏览网页，以及切换手机热点后再切回 Wi-Fi。睡眠唤醒健康检查也通过，随后出现的安装版/调试版双实例 Helper 冲突另行记录。CI run 36219432971 已通过 SDK 最低版本、Release 构建及 App/Helper/core 架构和最低系统版本门槛；macOS 10.14 实机运行与最终 Lab 打包仍待验证。
+
+<!-- Previous release notes -->
+
 ### Bug Fixes
 
 - **Keep Enhanced Mode DNS on a Stable Port** — Rebuilding Enhanced Mode no longer assigns a new random DNS port. When a profile resolves proxy servers through `127.0.0.1:7874`, that port stays in use. If it is busy, the fallback port is also written into the local DNS server list, so proxy hostnames are not queried against a closed port. The core is not rebuilt while traffic is still flowing, and startup does not count as ready until the DNS port accepts connections.

@@ -30,16 +30,16 @@ final class DashboardContrastIntegrationTests: XCTestCase, WKNavigationDelegate 
         var harness = "window.requestAnimationFrame = function (callback) { return setTimeout(callback, 0); };\n"
         if legacy {
             harness += """
-        (function () {
-          var original = window.getComputedStyle;
-          window.getComputedStyle = function (element, pseudo) {
-            if (element.style && element.style.getPropertyValue('--clashfx-probe-color')) {
-              return { backgroundColor: 'rgba(0, 0, 0, 0)' };
-            }
-            return original.call(window, element, pseudo);
-          };
-        })();
-        """
+            (function () {
+              var original = window.getComputedStyle;
+              window.getComputedStyle = function (element, pseudo) {
+                if (element.style && element.style.getPropertyValue('--clashfx-probe-color')) {
+                  return { backgroundColor: 'rgba(0, 0, 0, 0)' };
+                }
+                return original.call(window, element, pseudo);
+              };
+            })();
+            """
         }
         config.userContentController.addUserScript(WKUserScript(source: harness, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let source = try String(contentsOf: root.appendingPathComponent("ClashFX/Resources/DashboardCompatibility/clashfx-compat.js"), encoding: .utf8)
@@ -118,7 +118,7 @@ final class DashboardContrastIntegrationTests: XCTestCase, WKNavigationDelegate 
             return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
         }
         let alpha = fg[3] * opacity
-        let composite = (0..<3).map { fg[$0] * alpha + bg[$0] * (1 - alpha) }
+        let composite = (0 ..< 3).map { fg[$0] * alpha + bg[$0] * (1 - alpha) }
         let first = luminance(composite), second = luminance(bg)
         return (max(first, second) + 0.05) / (min(first, second) + 0.05)
     }
@@ -137,14 +137,14 @@ final class DashboardContrastIntegrationTests: XCTestCase, WKNavigationDelegate 
             XCTAssertGreaterThan(nav["width"] as? Double ?? 0, 0)
             for id in ["inactive-label", "active-label", "more-label"] {
                 let element = try sample(view, id)
-                let ratio = contrast(element["color"] as! String, background, opacity: element["opacity"] as! Double)
+                let ratio = try contrast(XCTUnwrap(element["color"] as? String), background, opacity: XCTUnwrap(element["opacity"] as? Double))
                 ratios.append(ratio)
                 XCTAssertGreaterThanOrEqual(ratio, 4.5, "\(theme)/\(id): \(ratio)")
             }
             let tag = try sample(view, "tag"), card = try sample(view, "card")
-            XCTAssertGreaterThanOrEqual(contrast(tag["color"] as! String, card["background"] as! String), 4.5, theme)
+            XCTAssertGreaterThanOrEqual(try contrast(XCTUnwrap(tag["color"] as? String), XCTUnwrap(card["background"] as? String)), 4.5, theme)
             let popup = try sample(view, "popup"), link = try sample(view, "popup-link")
-            XCTAssertGreaterThanOrEqual(contrast(link["color"] as! String, popup["background"] as! String), 4.5, theme)
+            XCTAssertGreaterThanOrEqual(try contrast(XCTUnwrap(link["color"] as? String), XCTUnwrap(popup["background"] as? String)), 4.5, theme)
             let minimum = try XCTUnwrap(ratios.min())
             print("Dashboard fixture \(theme): minimum navigation contrast \(String(format: "%.2f", minimum)):1")
         }
@@ -181,9 +181,9 @@ final class DashboardContrastIntegrationTests: XCTestCase, WKNavigationDelegate 
         """
         try js(view, mutations)
         let more = try sample(view, "more")
-        XCTAssertGreaterThanOrEqual(contrast(more["color"] as! String, more["background"] as! String), 4.5)
+        XCTAssertGreaterThanOrEqual(try contrast(XCTUnwrap(more["color"] as? String), XCTUnwrap(more["background"] as? String)), 4.5)
         let nav = try sample(view, "nav-surface"), active = try sample(view, "inactive-label")
-        XCTAssertGreaterThanOrEqual(contrast(active["color"] as! String, nav["background"] as! String), 4.5)
+        XCTAssertGreaterThanOrEqual(try contrast(XCTUnwrap(active["color"] as? String), XCTUnwrap(nav["background"] as? String)), 4.5)
         XCTAssertEqual(try sample(view, "disabled")["opacity"] as? Double, 0.3)
         let chartColor = try XCTUnwrap(sample(view, "chart")["color"] as? String)
         XCTAssertEqual(try XCTUnwrap(channels(chartColor).last), 0.5, accuracy: 0.01)

@@ -423,6 +423,51 @@ func TestAlignEnhancedDNSListenRewritesStalePortWhenPreferredIsBusy(t *testing.T
 	}
 }
 
+func TestEnhancedDNSPortAvailabilityChecksUDPListeners(t *testing.T) {
+	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	port := listener.LocalAddr().(*net.UDPAddr).Port
+	if checkDNSPortAvailable(port) {
+		t.Fatalf("DNS port %d reported available while another process owns its UDP socket", port)
+	}
+}
+
+func TestResolveConfiguredMixedPortAcceptsAvailableMaximumPort(t *testing.T) {
+	const maximumPort = 65535
+	listener, err := net.Listen("tcp", "127.0.0.1:65535")
+	if err != nil {
+		t.Skipf("TCP port %d is occupied; skipping boundary check: %v", maximumPort, err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	port, err := resolveConfiguredMixedPort(maximumPort, checkPortAvailable)
+	if err != nil || port != maximumPort {
+		t.Fatalf("available configured port: got port=%d err=%v, want %d", port, err, maximumPort)
+	}
+}
+
+func TestEnhancedDNSSelectionRejectsUnavailableFallbackPort(t *testing.T) {
+	dns := map[string]interface{}{"listen": "127.0.0.1:7874"}
+	available := func(port int) bool { return port == 11053 }
+	chosen := chooseEnhancedDNSPort(dns, available, func() (int, error) {
+		return 63385, nil
+	})
+	if chosen != 11053 {
+		t.Fatalf("fallback DNS port = %d, want an available fallback 11053", chosen)
+	}
+	chosen = chooseEnhancedDNSPort(dns, func(int) bool { return false }, func() (int, error) {
+		return 63385, nil
+	})
+	if chosen != 0 {
+		t.Fatalf("DNS port = %d, want 0 when every candidate is occupied", chosen)
+	}
+}
+
 func TestRetargetLoopbackDNSServerLeavesPublicResolvers(t *testing.T) {
 	if got := retargetLoopbackDNSServer("tls://223.5.5.5:853", 7874); got != "tls://223.5.5.5:853" {
 		t.Fatalf("public resolver changed to %s", got)

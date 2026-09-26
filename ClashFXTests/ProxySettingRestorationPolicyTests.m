@@ -1,10 +1,33 @@
 #import <XCTest/XCTest.h>
 #import "ProxySettingRestorationPolicy.h"
+#import "../ProxyConfigHelper/CoreSocketOwnership.h"
 
 @interface ProxySettingRestorationPolicyTests : XCTestCase
 @end
 
 @implementation ProxySettingRestorationPolicyTests
+
+- (void)testSocketOwnershipDoesNotTreatConnectedUDPPeersAsListeners {
+    NSString *connectedOnly = @"p123\nf7\nn192.0.2.10:56653->198.51.100.20:7874\n"
+        @"f8\nn[::1]:56654->[::1]:7874\n"
+        @"f9\nn127.0.0.1:7874->127.0.0.1:53\n";
+    XCTAssertEqualObjects(ClashFXListeningPortsFromLsofOutput(connectedOnly), @[]);
+    NSString *withListener = [connectedOnly stringByAppendingString:@"f10\nn127.0.0.1:7874\n"];
+    XCTAssertEqualObjects(ClashFXListeningPortsFromLsofOutput(withListener), (@[@7874]));
+}
+
+- (void)testSocketOwnershipAcceptsNumericIPv4IPv6AndWildcardListeners {
+    NSString *output = @"p123\nf7\nn127.0.0.1:7874\nf8\nn[::1]:7874\n"
+        @"n*:65535\nn[fe80::1%en0]:1053\n";
+    XCTAssertEqualObjects(ClashFXListeningPortsFromLsofOutput(output), (@[@1053, @7874, @65535]));
+}
+
+- (void)testSocketOwnershipRejectsMalformedOrNonNumericPortRecords {
+    NSString *output = @"n127.0.0.1:0\nn127.0.0.1:65536\nn127.0.0.1:7874junk\n"
+        @"n127.0.0.1:domain\nn127.0.0.1:*\nn127.0.0.1:\nn:7874\n"
+        @"n127.0.0.1:-1\nf7874\nnno-port\n";
+    XCTAssertEqualObjects(ClashFXListeningPortsFromLsofOutput(output), @[]);
+}
 
 - (NSDictionary *)dictionaryForService:(NSString *)service inSnapshot:(NSDictionary *)snapshot action:(ProxySettingRestorationAction *)action {
     return [ProxySettingRestorationPolicy proxyDictionaryForServiceID:service snapshot:snapshot action:action];

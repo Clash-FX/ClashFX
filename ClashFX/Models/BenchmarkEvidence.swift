@@ -1,5 +1,5 @@
-import Foundation
 import CoreFoundation
+import Foundation
 
 /// Transport failures are not evidence that a proxy is dead.
 enum ProxyDelayOutcome: Equatable {
@@ -31,14 +31,14 @@ enum ProxyDelayOutcome: Equatable {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return .unavailable
         }
-        if (200..<300).contains(statusCode) {
+        if (200 ..< 300).contains(statusCode) {
             // JSON booleans bridge to NSNumber too; reject them, fractions and
             // malformed payloads instead of manufacturing a failed probe.
             guard let number = object["delay"] as? NSNumber,
                   CFGetTypeID(number) != CFBooleanGetTypeID(),
                   number.doubleValue.isFinite,
                   number.doubleValue.rounded() == number.doubleValue,
-                  (0.0...65535.0).contains(number.doubleValue) else { return .unavailable }
+                  (0.0 ... 65535.0).contains(number.doubleValue) else { return .unavailable }
             return number.intValue > 0 ? .measured(number.intValue) : .failed
         }
         // These are Mihomo's node-delay failure responses, not generic 5xx.
@@ -99,7 +99,7 @@ enum ProxyGroupDelayOutcome {
         if statusCode == 504, object["message"] as? String == "get delay: all proxies timeout" {
             return .allFailed
         }
-        guard (200..<300).contains(statusCode) else {
+        guard (200 ..< 300).contains(statusCode) else {
             return .httpFailure(statusCode: statusCode, description: "group API unavailable")
         }
         var values = [String: Int]()
@@ -108,7 +108,7 @@ enum ProxyGroupDelayOutcome {
                   CFGetTypeID(number) != CFBooleanGetTypeID(),
                   number.doubleValue.isFinite,
                   number.doubleValue.rounded() == number.doubleValue,
-                  (0.0...65535.0).contains(number.doubleValue) else {
+                  (0.0 ... 65535.0).contains(number.doubleValue) else {
                 return .httpFailure(statusCode: statusCode, description: "invalid candidate response")
             }
             values[name] = number.intValue

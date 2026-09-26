@@ -75,7 +75,8 @@ final class IsolatedSystemProxyTests: XCTestCase {
     }
 
     private func environment(_ helper: Helper, timeout: TimeInterval = 1,
-                             unavailable: Bool = false) throws -> (SystemProxyManager, UserDefaults) {
+                             unavailable: Bool = false,
+                             liveSystemPointsToClashFX: Bool = false) throws -> (SystemProxyManager, UserDefaults) {
         let suite = "com.clashfx.isolated-tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         suites.append((defaults, suite))
@@ -86,7 +87,7 @@ final class IsolatedSystemProxyTests: XCTestCase {
                 return helper.client
             }, currentPorts: { (7890, 7891) },
             shouldSuspend: { false }, disableRestoreProxy: { false }, filterInterface: { true },
-            proxyIgnoreList: { [] }, liveSystemPointsToClashFX: { false }, stageTimeout: timeout
+            proxyIgnoreList: { [] }, liveSystemPointsToClashFX: { liveSystemPointsToClashFX }, stageTimeout: timeout
         )
         return (SystemProxyManager(dependencies: dependencies), defaults)
     }
@@ -123,6 +124,44 @@ final class IsolatedSystemProxyTests: XCTestCase {
         restore(manager, succeeds: true)
         XCTAssertEqual(helper.events, ["capture", "enable", "restore", "capture"])
         XCTAssertTrue(NSDictionary(dictionary: original).isEqual(to: helper.current))
+        XCTAssertNil(defaults.object(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+    }
+
+    private var matchingLoopbackProxy: [String: Any] {
+        ["HTTPEnable": 1, "HTTPSEnable": 1, "SOCKSEnable": 1,
+         "HTTPProxy": "127.0.0.1", "HTTPSProxy": "127.0.0.1", "SOCKSProxy": "127.0.0.1",
+         "HTTPPort": 7890, "HTTPSPort": 7890, "SOCKSPort": 7891]
+    }
+
+    func testInactiveAdapterProxyDoesNotBlockEnableAndIsRestoredExactly() throws {
+        let helper = Helper()
+        let (manager, defaults) = try environment(helper)
+        let before: [String: Any] = [
+            SystemProxyOperationPolicy.capturedServiceIDsKey: ["wifi", "disconnected-usb"],
+            "wifi": ["HTTPEnable": 0, "HTTPSEnable": 0, "SOCKSEnable": 0,
+                     "HTTPProxy": "127.0.0.1", "HTTPPort": 7892],
+            "disconnected-usb": matchingLoopbackProxy
+        ]
+        helper.current = before
+        enable(manager)
+        XCTAssertTrue(try NSDictionary(dictionary: before).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        ))
+        restore(manager, succeeds: true)
+        XCTAssertTrue(NSDictionary(dictionary: before).isEqual(to: helper.current))
+        XCTAssertEqual(helper.events, ["capture", "enable", "restore", "capture"])
+    }
+
+    func testLiveOwnedProxyWithoutOriginalSnapshotIsStillRejected() throws {
+        let helper = Helper()
+        let (manager, defaults) = try environment(helper, liveSystemPointsToClashFX: true)
+        helper.current = [SystemProxyOperationPolicy.capturedServiceIDsKey: ["wifi"],
+                          "wifi": matchingLoopbackProxy]
+        let failed = expectation(description: "live owned capture rejected")
+        manager.enableProxy { XCTAssertFalse($0); failed.fulfill() }
+        wait(for: [failed], timeout: 2)
+        XCTAssertEqual(helper.events, ["capture"])
         XCTAssertNil(defaults.object(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
         XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
     }

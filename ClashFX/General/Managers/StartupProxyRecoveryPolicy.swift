@@ -51,6 +51,313 @@ enum RuntimeDataPlaneProbeOutcome {
     case baselineUnavailable
 }
 
+enum EnhancedModeRuntimeFailureKind {
+    case apiUnavailable
+    case tunDisabled
+    case tunInterfaceUnavailable
+    case physicalNetworkUnavailable
+}
+
+struct EnhancedModeLifecycleIdentity: Equatable {
+    let generation: UInt64
+    let launchID: UUID
+}
+
+final class EnhancedModeLifecycleCoordinator {
+    private(set) var generation: UInt64 = 0
+    private(set) var launchID: UUID?
+    private(set) var closeID: UUID?
+
+    @discardableResult
+    func beginLaunch() -> UInt64 {
+        generation &+= 1
+        launchID = UUID()
+        closeID = nil
+        return generation
+    }
+
+    @discardableResult
+    func beginLaunchAttempt() -> UUID {
+        let id = UUID()
+        launchID = id
+        return id
+    }
+
+    func beginClose() -> (generation: UInt64, id: UUID) {
+        generation &+= 1
+        launchID = nil
+        let id = UUID()
+        closeID = id
+        return (generation, id)
+    }
+
+    @discardableResult
+    func invalidate() -> UInt64 {
+        generation &+= 1
+        launchID = nil
+        closeID = nil
+        return generation
+    }
+
+    func finishClose(id: UUID) {
+        guard closeID == id else { return }
+        closeID = nil
+    }
+
+    func isCurrentLaunch(_ identity: EnhancedModeLifecycleIdentity, isTerminating: Bool) -> Bool {
+        EnhancedModeLifecyclePolicy.isCurrent(
+            identity: identity,
+            generation: generation,
+            launchID: launchID,
+            isTerminating: isTerminating
+        )
+    }
+
+    func isCurrentClose(generation expectedGeneration: UInt64, id: UUID, isTerminating: Bool) -> Bool {
+        !isTerminating && generation == expectedGeneration && closeID == id
+    }
+}
+
+final class EnhancedModeCompletionGate {
+    private let lock = NSLock()
+    private var isFinished = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isFinished else { return false }
+        isFinished = true
+        return true
+    }
+}
+
+final class ConfigUpdateTransactionCoordinator {
+    private(set) var activeID: UUID?
+
+    @discardableResult
+    func begin() -> UUID {
+        let id = UUID()
+        activeID = id
+        return id
+    }
+
+    @discardableResult
+    func finish(id: UUID) -> Bool {
+        guard activeID == id else { return false }
+        activeID = nil
+        return true
+    }
+}
+
+enum EnhancedModeLifecyclePolicy {
+    static func isCurrent(
+        identity: EnhancedModeLifecycleIdentity,
+        generation: UInt64,
+        launchID: UUID?,
+        isTerminating: Bool
+    ) -> Bool {
+        !isTerminating && identity.generation == generation && identity.launchID == launchID
+    }
+
+    static func shouldContinueWaiting(deadline: Date, now: Date) -> Bool {
+        now < deadline
+    }
+
+    static func finishCloseShouldRestoreCore(
+        generation: UInt64,
+        currentGeneration: UInt64,
+        isTerminating: Bool
+    ) -> Bool {
+        !isTerminating && generation == currentGeneration
+    }
+
+    static func finishConfigUpdateShouldApply(
+        transactionID: UUID,
+        activeTransactionID: UUID?,
+        isTerminating: Bool
+    ) -> Bool {
+        !isTerminating && transactionID == activeTransactionID
+    }
+}
+
+enum DNSReadiness: Equatable {
+    case protocolResponding
+    case upstreamHealthy
+    case invalidResponse
+}
+
+enum EnhancedModeDNSReadinessPolicy {
+    struct Response {
+        let responseCode: UInt8
+        let answerCount: Int
+        let hasResponseFlag: Bool
+    }
+
+    static func parseResponse(
+        _ data: Data,
+        transactionID: UInt16,
+        expectedQuestion: [UInt8]
+    ) -> Response? {
+        let bytes = Array(data)
+        // DNS header: ID, flags, QDCOUNT, ANCOUNT, NSCOUNT, ARCOUNT.
+        // Additional records (for example EDNS) are optional; QDCOUNT owns
+        // the echoed question. RCODE is in the low byte of the flags word.
+        guard bytes.count >= 12,
+              bytes[0] == UInt8(transactionID >> 8),
+              bytes[1] == UInt8(transactionID & 0xff),
+              bytes[4] == 0, bytes[5] == 1,
+              bytes.count >= 12 + expectedQuestion.count,
+              Array(bytes[12 ..< (12 + expectedQuestion.count)]) == expectedQuestion else { return nil }
+        let flags = bytes[2]
+        let answerCount = (Int(bytes[6]) << 8) | Int(bytes[7])
+        return Response(
+            responseCode: bytes[3] & 0x0f,
+            answerCount: answerCount,
+            hasResponseFlag: flags & 0x80 != 0 && flags & 0x02 == 0
+        )
+    }
+
+    static func readTCPMessage(readChunk: (Int) -> Data?) -> Data? {
+        guard let prefix = readExactly(2, readChunk: readChunk),
+              let length = framedMessageLength(prefix: Array(prefix)),
+              length >= 12,
+              let message = readExactly(length, readChunk: readChunk) else { return nil }
+        return message
+    }
+
+    private static func readExactly(_ length: Int, readChunk: (Int) -> Data?) -> Data? {
+        var result = Data()
+        while result.count < length {
+            guard let chunk = readChunk(length - result.count), !chunk.isEmpty else { return nil }
+            result.append(chunk.prefix(length - result.count))
+        }
+        return result
+    }
+
+    struct HelperListenerSnapshot {
+        let helperIsRunning: Bool
+        let processID: Int
+        let helperConfigPath: String?
+        let launchLog: String
+        let tcpListenPorts: [Int]
+        let udpListenPorts: [Int]
+    }
+
+    struct ExpectedListeners {
+        let expectedConfigPath: String
+        let proxyPorts: [Int]
+        let apiPort: Int
+        let port: Int
+    }
+
+    static func currentLaunchOwnsDNSListeners(
+        observed: HelperListenerSnapshot,
+        expected: ExpectedListeners
+    ) -> Bool {
+        guard observed.helperIsRunning, observed.processID > 0,
+              observed.helperConfigPath == expected.expectedConfigPath,
+              expected.apiPort > 0, expected.port > 0 else { return false }
+        let suffix = ":\(expected.port)"
+        let hasUDPBind = observed.launchLog.contains("DNS server(UDP) listening at: 127.0.0.1\(suffix)") ||
+            observed.launchLog.contains("DNS server(UDP) listening at: 0.0.0.0\(suffix)")
+        let hasTCPBind = observed.launchLog.contains("DNS server(TCP) listening at: 127.0.0.1\(suffix)") ||
+            observed.launchLog.contains("DNS server(TCP) listening at: 0.0.0.0\(suffix)")
+        return hasUDPBind && hasTCPBind &&
+            observed.tcpListenPorts.contains(expected.port) && observed.udpListenPorts.contains(expected.port) &&
+            observed.tcpListenPorts.contains(expected.apiPort) &&
+            expected.proxyPorts.allSatisfy(observed.tcpListenPorts.contains)
+    }
+
+    static func classify(responseCode: UInt8, answerCount: Int, hasResponseFlag: Bool) -> DNSReadiness {
+        guard hasResponseFlag else { return .invalidResponse }
+        // A DNS daemon can be correctly bound and answer SERVFAIL while its
+        // upstream is transiently unavailable. That is protocol readiness,
+        // but not proof of a healthy upstream.
+        guard responseCode == 0, answerCount > 0 else { return .protocolResponding }
+        return .upstreamHealthy
+    }
+
+    static func launchProtocolReady(
+        ownsCurrentLaunchListeners: Bool,
+        udp: Response?,
+        tcp: Response?
+    ) -> Bool {
+        guard ownsCurrentLaunchListeners,
+              let udp,
+              let tcp else { return false }
+        return classify(
+            responseCode: udp.responseCode,
+            answerCount: udp.answerCount,
+            hasResponseFlag: udp.hasResponseFlag
+        ) != .invalidResponse &&
+            classify(
+                responseCode: tcp.responseCode,
+                answerCount: tcp.answerCount,
+                hasResponseFlag: tcp.hasResponseFlag
+            ) != .invalidResponse
+    }
+
+    static func framedMessageLength(prefix: [UInt8]) -> Int? {
+        guard prefix.count >= 2 else { return nil }
+        return (Int(prefix[0]) << 8) | Int(prefix[1])
+    }
+
+    static func retargetLoopbackServers(_ value: Any, to port: Int) -> Any {
+        let replacement = { (server: String) -> String in
+            guard let expression = try? NSRegularExpression(
+                pattern: #"(127\.0\.0\.1:|localhost:|\[::1\]:)\d+"#
+            ) else { return server }
+            let range = NSRange(server.startIndex ..< server.endIndex, in: server)
+            return expression.stringByReplacingMatches(
+                in: server,
+                range: range,
+                withTemplate: "$1\(port)"
+            )
+        }
+        if let server = value as? String {
+            return replacement(server)
+        }
+        if let servers = value as? [String] {
+            return servers.map(replacement)
+        }
+        if let servers = value as? [Any] {
+            return servers.map { retargetLoopbackServers($0, to: port) }
+        }
+        if let policy = value as? [String: Any] {
+            return policy.mapValues { retargetLoopbackServers($0, to: port) }
+        }
+        return value
+    }
+
+    static func preserveDNSListenPort(in config: inout [String: Any], port: Int) -> Bool {
+        guard port > 0, var dns = config["dns"] as? [String: Any] else { return false }
+        dns["listen"] = "127.0.0.1:\(port)"
+        for key in ["nameserver", "default-nameserver", "fallback", "proxy-server-nameserver", "nameserver-policy"] {
+            if let value = dns[key] {
+                dns[key] = retargetLoopbackServers(value, to: port)
+            }
+        }
+        config["dns"] = dns
+        return true
+    }
+}
+
+enum EnhancedModeRuntimeRecoveryPolicy {
+    static func shouldRecover(
+        from failure: EnhancedModeRuntimeFailureKind,
+        trafficIsFlowing: Bool
+    ) -> Bool {
+        switch failure {
+        case .tunDisabled, .tunInterfaceUnavailable:
+            return true
+        case .apiUnavailable:
+            return !trafficIsFlowing
+        case .physicalNetworkUnavailable:
+            return false
+        }
+    }
+}
+
 enum RuntimeDataPlaneFailurePolicy {
     static func nextFailureCount(
         current: Int,

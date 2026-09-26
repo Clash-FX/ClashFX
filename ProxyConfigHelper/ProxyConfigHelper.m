@@ -7,6 +7,7 @@
 //
 
 #import "ProxyConfigHelper.h"
+#import "CoreSocketOwnership.h"
 #import <AppKit/AppKit.h>
 #import <Security/Security.h>
 #import <fcntl.h>
@@ -35,8 +36,17 @@ ProxyConfigRemoteProcessProtocol
 @property (nonatomic, strong) NSDate *mihomoLaunchDate;
 @property (nonatomic, assign) pid_t mihomoProcessID;
 @property (nonatomic, copy) NSString *mihomoLastTerminationSummary;
+@property (nonatomic, copy) NSString *mihomoConfigPath;
+@property (nonatomic, copy) NSString *mihomoBinaryPath;
+@property (nonatomic, strong) NSMutableArray *mihomoLifecycleOperations;
+@property (nonatomic, assign) BOOL mihomoLifecycleOperationInFlight;
 
-- (void)terminateMihomoTask:(NSTask *)task completion:(dispatch_block_t)completion;
+- (void)enqueueMihomoLifecycleOperation:(dispatch_block_t)operation;
+- (void)runNextMihomoLifecycleOperation;
+- (void)finishMihomoLifecycleOperation;
+- (void)terminateMihomoTask:(NSTask *)task
+                   launchID:(NSString *)launchID
+                 completion:(dispatch_block_t)completion;
 - (void)launchMihomoCoreWithBinaryPath:(NSString *)binaryPath
                             configPath:(NSString *)configPath
                                homeDir:(NSString *)homeDir
@@ -119,6 +129,7 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
     
     if (self = [super init]) {
         self.connections = [NSMutableSet new];
+        self.mihomoLifecycleOperations = [NSMutableArray array];
         self.shouldQuit = NO;
         self.listener = [[NSXPCListener alloc] initWithMachServiceName:@"com.clashfx.app.Helper"];
         self.listener.delegate = self;
@@ -204,6 +215,31 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
 - (NSArray<NSNumber *> *)mihomoProcessIDsMatchingBinaryPath:(NSString *)binaryPath
                                                  configPath:(NSString *)configPath
                                                     homeDir:(NSString *)homeDir {
+    // This cleanup is restricted to ClashFX launch config identities (current
+    // UUID files and the historical shared filename). Never infer ownership
+    // from a process name alone.
+    NSString *expectedBinary = binaryPath.stringByResolvingSymlinksInPath;
+    NSString *expectedHome = homeDir.stringByResolvingSymlinksInPath;
+    NSString *configPrefix = [expectedHome stringByAppendingPathComponent:@".enhanced_config."];
+    if (![configPath isEqualToString:configPrefix]) {
+        NSLog(@"mihomo cleanup rejected unexpected config identity: %@", configPath);
+        return @[];
+    }
+    NSString *escapedPrefix = [NSRegularExpression escapedPatternForString:configPrefix];
+    NSString *legacyConfigPath = [expectedHome stringByAppendingPathComponent:@".enhanced_config.yaml"];
+    NSString *escapedLegacyPath = [NSRegularExpression escapedPatternForString:legacyConfigPath];
+    NSString *configPattern = [NSString stringWithFormat:
+        @"(?:^|\\s)-f\\s+(?:%@(?:[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\\.yaml|%@)(?:\\s|$)",
+        escapedPrefix,
+        escapedLegacyPath];
+    NSRegularExpression *configExpression = [NSRegularExpression
+        regularExpressionWithPattern:configPattern
+                             options:0
+                               error:nil];
+    if (!configExpression) {
+        return @[];
+    }
+
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:@"/bin/ps"];
     task.arguments = @[@"-axww", @"-o", @"pid=,args="];
@@ -235,11 +271,20 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         }
 
         NSString *args = [trimmed substringFromIndex:scanner.scanLocation];
-        BOOL matchesClashFXCore = [args containsString:binaryPath] &&
-            [args containsString:@" -f "] &&
-            [args containsString:configPath] &&
-            [args containsString:@" -d "] &&
-            [args containsString:homeDir];
+        char executablePath[PROC_PIDPATHINFO_MAXSIZE] = {0};
+        int executablePathLength = proc_pidpath((pid_t)pid, executablePath, sizeof(executablePath));
+        NSString *actualBinary = executablePathLength > 0
+            ? [[NSString stringWithUTF8String:executablePath] stringByResolvingSymlinksInPath]
+            : nil;
+        NSRange homeArgument = [args rangeOfString:[NSString stringWithFormat:@"-d %@", expectedHome]];
+        BOOL hasUUIDConfig = [configExpression
+            firstMatchInString:args
+                       options:0
+                         range:NSMakeRange(0, args.length)] != nil;
+        BOOL matchesClashFXCore = actualBinary.length > 0 &&
+            [actualBinary isEqualToString:expectedBinary] &&
+            hasUUIDConfig &&
+            homeArgument.location != NSNotFound;
         if (matchesClashFXCore) {
             [pids addObject:@(pid)];
         }
@@ -252,13 +297,77 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
     return kill(pid, 0) == 0;
 }
 
-- (void)terminateMihomoTask:(NSTask *)task completion:(dispatch_block_t)completion {
+- (NSArray<NSNumber *> *)listeningPortsForPID:(pid_t)pid protocol:(NSString *)protocol {
+    if (pid <= 0 || ![@[@"TCP", @"UDP"] containsObject:protocol]) {
+        return @[];
+    }
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:@"/usr/sbin/lsof"];
+    NSMutableArray<NSString *> *arguments = [NSMutableArray arrayWithObjects:
+        @"-nP", @"-a", @"-p", [NSString stringWithFormat:@"%d", pid],
+        [@"-i" stringByAppendingString:protocol], nil];
+    if ([protocol isEqualToString:@"TCP"]) {
+        [arguments addObject:@"-sTCP:LISTEN"];
+    }
+    [arguments addObjectsFromArray:@[@"-F", @"n"]];
+    task.arguments = arguments;
+    NSPipe *pipe = [NSPipe pipe];
+    task.standardOutput = pipe;
+    task.standardError = [NSFileHandle fileHandleWithNullDevice];
+    NSError *launchError = nil;
+    if (![task launchAndReturnError:&launchError]) {
+        return @[];
+    }
+    NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
+    if (task.terminationStatus != 0) {
+        return @[];
+    }
+    NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+    return ClashFXListeningPortsFromLsofOutput(output);
+}
+
+- (void)enqueueMihomoLifecycleOperation:(dispatch_block_t)operation {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.mihomoLifecycleOperations addObject:[operation copy]];
+        [self runNextMihomoLifecycleOperation];
+    });
+}
+
+- (void)runNextMihomoLifecycleOperation {
+    if (self.mihomoLifecycleOperationInFlight || self.mihomoLifecycleOperations.count == 0) {
+        return;
+    }
+
+    self.mihomoLifecycleOperationInFlight = YES;
+    dispatch_block_t operation = self.mihomoLifecycleOperations.firstObject;
+    [self.mihomoLifecycleOperations removeObjectAtIndex:0];
+    operation();
+}
+
+- (void)finishMihomoLifecycleOperation {
+    self.mihomoLifecycleOperationInFlight = NO;
+    [self runNextMihomoLifecycleOperation];
+}
+
+- (void)terminateMihomoTask:(NSTask *)task
+                   launchID:(NSString *)launchID
+                 completion:(dispatch_block_t)completion {
     if (!(task && task.isRunning)) {
         dispatch_async(dispatch_get_main_queue(), completion);
         return;
     }
 
+    if (self.mihomoTask != task ||
+        launchID.length == 0 ||
+        ![self.mihomoLaunchID isEqualToString:launchID]) {
+        NSLog(@"[mihomo_core] Skipping stale termination for launch %@", launchID ?: @"unknown");
+        dispatch_async(dispatch_get_main_queue(), completion);
+        return;
+    }
+
     pid_t pid = task.processIdentifier;
+    self.mihomoTask = nil;
     [task terminate];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -282,8 +391,9 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
                                 homeDir:(NSString *)homeDir
                                   reply:(stringReplyBlock)reply {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSString *configPrefix = [homeDir stringByAppendingPathComponent:@".enhanced_config."];
         NSArray<NSNumber *> *pids = [self mihomoProcessIDsMatchingBinaryPath:binaryPath
-                                                                  configPath:configPath
+                                                                  configPath:configPrefix
                                                                      homeDir:homeDir];
         for (NSNumber *pidNumber in pids) {
             pid_t pid = pidNumber.intValue;
@@ -293,7 +403,7 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         [NSThread sleepForTimeInterval:1.0];
 
         NSSet<NSNumber *> *stillMatchedPids = [NSSet setWithArray:[self mihomoProcessIDsMatchingBinaryPath:binaryPath
-                                                                                                configPath:configPath
+                                                                                                configPath:configPrefix
                                                                                                    homeDir:homeDir]];
 
         for (NSNumber *pidNumber in pids) {
@@ -539,6 +649,12 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         if (self.mihomoLaunchID.length > 0) {
             status[@"launchID"] = self.mihomoLaunchID;
         }
+        if (self.mihomoConfigPath.length > 0) {
+            status[@"configPath"] = self.mihomoConfigPath;
+        }
+        if (self.mihomoBinaryPath.length > 0) {
+            status[@"binaryPath"] = self.mihomoBinaryPath;
+        }
         if (self.mihomoLogPath.length > 0) {
             status[@"logPath"] = self.mihomoLogPath;
             NSDictionary *attributes = [[NSFileManager defaultManager]
@@ -553,6 +669,8 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
             status[@"lastTermination"] = self.mihomoLastTerminationSummary;
         }
         if (running && self.mihomoProcessID > 0) {
+            status[@"tcpListenPorts"] = [self listeningPortsForPID:self.mihomoProcessID protocol:@"TCP"];
+            status[@"udpListenPorts"] = [self listeningPortsForPID:self.mihomoProcessID protocol:@"UDP"];
             struct rusage_info_v2 usage = {0};
             int result = proc_pid_rusage(
                 self.mihomoProcessID,
@@ -640,21 +758,39 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
 }
 
 - (void)restartMihomoCoreHostWithReply:(stringReplyBlock)reply {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        NSTask *task = self.mihomoTask;
-        self.mihomoTask = nil;
-        [self terminateMihomoTask:task completion:^{
-            NSLog(@"[mihomo_core] Restarting helper host after an external-core startup failure");
-            reply(nil);
-            dispatch_after(
-                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
-                dispatch_get_main_queue(),
-                ^{
-                    self.shouldQuit = YES;
-                }
-            );
+    void (^enqueueRestart)(void) = ^{
+        [self enqueueMihomoLifecycleOperation:^{
+            NSTask *task = self.mihomoTask;
+            NSString *launchID = [self.mihomoLaunchID copy];
+            if (task && task.isRunning &&
+                (self.mihomoTask != task ||
+                 launchID.length == 0 ||
+                 ![self.mihomoLaunchID isEqualToString:launchID])) {
+                NSLog(@"[mihomo_core] Skipping stale helper-host restart for launch %@",
+                      launchID ?: @"unknown");
+                reply(nil);
+                [self finishMihomoLifecycleOperation];
+                return;
+            }
+            [self terminateMihomoTask:task launchID:launchID completion:^{
+                NSLog(@"[mihomo_core] Restarting helper host after an external-core startup failure");
+                reply(nil);
+                [self finishMihomoLifecycleOperation];
+                dispatch_after(
+                    dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
+                    dispatch_get_main_queue(),
+                    ^{
+                        self.shouldQuit = YES;
+                    }
+                );
+            }];
         }];
-    });
+    };
+    if (NSThread.isMainThread) {
+        enqueueRestart();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), enqueueRestart);
+    }
 }
 
 - (void)enableProxyWithPort:(int)port
@@ -699,24 +835,26 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
                            configPath:(NSString *)configPath
                               homeDir:(NSString *)homeDir
                                 reply:(stringReplyBlock)reply {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (self.mihomoTask && self.mihomoTask.isRunning) {
-            NSTask *staleTask = self.mihomoTask;
-            self.mihomoTask = nil;
-            [self terminateMihomoTask:staleTask completion:^{
-                [self launchMihomoCoreWithBinaryPath:binaryPath
-                                          configPath:configPath
-                                             homeDir:homeDir
-                                               reply:reply];
-            }];
-            return;
-        }
+    [self enqueueMihomoLifecycleOperation:^{
+        NSTask *staleTask = self.mihomoTask;
+        NSString *staleLaunchID = [self.mihomoLaunchID copy];
+        stringReplyBlock finishReply = ^(NSString *error) {
+            [self finishMihomoLifecycleOperation];
+            reply(error);
+        };
 
-        [self launchMihomoCoreWithBinaryPath:binaryPath
-                                  configPath:configPath
-                                     homeDir:homeDir
-                                       reply:reply];
-    });
+        dispatch_block_t launch = ^{
+            [self launchMihomoCoreWithBinaryPath:binaryPath
+                                      configPath:configPath
+                                         homeDir:homeDir
+                                           reply:finishReply];
+        };
+        if (staleTask && staleTask.isRunning) {
+            [self terminateMihomoTask:staleTask launchID:staleLaunchID completion:launch];
+        } else {
+            launch();
+        }
+    }];
 }
 
 - (void)launchMihomoCoreWithBinaryPath:(NSString *)binaryPath
@@ -738,6 +876,8 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
     self.mihomoLaunchID = launchID;
     self.mihomoLogPath = logPath;
     self.mihomoHomeDir = homeDir;
+    self.mihomoConfigPath = configPath;
+    self.mihomoBinaryPath = binaryPath;
     self.mihomoLaunchDate = launchDate;
     self.mihomoProcessID = 0;
     self.mihomoLastTerminationSummary = nil;
@@ -869,11 +1009,21 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
 }
 
 - (void)stopMihomoCoreWithReply:(stringReplyBlock)reply {
-    NSTask *task = self.mihomoTask;
-    self.mihomoTask = nil;
-    [self terminateMihomoTask:task completion:^{
-        reply(nil);
-    }];
+    void (^enqueueStop)(void) = ^{
+        [self enqueueMihomoLifecycleOperation:^{
+            NSTask *task = self.mihomoTask;
+            NSString *launchID = [self.mihomoLaunchID copy];
+            [self terminateMihomoTask:task launchID:launchID completion:^{
+                [self finishMihomoLifecycleOperation];
+                reply(nil);
+            }];
+        }];
+    };
+    if (NSThread.isMainThread) {
+        enqueueStop();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), enqueueStop);
+    }
 }
 
 // MARK: - DNS

@@ -75,7 +75,7 @@ func isAddrValid(addr string) bool {
 		comps := strings.Split(addr, ":")
 		v := comps[len(comps)-1]
 		if port, err := strconv.Atoi(v); err == nil {
-			if port > 0 && port < 65535 {
+			if port > 0 && port <= 65535 {
 				return checkPortAvailable(port)
 			}
 		}
@@ -84,7 +84,7 @@ func isAddrValid(addr string) bool {
 }
 
 func checkPortAvailable(port int) bool {
-	if port < 1 || port > 65534 {
+	if port < 1 || port > 65535 {
 		return false
 	}
 	addr := ":"
@@ -109,7 +109,22 @@ func checkPortAvailable(port int) bool {
 const preferredEnhancedDNSPort = 7874
 
 func alignEnhancedDNSListen(dns map[string]interface{}) {
-	alignEnhancedDNSListenWith(dns, checkPortAvailable, freeport.GetFreePort)
+	alignEnhancedDNSListenWith(dns, checkDNSPortAvailable, freeport.GetFreePort)
+}
+
+func checkDNSPortAvailable(port int) bool {
+	if !checkPortAvailable(port) {
+		return false
+	}
+	for _, host := range []string{"0.0.0.0", "127.0.0.1"} {
+		packet, err := net.ListenPacket("udp", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			log.Warnln("check DNS UDP port fail %s:%d: %v", host, port, err)
+			return false
+		}
+		_ = packet.Close()
+	}
+	return true
 }
 
 func alignEnhancedDNSListenWith(dns map[string]interface{}, available func(int) bool, freePort func() (int, error)) {
@@ -133,10 +148,13 @@ func chooseEnhancedDNSPort(dns map[string]interface{}, available func(int) bool,
 	if available(chosen) {
 		return chosen
 	}
-	if port, err := freePort(); err == nil && port > 0 && port != chosen {
+	if port, err := freePort(); err == nil && port > 0 && port != chosen && available(port) {
 		return port
 	}
-	return 11053
+	if available(11053) {
+		return 11053
+	}
+	return 0
 }
 
 func rewriteLoopbackDNSPorts(dns map[string]interface{}, port int) {
@@ -650,10 +668,10 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 		}
 		rawCfg.AllowLan = allowLan
 
-		if !checkPortAvailable(rawCfg.MixedPort) {
-			if port, err := freeport.GetFreePort(); err == nil {
-				rawCfg.MixedPort = port
-			}
+		if port, err := resolveConfiguredMixedPort(rawCfg.MixedPort, checkPortAvailable); err != nil {
+			return nil, err
+		} else {
+			rawCfg.MixedPort = port
 		}
 	}
 
@@ -1314,7 +1332,30 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	}
 
 	path := C.GoString(outputPath)
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if path == "" {
+		return C.CString("error:empty enhanced config output path")
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".enhanced-config-*")
+	if err != nil {
+		return C.CString("error:" + err.Error())
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return C.CString("error:" + err.Error())
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return C.CString("error:" + err.Error())
+	}
+	if err := tmp.Close(); err != nil {
+		return C.CString("error:" + err.Error())
+	}
+	if err := os.Chmod(tmpPath, 0644); err != nil {
+		return C.CString("error:" + err.Error())
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
 		return C.CString("error:" + err.Error())
 	}
 

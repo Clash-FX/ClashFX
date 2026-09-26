@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -103,5 +104,20 @@ func TestEnsureDefaultProxyPort(t *testing.T) {
 				t.Errorf("after ensureDefaultProxyPort = %v, want %v", tt.in, tt.want)
 			}
 		})
+	}
+}
+
+func TestResolveConfiguredMixedPortNeverSilentlyChoosesBackup(t *testing.T) {
+	const requested = 4321
+	port, err := resolveConfiguredMixedPort(requested, func(candidate int) bool {
+		return candidate == requested
+	})
+	if err != nil || port != requested {
+		t.Fatalf("available configured port: got port=%d err=%v", port, err)
+	}
+
+	port, err = resolveConfiguredMixedPort(requested, func(int) bool { return false })
+	if err == nil || port != 0 || !strings.Contains(err.Error(), "4321") {
+		t.Fatalf("occupied configured port must be explicit: got port=%d err=%v", port, err)
 	}
 }

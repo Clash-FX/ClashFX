@@ -2125,6 +2125,368 @@ final class SubscriptionStatusPresentationTests: XCTestCase {
 final class CoreLogGuardTests: XCTestCase {
     private let badFileDescriptorMessage = "batch read packet: bad file descriptor"
 
+    func testExplicitTunFailureIsNotHiddenByProxyTraffic() {
+        XCTAssertTrue(EnhancedModeRuntimeRecoveryPolicy.shouldRecover(
+            from: .tunDisabled,
+            trafficIsFlowing: true
+        ))
+        XCTAssertTrue(EnhancedModeRuntimeRecoveryPolicy.shouldRecover(
+            from: .tunInterfaceUnavailable,
+            trafficIsFlowing: true
+        ))
+        XCTAssertFalse(EnhancedModeRuntimeRecoveryPolicy.shouldRecover(
+            from: .apiUnavailable,
+            trafficIsFlowing: true
+        ))
+        XCTAssertFalse(EnhancedModeRuntimeRecoveryPolicy.shouldRecover(
+            from: .physicalNetworkUnavailable,
+            trafficIsFlowing: false
+        ))
+    }
+
+    func testEnhancedModeLifecycleRejectsStaleLaunchAndTerminationCallbacks() {
+        let currentID = UUID()
+        let stale = EnhancedModeLifecycleIdentity(generation: 4, launchID: UUID())
+        let current = EnhancedModeLifecycleIdentity(generation: 5, launchID: currentID)
+        XCTAssertFalse(EnhancedModeLifecyclePolicy.isCurrent(
+            identity: stale,
+            generation: 5,
+            launchID: currentID,
+            isTerminating: false
+        ))
+        XCTAssertFalse(EnhancedModeLifecyclePolicy.isCurrent(
+            identity: current,
+            generation: 5,
+            launchID: currentID,
+            isTerminating: true
+        ))
+        XCTAssertTrue(EnhancedModeLifecyclePolicy.isCurrent(
+            identity: current,
+            generation: 5,
+            launchID: currentID,
+            isTerminating: false
+        ))
+
+        let deadline = Date(timeIntervalSince1970: 100)
+        XCTAssertTrue(EnhancedModeLifecyclePolicy.shouldContinueWaiting(
+            deadline: deadline,
+            now: deadline.addingTimeInterval(-0.1)
+        ))
+        XCTAssertFalse(EnhancedModeLifecyclePolicy.shouldContinueWaiting(deadline: deadline, now: deadline))
+    }
+
+    func testProductionLifecycleCoordinatorSettlesCancelThenIgnoresLateAndOverlappingCallbacks() {
+        let coordinator = EnhancedModeLifecycleCoordinator()
+        let firstGeneration = coordinator.beginLaunch()
+        let firstID = coordinator.beginLaunchAttempt()
+        let firstLaunch = EnhancedModeLifecycleIdentity(generation: firstGeneration, launchID: firstID)
+        XCTAssertTrue(coordinator.isCurrentLaunch(firstLaunch, isTerminating: false))
+
+        let callbackGate = EnhancedModeCompletionGate()
+        var completions = [String]()
+        if callbackGate.claim() {
+            completions.append("cancelled")
+        }
+
+        let close = coordinator.beginClose()
+        XCTAssertFalse(coordinator.isCurrentLaunch(firstLaunch, isTerminating: false))
+        XCTAssertTrue(coordinator.isCurrentClose(
+            generation: close.generation,
+            id: close.id,
+            isTerminating: false
+        ))
+        if coordinator.isCurrentLaunch(firstLaunch, isTerminating: false), callbackGate.claim() {
+            completions.append("late success")
+        }
+        XCTAssertFalse(callbackGate.claim())
+
+        let secondGeneration = coordinator.beginLaunch()
+        let secondID = coordinator.beginLaunchAttempt()
+        XCTAssertFalse(coordinator.isCurrentClose(
+            generation: close.generation,
+            id: close.id,
+            isTerminating: false
+        ))
+        let secondLaunch = EnhancedModeLifecycleIdentity(
+            generation: secondGeneration,
+            launchID: secondID
+        )
+        XCTAssertTrue(coordinator.isCurrentLaunch(secondLaunch, isTerminating: false))
+        coordinator.finishClose(id: close.id)
+        XCTAssertTrue(coordinator.isCurrentLaunch(secondLaunch, isTerminating: false))
+
+        coordinator.invalidate()
+        XCTAssertFalse(coordinator.isCurrentLaunch(secondLaunch, isTerminating: false))
+        XCTAssertEqual(completions, ["cancelled"])
+    }
+
+    func testConfigUpdateCoordinatorRejectsLateFinishFromCancelledTransaction() {
+        let coordinator = ConfigUpdateTransactionCoordinator()
+        let cancelled = coordinator.begin()
+        XCTAssertEqual(coordinator.activeID, cancelled)
+        XCTAssertTrue(coordinator.finish(id: cancelled))
+        XCTAssertNil(coordinator.activeID)
+
+        let resumed = coordinator.begin()
+        XCTAssertFalse(coordinator.finish(id: cancelled))
+        XCTAssertEqual(coordinator.activeID, resumed)
+        XCTAssertTrue(coordinator.finish(id: resumed))
+        XCTAssertNil(coordinator.activeID)
+    }
+
+    func testDNSReadinessRejectsForeignProcessAndSingleTransportOwnership() {
+        let log = """
+        DNS server(UDP) listening at: 127.0.0.1:23053
+        DNS server(TCP) listening at: 127.0.0.1:23053
+        """
+        XCTAssertFalse(EnhancedModeDNSReadinessPolicy.currentLaunchOwnsDNSListeners(
+            observed: .init(
+                helperIsRunning: true,
+                processID: 123,
+                helperConfigPath: "/tmp/.enhanced_config.other.yaml",
+                launchLog: log,
+                tcpListenPorts: [23053, 19222],
+                udpListenPorts: [23053]
+            ),
+            expected: .init(
+                expectedConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                proxyPorts: [],
+                apiPort: 19222,
+                port: 23053
+            )
+        ))
+        XCTAssertFalse(EnhancedModeDNSReadinessPolicy.currentLaunchOwnsDNSListeners(
+            observed: .init(
+                helperIsRunning: true,
+                processID: 123,
+                helperConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                launchLog: log,
+                tcpListenPorts: [],
+                udpListenPorts: [23053]
+            ),
+            expected: .init(
+                expectedConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                proxyPorts: [],
+                apiPort: 19222,
+                port: 23053
+            )
+        ))
+        XCTAssertFalse(EnhancedModeDNSReadinessPolicy.currentLaunchOwnsDNSListeners(
+            observed: .init(
+                helperIsRunning: false,
+                processID: 0,
+                helperConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                launchLog: log,
+                tcpListenPorts: [23053, 19222],
+                udpListenPorts: [23053]
+            ),
+            expected: .init(
+                expectedConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                proxyPorts: [],
+                apiPort: 23053,
+                port: 23053
+            )
+        ))
+        XCTAssertTrue(EnhancedModeDNSReadinessPolicy.currentLaunchOwnsDNSListeners(
+            observed: .init(
+                helperIsRunning: true,
+                processID: 123,
+                helperConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                launchLog: log,
+                tcpListenPorts: [23053, 19222],
+                udpListenPorts: [23053]
+            ),
+            expected: .init(
+                expectedConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                proxyPorts: [],
+                apiPort: 19222,
+                port: 23053
+            )
+        ))
+        XCTAssertFalse(EnhancedModeDNSReadinessPolicy.currentLaunchOwnsDNSListeners(
+            observed: .init(
+                helperIsRunning: true,
+                processID: 123,
+                helperConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                launchLog: log,
+                tcpListenPorts: [23053, 19222],
+                udpListenPorts: [23053]
+            ),
+            expected: .init(
+                expectedConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                proxyPorts: [7890],
+                apiPort: 19222,
+                port: 23053
+            )
+        ))
+        XCTAssertFalse(EnhancedModeDNSReadinessPolicy.currentLaunchOwnsDNSListeners(
+            observed: .init(
+                helperIsRunning: true,
+                processID: 123,
+                helperConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                launchLog: log,
+                tcpListenPorts: [23053],
+                udpListenPorts: [23053]
+            ),
+            expected: .init(
+                expectedConfigPath: "/tmp/.enhanced_config.ours.yaml",
+                proxyPorts: [],
+                apiPort: 19222,
+                port: 23053
+            )
+        ))
+    }
+
+    func testDNSProtocolResponseDistinguishesSERVFAILFromHealthyAnswers() throws {
+        var servfail = Data([0xC1, 0xA5, 0x81, 0x82, 0, 1, 0, 0, 0, 0, 0, 0])
+        servfail.append(contentsOf: [
+            7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1
+        ])
+        XCTAssertEqual(
+            try EnhancedModeDNSReadinessPolicy.classify(
+                responseCode: XCTUnwrap(EnhancedModeDNSReadinessPolicy.parseResponse(
+                    servfail,
+                    transactionID: 0xC1A5,
+                    expectedQuestion: [
+                        7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1
+                    ]
+                )).responseCode,
+                answerCount: 0,
+                hasResponseFlag: true
+            ),
+            .protocolResponding
+        )
+        servfail[2] = 0x01
+        let queryBit = try XCTUnwrap(EnhancedModeDNSReadinessPolicy.parseResponse(
+            servfail,
+            transactionID: 0xC1A5,
+            expectedQuestion: [
+                7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1
+            ]
+        ))
+        XCTAssertEqual(
+            EnhancedModeDNSReadinessPolicy.classify(
+                responseCode: queryBit.responseCode,
+                answerCount: queryBit.answerCount,
+                hasResponseFlag: queryBit.hasResponseFlag
+            ),
+            .invalidResponse
+        )
+        let validServfail = try XCTUnwrap(EnhancedModeDNSReadinessPolicy.parseResponse(
+            Data([0xC1, 0xA5, 0x81, 0x82, 0, 1, 0, 0, 0, 0, 0, 0,
+                  7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1]),
+            transactionID: 0xC1A5,
+            expectedQuestion: [
+                7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1
+            ]
+        ))
+        XCTAssertEqual(validServfail.responseCode, 2)
+        XCTAssertFalse(EnhancedModeDNSReadinessPolicy.launchProtocolReady(
+            ownsCurrentLaunchListeners: false,
+            udp: validServfail,
+            tcp: validServfail
+        ))
+        XCTAssertTrue(EnhancedModeDNSReadinessPolicy.launchProtocolReady(
+            ownsCurrentLaunchListeners: true,
+            udp: validServfail,
+            tcp: validServfail
+        ))
+        let healthy = EnhancedModeDNSReadinessPolicy.classify(
+            responseCode: 0,
+            answerCount: 1,
+            hasResponseFlag: true
+        )
+        XCTAssertEqual(healthy, .upstreamHealthy)
+        XCTAssertEqual(
+            EnhancedModeDNSReadinessPolicy.classify(responseCode: 0, answerCount: 1, hasResponseFlag: false),
+            .invalidResponse
+        )
+    }
+
+    func testActualMihomoDNSAnswerWithoutAdditionalRecordsIsReady() throws {
+        // Captured from an isolated Mihomo 1.19.24 fake-IP DNS server over
+        // UDP and TCP: QDCOUNT=1, ANCOUNT=1, ARCOUNT=0, RCODE=0.
+        let question: [UInt8] = [7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1]
+        var answer = Data([0xC1, 0xA5, 0x85, 0x80, 0, 1, 0, 1, 0, 0, 0, 0])
+        answer.append(contentsOf: question)
+        answer.append(contentsOf: [0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 0, 1, 0, 4, 198, 18, 0, 4])
+        let parsed = try XCTUnwrap(EnhancedModeDNSReadinessPolicy.parseResponse(
+            answer, transactionID: 0xC1A5, expectedQuestion: question
+        ))
+        XCTAssertEqual(parsed.responseCode, 0)
+        XCTAssertEqual(parsed.answerCount, 1)
+        XCTAssertTrue(parsed.hasResponseFlag)
+        XCTAssertTrue(EnhancedModeDNSReadinessPolicy.launchProtocolReady(
+            ownsCurrentLaunchListeners: true, udp: parsed, tcp: parsed
+        ))
+        // Optional EDNS records do not change the echoed question.
+        answer[11] = 1
+        answer.append(contentsOf: [0, 0, 41, 16, 0, 0, 0, 0, 0, 0, 0])
+        XCTAssertNotNil(EnhancedModeDNSReadinessPolicy.parseResponse(
+            answer, transactionID: 0xC1A5, expectedQuestion: question
+        ))
+        // ARCOUNT must never substitute for QDCOUNT.
+        answer[5] = 0
+        XCTAssertNil(EnhancedModeDNSReadinessPolicy.parseResponse(
+            answer, transactionID: 0xC1A5, expectedQuestion: question
+        ))
+    }
+
+    func testDNSTCPLengthFrameReadsAcrossArbitrarilyFragmentedChunks() {
+        let frame = Data([0, 12, 0xC1, 0xA5, 0x81, 0x80, 0, 1, 0, 1, 0, 0, 0, 0])
+        var offset = 0
+        let message = EnhancedModeDNSReadinessPolicy.readTCPMessage { requested in
+            guard offset < frame.count else { return nil }
+            let count = min(1, requested, frame.count - offset)
+            defer { offset += count }
+            return frame.subdata(in: offset ..< (offset + count))
+        }
+        XCTAssertEqual(message, frame.dropFirst(2))
+        XCTAssertEqual(EnhancedModeDNSReadinessPolicy.framedMessageLength(prefix: [0]), nil)
+        XCTAssertEqual(EnhancedModeDNSReadinessPolicy.framedMessageLength(prefix: [0, 12]), 12)
+    }
+
+    func testEnhancedReloadPreservesActiveDNSPortAndLifecycleCompletionIdentity() throws {
+        var config: [String: Any] = [
+            "external-controller": "127.0.0.1:19222",
+            "tun": ["enable": true],
+            "dns": [
+                "listen": "127.0.0.1:23000",
+                "nameserver": ["127.0.0.1:23000", "https://dns.example/query"],
+                "nameserver-policy": ["example.com": "udp://localhost:23000"]
+            ]
+        ]
+        XCTAssertTrue(EnhancedModeDNSReadinessPolicy.preserveDNSListenPort(in: &config, port: 23456))
+        let dns = try XCTUnwrap(config["dns"] as? [String: Any])
+        XCTAssertEqual(dns["listen"] as? String, "127.0.0.1:23456")
+        XCTAssertEqual(dns["nameserver"] as? [String], ["127.0.0.1:23456", "https://dns.example/query"])
+        XCTAssertEqual((dns["nameserver-policy"] as? [String: String])?["example.com"], "udp://localhost:23456")
+        XCTAssertEqual((config["tun"] as? [String: Bool])?["enable"], true)
+        XCTAssertEqual(config["external-controller"] as? String, "127.0.0.1:19222")
+
+        let currentID = UUID()
+        XCTAssertFalse(EnhancedModeLifecyclePolicy.finishConfigUpdateShouldApply(
+            transactionID: UUID(),
+            activeTransactionID: currentID,
+            isTerminating: false
+        ))
+        XCTAssertFalse(EnhancedModeLifecyclePolicy.finishCloseShouldRestoreCore(
+            generation: 8,
+            currentGeneration: 9,
+            isTerminating: false
+        ))
+        XCTAssertFalse(EnhancedModeLifecyclePolicy.finishCloseShouldRestoreCore(
+            generation: 9,
+            currentGeneration: 9,
+            isTerminating: true
+        ))
+        XCTAssertTrue(EnhancedModeLifecyclePolicy.finishCloseShouldRestoreCore(
+            generation: 9,
+            currentGeneration: 9,
+            isTerminating: false
+        ))
+    }
+
     func testDarwinClosedTunErrorsRequestImmediateRecovery() {
         let messages = [
             "batch read packet: socket operation on non-socket",
