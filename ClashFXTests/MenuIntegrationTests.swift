@@ -17,6 +17,7 @@ final class MenuIntegrationTests: XCTestCase {
         _ = NSApplication.shared
         AppDelegate.shared.onFinish = nil
         AppDelegate.shared.cancel()
+        AppDelegate.shared.isEnhancedModeTransitionInProgress = false
         Settings.benchMarkUrl = urlA
         MenuItemFactory.useViewToRenderProxy = true
         GlobalLeafBenchmarkPresentationStore.clearAll()
@@ -38,6 +39,7 @@ final class MenuIntegrationTests: XCTestCase {
     override func tearDown() {
         AppDelegate.shared.onFinish = nil
         AppDelegate.shared.cancel()
+        AppDelegate.shared.isEnhancedModeTransitionInProgress = false
         MihomoMenuURLProtocol.releaseHeld()
         menus.removeAll()
         header = nil
@@ -252,6 +254,109 @@ final class MenuIntegrationTests: XCTestCase {
         waitUntil("cancelled benchmark callbacks drained") {
             MihomoMenuURLProtocol.delivered == deliveredBeforeRelease + heldCount
         }
+    }
+
+    func testCoreTransitionExplainsAndBlocksBothBenchmarkEntrypoints() throws {
+        AppDelegate.shared.isEnhancedModeTransitionInProgress = true
+        let selector = menu()
+        let automatic = menu("Automatic")
+        let selectorAction = try XCTUnwrap(selector.items[0] as? ProxyGroupSpeedTestMenuItem)
+        let automaticAction = try XCTUnwrap(automatic.items[0] as? ProxyGroupSpeedTestMenuItem)
+        let reason = NSLocalizedString("Proxy core is changing. Please try again shortly.", comment: "")
+        let switchingTitle = NSLocalizedString("Core switching…", comment: "")
+
+        for action in [selectorAction, automaticAction] {
+            let view = try XCTUnwrap(action.view as? MenuItemBaseView)
+            XCTAssertFalse(action.isEnabled)
+            XCTAssertEqual(action.title, switchingTitle)
+            XCTAssertEqual(action.toolTip, reason)
+            XCTAssertEqual(view.alphaValue, 0.5)
+            XCTAssertEqual(view.accessibilityValue() as? String, switchingTitle)
+            XCTAssertEqual(view.accessibilityHelp() as? String, reason)
+            XCTAssertFalse(view.isHighlighted)
+        }
+
+        let requestCount = MihomoMenuURLProtocol.requests.count
+        clickBenchmark(selector)
+        clickBenchmark(automatic)
+        XCTAssertEqual(MihomoMenuURLProtocol.requests.count, requestCount)
+        XCTAssertNil(AppDelegate.shared.active)
+
+        AppDelegate.shared.isEnhancedModeTransitionInProgress = false
+        selector.menu(selector, willHighlight: selectorAction)
+        automatic.menu(automatic, willHighlight: automaticAction)
+        XCTAssertTrue(selectorAction.isEnabled)
+        XCTAssertTrue(automaticAction.isEnabled)
+        XCTAssertEqual(selectorAction.title, NSLocalizedString("Benchmark", comment: ""))
+        XCTAssertEqual(speedTestText(automaticAction), NSLocalizedString("ReTest", comment: ""))
+        XCTAssertNil(selectorAction.toolTip)
+        XCTAssertNil(automaticAction.toolTip)
+    }
+
+    func testSelectorFreshTopologyFailureShowsReasonAndPreservesHistory() throws {
+        let leaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        GlobalLeafBenchmarkPresentationStore.publish(.init(
+            identity: .init(proxy: leaf),
+            benchmarkURL: urlA,
+            sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Leaf-A", delay: 90),
+            publishedAt: Date(timeIntervalSinceNow: -48 * 3600)
+        ))
+        let menu = menu()
+        let action = try XCTUnwrap(menu.items[0] as? ProxyGroupSpeedTestMenuItem)
+        let previousDelay = text(menu, "Leaf-A")
+        XCTAssertEqual(previousDelay, "90 ms *")
+
+        MihomoMenuURLProtocol.proxyDataResponseStatuses = [503]
+        clickBenchmark(menu)
+        finish(menu)
+
+        XCTAssertEqual(action.title, NSLocalizedString("Benchmark unavailable", comment: ""))
+        XCTAssertEqual(
+            action.toolTip,
+            NSLocalizedString("Proxy core unavailable. Please try again shortly.", comment: "")
+        )
+        XCTAssertEqual(text(menu, "Leaf-A"), previousDelay)
+        XCTAssertEqual(
+            GlobalLeafBenchmarkPresentationStore.presentation(
+                for: leaf,
+                conditions: BenchmarkConditions(url: urlA)
+            )?.rowState.rawDelay,
+            90
+        )
+    }
+
+    func testAutomaticGroupFreshTopologyFailureShowsReasonAndPreservesHistory() throws {
+        let leaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        GlobalLeafBenchmarkPresentationStore.publish(.init(
+            identity: .init(proxy: leaf),
+            benchmarkURL: urlB,
+            sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Leaf-A", delay: 73),
+            publishedAt: Date(timeIntervalSinceNow: -48 * 3600)
+        ))
+        let menu = menu("Automatic")
+        let action = try XCTUnwrap(menu.items[0] as? ProxyGroupSpeedTestMenuItem)
+        let previousDelay = text(menu, "Leaf-A")
+        XCTAssertTrue(previousDelay.contains("73 ms"))
+
+        MihomoMenuURLProtocol.proxyDataResponseStatuses = [503]
+        clickBenchmark(menu)
+        finish(menu)
+
+        XCTAssertEqual(action.title, NSLocalizedString("Benchmark unavailable", comment: ""))
+        XCTAssertEqual(
+            action.toolTip,
+            NSLocalizedString("Proxy core unavailable. Please try again shortly.", comment: "")
+        )
+        XCTAssertEqual(text(menu, "Leaf-A"), previousDelay)
+        XCTAssertEqual(
+            GlobalLeafBenchmarkPresentationStore.presentation(
+                for: leaf,
+                conditions: BenchmarkConditions(url: urlB)
+            )?.rowState.rawDelay,
+            73
+        )
     }
 
     func testOldSessionCleanupCannotClearNewGroupBusyPresentation() throws {

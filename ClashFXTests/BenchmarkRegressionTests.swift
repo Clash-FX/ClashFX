@@ -2220,6 +2220,71 @@ final class CoreLogGuardTests: XCTestCase {
         XCTAssertEqual(completions, ["cancelled"])
     }
 
+    func testEnhancedModeTransitionTracksPendingWorkAndCancelsRestoreRetryGeneration() throws {
+        let coordinator = EnhancedModeLifecycleCoordinator()
+        XCTAssertFalse(coordinator.isTransitionInProgress)
+
+        let firstRestore = coordinator.beginRestore()
+        XCTAssertTrue(coordinator.isTransitionInProgress)
+        XCTAssertTrue(coordinator.isCurrentRestore(firstRestore, isTerminating: false))
+
+        let replacementRestore = coordinator.beginRestore()
+        XCTAssertFalse(coordinator.isCurrentRestore(firstRestore, isTerminating: false))
+        XCTAssertTrue(coordinator.isCurrentRestore(replacementRestore, isTerminating: false))
+        coordinator.finishRestore(generation: firstRestore)
+        XCTAssertTrue(coordinator.isCurrentRestore(replacementRestore, isTerminating: false))
+
+        let ordinaryLaunch = coordinator.beginLaunch()
+        XCTAssertFalse(coordinator.isCurrentRestore(replacementRestore, isTerminating: false))
+        XCTAssertTrue(coordinator.isTransitionInProgress)
+        coordinator.finishLaunch(generation: ordinaryLaunch)
+        XCTAssertFalse(coordinator.isTransitionInProgress)
+
+        let pendingRestore = coordinator.beginRestore()
+
+        let close = coordinator.beginClose()
+        XCTAssertFalse(coordinator.isCurrentRestore(pendingRestore, isTerminating: false))
+        XCTAssertTrue(coordinator.isTransitionInProgress)
+        coordinator.finishClose(id: close.id)
+        XCTAssertFalse(coordinator.isTransitionInProgress)
+
+        let ownedRestore = coordinator.beginRestore()
+        XCTAssertNil(coordinator.beginRestoredLaunch(restoreGeneration: pendingRestore))
+        let restoredLaunch = try XCTUnwrap(
+            coordinator.beginRestoredLaunch(restoreGeneration: ownedRestore)
+        )
+        coordinator.finishLaunch(generation: restoredLaunch)
+        XCTAssertTrue(coordinator.isCurrentRestore(ownedRestore, isTerminating: false))
+        XCTAssertTrue(coordinator.isTransitionInProgress)
+        coordinator.finishRestore(generation: ownedRestore)
+        XCTAssertFalse(coordinator.isTransitionInProgress)
+
+        let launchGeneration = coordinator.beginLaunch()
+        XCTAssertTrue(coordinator.isTransitionInProgress)
+        coordinator.finishLaunch(generation: launchGeneration &- 1)
+        XCTAssertTrue(coordinator.isTransitionInProgress)
+        coordinator.finishLaunch(generation: launchGeneration)
+        XCTAssertFalse(coordinator.isTransitionInProgress)
+    }
+
+    func testEnhancedModeLifecycleCompletionRejectsSupersededGeneration() {
+        XCTAssertFalse(EnhancedModeLifecyclePolicy.shouldApplyLifecycleCompletion(
+            generation: 12,
+            currentGeneration: 13,
+            isTerminating: false
+        ))
+        XCTAssertFalse(EnhancedModeLifecyclePolicy.shouldApplyLifecycleCompletion(
+            generation: 13,
+            currentGeneration: 13,
+            isTerminating: true
+        ))
+        XCTAssertTrue(EnhancedModeLifecyclePolicy.shouldApplyLifecycleCompletion(
+            generation: 13,
+            currentGeneration: 13,
+            isTerminating: false
+        ))
+    }
+
     func testConfigUpdateCoordinatorRejectsLateFinishFromCancelledTransaction() {
         let coordinator = ConfigUpdateTransactionCoordinator()
         let cancelled = coordinator.begin()
@@ -2235,16 +2300,11 @@ final class CoreLogGuardTests: XCTestCase {
     }
 
     func testDNSReadinessRejectsForeignProcessAndSingleTransportOwnership() {
-        let log = """
-        DNS server(UDP) listening at: 127.0.0.1:23053
-        DNS server(TCP) listening at: 127.0.0.1:23053
-        """
         XCTAssertFalse(EnhancedModeDNSReadinessPolicy.currentLaunchOwnsDNSListeners(
             observed: .init(
                 helperIsRunning: true,
                 processID: 123,
                 helperConfigPath: "/tmp/.enhanced_config.other.yaml",
-                launchLog: log,
                 tcpListenPorts: [23053, 19222],
                 udpListenPorts: [23053]
             ),
@@ -2260,7 +2320,6 @@ final class CoreLogGuardTests: XCTestCase {
                 helperIsRunning: true,
                 processID: 123,
                 helperConfigPath: "/tmp/.enhanced_config.ours.yaml",
-                launchLog: log,
                 tcpListenPorts: [],
                 udpListenPorts: [23053]
             ),
@@ -2276,7 +2335,6 @@ final class CoreLogGuardTests: XCTestCase {
                 helperIsRunning: false,
                 processID: 0,
                 helperConfigPath: "/tmp/.enhanced_config.ours.yaml",
-                launchLog: log,
                 tcpListenPorts: [23053, 19222],
                 udpListenPorts: [23053]
             ),
@@ -2292,7 +2350,6 @@ final class CoreLogGuardTests: XCTestCase {
                 helperIsRunning: true,
                 processID: 123,
                 helperConfigPath: "/tmp/.enhanced_config.ours.yaml",
-                launchLog: log,
                 tcpListenPorts: [23053, 19222],
                 udpListenPorts: [23053]
             ),
@@ -2308,7 +2365,6 @@ final class CoreLogGuardTests: XCTestCase {
                 helperIsRunning: true,
                 processID: 123,
                 helperConfigPath: "/tmp/.enhanced_config.ours.yaml",
-                launchLog: log,
                 tcpListenPorts: [23053, 19222],
                 udpListenPorts: [23053]
             ),
@@ -2324,7 +2380,6 @@ final class CoreLogGuardTests: XCTestCase {
                 helperIsRunning: true,
                 processID: 123,
                 helperConfigPath: "/tmp/.enhanced_config.ours.yaml",
-                launchLog: log,
                 tcpListenPorts: [23053],
                 udpListenPorts: [23053]
             ),
@@ -2334,6 +2389,37 @@ final class CoreLogGuardTests: XCTestCase {
                 apiPort: 19222,
                 port: 23053
             )
+        ))
+    }
+
+    func testDNSReadinessUsesOwnedSocketsWithoutRequiringInfoLogs() {
+        // A warning/error/silent profile emits no DNS bind messages. The
+        // readiness snapshot deliberately has no dependency on a log file.
+        let expected = EnhancedModeDNSReadinessPolicy.ExpectedListeners(
+            expectedConfigPath: "/tmp/.enhanced_config.ours.yaml",
+            proxyPorts: [7890, 7891], apiPort: 19222, port: 23053
+        )
+        let observed = EnhancedModeDNSReadinessPolicy.HelperListenerSnapshot(
+            helperIsRunning: true, processID: 123,
+            helperConfigPath: expected.expectedConfigPath,
+            tcpListenPorts: [7890, 7891, 19222, 23053],
+            udpListenPorts: [23053]
+        )
+        let ownsListeners = EnhancedModeDNSReadinessPolicy.currentLaunchOwnsDNSListeners(
+            observed: observed, expected: expected
+        )
+        XCTAssertTrue(ownsListeners)
+        XCTAssertFalse(EnhancedModeDNSReadinessPolicy.launchProtocolReady(
+            ownsCurrentLaunchListeners: ownsListeners, udp: nil, tcp: nil
+        ), "Socket ownership alone must not bypass the protocol probes")
+        let response = EnhancedModeDNSReadinessPolicy.Response(
+            responseCode: 0, answerCount: 1, hasResponseFlag: true
+        )
+        XCTAssertFalse(EnhancedModeDNSReadinessPolicy.launchProtocolReady(
+            ownsCurrentLaunchListeners: ownsListeners, udp: response, tcp: nil
+        ))
+        XCTAssertTrue(EnhancedModeDNSReadinessPolicy.launchProtocolReady(
+            ownsCurrentLaunchListeners: ownsListeners, udp: response, tcp: response
         ))
     }
 

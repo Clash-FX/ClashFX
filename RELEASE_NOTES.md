@@ -1,3 +1,25 @@
+<!-- Lab 1.1.11.8 candidate -->
+
+### Bug Fixes and Improvements
+
+- **Enhanced Mode Starts Reliably at Every Log Level** — Startup now checks the current core's actual listeners and valid DNS replies over UDP and TCP, so quiet core logs no longer cause a healthy launch to be reported as failed.
+- **Rapid Mode Changes Keep the Current Setting** — A late startup or shutdown callback can no longer interfere with a newer change. Switching the core also cancels an in-progress benchmark.
+- **Benchmark Problems Are Easier to Understand** — When a benchmark cannot start, the menu explains why and keeps earlier results. It no longer reports a false successful finish or invents failed measurements when proxy data is unavailable.
+
+Validation: 175 XCTest cases passed. Compatible CI built universal App/Helper binaries and passed minimum-system-version gates. An independent hosted-core TUN, DNS, route-selection, and route-restoration check passed. Full GUI/privileged-Helper DNS and proxy restoration and macOS 10.14 runtime remain unverified; see the [candidate validation record](docs/lab-1.1.11.8-validation.md).
+
+---
+
+### 改进
+
+- **增强模式在不同日志级别下都能可靠启动** — 启动时会检查当前核心实际持有的监听端口，并验证 UDP 和 TCP DNS 应答；核心日志较少时，也不会把正常启动误报为失败。
+- **快速切换模式时会保留当前设置** — 较晚返回的启动或关闭结果不会干扰更新的操作；切换核心时会取消正在进行的测速。
+- **测速遇到问题时更容易看懂** — 测速无法开始时，菜单会说明原因并保留已有结果；代理列表暂不可用时，不会误报成功完成或编造失败延迟。
+
+验证：175 项 XCTest 通过；兼容 CI 构建了通用架构 App/Helper 并通过最低系统版本检查；独立核心的 TUN、DNS、路由选择与恢复检查通过。完整 GUI/特权 Helper 的 DNS 和代理恢复流程、macOS 10.14 实机运行尚未验证，详见[候选验证记录](docs/lab-1.1.11.8-validation.md)。
+
+<!-- Previous release notes -->
+
 <!-- Lab 1.1.11.7 candidate -->
 
 ### Bug Fixes and Improvements
