@@ -67,13 +67,58 @@ final class EnhancedModeLifecycleCoordinator {
     private(set) var generation: UInt64 = 0
     private(set) var launchID: UUID?
     private(set) var closeID: UUID?
+    private(set) var isLaunchPending = false
+    private(set) var restoreGeneration: UInt64 = 0
+    private(set) var isRestorePending = false
+
+    var isTransitionInProgress: Bool {
+        isLaunchPending || closeID != nil || isRestorePending
+    }
 
     @discardableResult
     func beginLaunch() -> UInt64 {
+        cancelRestore()
+        return beginLaunchTransaction()
+    }
+
+    @discardableResult
+    func beginRestoredLaunch(restoreGeneration expectedRestoreGeneration: UInt64) -> UInt64? {
+        guard isCurrentRestore(expectedRestoreGeneration, isTerminating: false) else { return nil }
+        return beginLaunchTransaction()
+    }
+
+    private func beginLaunchTransaction() -> UInt64 {
         generation &+= 1
         launchID = UUID()
         closeID = nil
+        isLaunchPending = true
         return generation
+    }
+
+    func finishLaunch(generation expectedGeneration: UInt64) {
+        guard generation == expectedGeneration else { return }
+        isLaunchPending = false
+    }
+
+    @discardableResult
+    func beginRestore() -> UInt64 {
+        restoreGeneration &+= 1
+        isRestorePending = true
+        return restoreGeneration
+    }
+
+    func cancelRestore() {
+        restoreGeneration &+= 1
+        isRestorePending = false
+    }
+
+    func finishRestore(generation expectedGeneration: UInt64) {
+        guard restoreGeneration == expectedGeneration else { return }
+        isRestorePending = false
+    }
+
+    func isCurrentRestore(_ expectedGeneration: UInt64, isTerminating: Bool) -> Bool {
+        !isTerminating && isRestorePending && restoreGeneration == expectedGeneration
     }
 
     @discardableResult
@@ -86,6 +131,8 @@ final class EnhancedModeLifecycleCoordinator {
     func beginClose() -> (generation: UInt64, id: UUID) {
         generation &+= 1
         launchID = nil
+        isLaunchPending = false
+        cancelRestore()
         let id = UUID()
         closeID = id
         return (generation, id)
@@ -96,6 +143,8 @@ final class EnhancedModeLifecycleCoordinator {
         generation &+= 1
         launchID = nil
         closeID = nil
+        isLaunchPending = false
+        cancelRestore()
         return generation
     }
 
@@ -157,6 +206,14 @@ enum EnhancedModeLifecyclePolicy {
         isTerminating: Bool
     ) -> Bool {
         !isTerminating && identity.generation == generation && identity.launchID == launchID
+    }
+
+    static func shouldApplyLifecycleCompletion(
+        generation: UInt64,
+        currentGeneration: UInt64,
+        isTerminating: Bool
+    ) -> Bool {
+        !isTerminating && generation == currentGeneration
     }
 
     static func shouldContinueWaiting(deadline: Date, now: Date) -> Bool {
@@ -238,7 +295,6 @@ enum EnhancedModeDNSReadinessPolicy {
         let helperIsRunning: Bool
         let processID: Int
         let helperConfigPath: String?
-        let launchLog: String
         let tcpListenPorts: [Int]
         let udpListenPorts: [Int]
     }
@@ -257,13 +313,11 @@ enum EnhancedModeDNSReadinessPolicy {
         guard observed.helperIsRunning, observed.processID > 0,
               observed.helperConfigPath == expected.expectedConfigPath,
               expected.apiPort > 0, expected.port > 0 else { return false }
-        let suffix = ":\(expected.port)"
-        let hasUDPBind = observed.launchLog.contains("DNS server(UDP) listening at: 127.0.0.1\(suffix)") ||
-            observed.launchLog.contains("DNS server(UDP) listening at: 0.0.0.0\(suffix)")
-        let hasTCPBind = observed.launchLog.contains("DNS server(TCP) listening at: 127.0.0.1\(suffix)") ||
-            observed.launchLog.contains("DNS server(TCP) listening at: 0.0.0.0\(suffix)")
-        return hasUDPBind && hasTCPBind &&
-            observed.tcpListenPorts.contains(expected.port) && observed.udpListenPorts.contains(expected.port) &&
+        // Listener ownership is runtime evidence. INFO-level bind messages may
+        // be suppressed by the profile's log level, or the log may be unreadable.
+        // Neither changes whether this launch owns its sockets. A separate
+        // UDP/TCP DNS probe must still pass before the launch is accepted.
+        return observed.tcpListenPorts.contains(expected.port) && observed.udpListenPorts.contains(expected.port) &&
             observed.tcpListenPorts.contains(expected.apiPort) &&
             expected.proxyPorts.allSatisfy(observed.tcpListenPorts.contains)
     }

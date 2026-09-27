@@ -642,4 +642,9 @@
 "Not tested" = "Не измерено";
 
 "No testable proxy nodes" = "Нет узлов прокси для проверки";
+"Core switching…" = "Переключение core…";
+"Proxy core unavailable. Please try again shortly." = "Прокси-ядро временно недоступно. Повторите попытку позже.";
+"Proxy core is changing. Please try again shortly." = "Прокси-ядро переключается. Повторите попытку позже.";
+"Proxy group is no longer available. Refresh and try again." = "Группа прокси больше недоступна. Обновите список и повторите попытку.";
+"The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "Новый core не смог открыть настроенные прокси-порты прослушивания: %@. Подробности см. в диагностическом журнале core.";
 "Direct fallback (no proxy nodes)" = "Прямое соединение (нет узлов прокси)";

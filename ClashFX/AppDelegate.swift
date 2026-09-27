@@ -193,6 +193,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         enhancedModeLifecycle.generation
     }
 
+    var isEnhancedModeTransitionInProgress: Bool {
+        enhancedModeLifecycle.isTransitionInProgress ||
+            isWakeEnhancedModeRestarting ||
+            isEnhancedModeRuntimeRecoveryPending
+    }
+
     private var activeEnhancedModeLaunchID: UUID? {
         enhancedModeLifecycle.launchID
     }
@@ -500,6 +506,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ aNotification: Notification) {
         UserDefaults.standard.set(0, forKey: "launch_fail_times")
         Logger.log("ClashFX will terminate")
+        enhancedModeLifecycle.cancelRestore()
         pendingStartupProxyRecoveryWork?.cancel()
         pendingStartupProxyRecoveryWork = nil
         isStartupProxyRecoveryActive = false
@@ -2551,7 +2558,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func captureAndRestartEnhancedMode(reason: String) {
         guard Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive,
-              enhancedModeMenuItem.isEnabled,
+              !enhancedModeLifecycle.isTransitionInProgress,
               !isWakeEnhancedModeRestarting,
               !isEnhancedModeRuntimeRecoveryPending else {
             return
@@ -2567,7 +2574,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard generation == self.enhancedModeGeneration, !self.isTerminating else { return }
             self.isEnhancedModeRuntimeRecoveryPending = false
             guard Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive,
-                  self.enhancedModeMenuItem.isEnabled,
+                  !self.enhancedModeLifecycle.isTransitionInProgress,
                   !self.isWakeEnhancedModeRestarting else {
                 return
             }
@@ -3043,6 +3050,7 @@ extension AppDelegate {
     }
 
     @IBAction func actionToggleEnhancedMode(_ sender: NSMenuItem?) {
+        guard !isEnhancedModeTransitionInProgress, !isTerminating, !isRestarting else { return }
         let newState = !Settings.enhancedMode
         guard newState || !Settings.claudeProxyLockEnabled else {
             presentClaudeProxyLockProtectionNotice()
@@ -3051,8 +3059,13 @@ extension AppDelegate {
         guard ConfigManager.shared.isRunning else { return }
         enhancedModeMenuItem.isEnabled = false
 
-        let completion: (String?) -> Void = { [weak self] error in
+        let completion: (UInt64, String?) -> Void = { [weak self] generation, error in
             guard let self = self else { return }
+            guard EnhancedModeLifecyclePolicy.shouldApplyLifecycleCompletion(
+                      generation: generation,
+                      currentGeneration: self.enhancedModeGeneration,
+                      isTerminating: self.isTerminating || self.isRestarting
+                  ) else { return }
             self.enhancedModeMenuItem.isEnabled = true
             if let error = error {
                 Settings.enhancedMode = !newState
@@ -3169,8 +3182,13 @@ extension AppDelegate {
         }
 
         enhancedModeMenuItem.isEnabled = false
-        disableEnhancedMode { [weak self] error in
-            guard let self = self else { return }
+        disableEnhancedMode { [weak self] generation, error in
+            guard let self = self,
+                  EnhancedModeLifecyclePolicy.shouldApplyLifecycleCompletion(
+                      generation: generation,
+                      currentGeneration: self.enhancedModeGeneration,
+                      isTerminating: self.isTerminating || self.isRestarting
+                  ) else { return }
             self.enhancedModeMenuItem.isEnabled = true
             if let error = error {
                 Logger.log("Turn off proxy modes failed: \(error)", level: .error)
@@ -3406,8 +3424,13 @@ extension AppDelegate {
         }
 
         if ConfigManager.shared.isEnhancedModeActive {
-            disableEnhancedMode { [weak self] error in
-                guard let self = self else { return }
+            disableEnhancedMode { [weak self] generation, error in
+                guard let self = self,
+                      EnhancedModeLifecyclePolicy.shouldApplyLifecycleCompletion(
+                          generation: generation,
+                          currentGeneration: self.enhancedModeGeneration,
+                          isTerminating: self.isTerminating || self.isRestarting
+                      ) else { return }
                 guard error == nil else {
                     self.presentClaudeProxyLockApplyError(error!)
                     return
@@ -3427,8 +3450,13 @@ extension AppDelegate {
     }
 
     private func enableClaudeProxyLockProtection() {
-        enableEnhancedMode { [weak self] error in
-            guard let self = self else { return }
+        enableEnhancedMode { [weak self] generation, error in
+            guard let self = self,
+                  EnhancedModeLifecyclePolicy.shouldApplyLifecycleCompletion(
+                      generation: generation,
+                      currentGeneration: self.enhancedModeGeneration,
+                      isTerminating: self.isTerminating || self.isRestarting
+                  ) else { return }
             if let error = error {
                 self.presentClaudeProxyLockApplyError(error)
                 return
@@ -3481,8 +3509,16 @@ extension AppDelegate {
         Logger.log("Bypass Common Chinese Apps \(newState ? "enabled" : "disabled")")
 
         if Settings.enhancedMode {
-            disableEnhancedMode { [weak self] _ in
-                self?.enableEnhancedMode { _ in }
+            disableEnhancedMode { [weak self] generation, error in
+                guard let self = self,
+                      EnhancedModeLifecyclePolicy.shouldApplyLifecycleCompletion(
+                          generation: generation,
+                          currentGeneration: self.enhancedModeGeneration,
+                          isTerminating: self.isTerminating || self.isRestarting
+                      ) else { return }
+                guard error == nil else { return }
+                self.enableEnhancedMode { _, _ in
+                }
             }
         }
     }
@@ -3555,26 +3591,52 @@ extension AppDelegate {
         Settings.enhancedModeUseCustomConfig = customConfigButton.state == .on
     }
 
-    private func enableEnhancedMode(completion: @escaping (String?) -> Void) {
+    private func enableEnhancedMode(
+        preservingRestoreGeneration restoreGeneration: UInt64? = nil,
+        completion: @escaping (UInt64, String?) -> Void
+    ) {
+        if let restoreGeneration,
+           !enhancedModeLifecycle.isCurrentRestore(
+               restoreGeneration,
+               isTerminating: isTerminating
+           ) {
+            completion(enhancedModeGeneration, "Enhanced Mode launch cancelled: restore superseded")
+            return
+        }
         // Allow one retry: each attempt regenerates .enhanced_config.yaml, which
         // re-picks the controller port (stable 19090, or a fresh free port if it
         // is occupied by a stale core). This absorbs transient port races and
         // leftover mihomo_core processes that would otherwise fail the launch.
+        cancelActiveSpeedTest(reason: "core transition", refreshMenu: false)
         completeActiveEnhancedModeLaunch("Enhanced Mode launch superseded by a newer request")
         didRestartHelperDuringEnhancedLaunch = false
-        let generation = enhancedModeLifecycle.beginLaunch()
+        let generation: UInt64
+        if let restoreGeneration {
+            guard !isTerminating,
+                  let restoredLaunchGeneration = enhancedModeLifecycle.beginRestoredLaunch(
+                      restoreGeneration: restoreGeneration
+                  ) else {
+                completion(enhancedModeGeneration, "Enhanced Mode launch cancelled: restore superseded")
+                return
+            }
+            generation = restoredLaunchGeneration
+        } else {
+            generation = enhancedModeLifecycle.beginLaunch()
+        }
+        isEnhancedModeRuntimeRecoveryPending = false
         let completionGate = EnhancedModeCompletionGate()
         let finish: (String?) -> Void = { [weak self] error in
             guard completionGate.claim() else { return }
             DispatchQueue.main.async {
                 guard let self = self else {
-                    completion(error)
+                    completion(generation, error)
                     return
                 }
                 if self.enhancedModeGeneration == generation {
                     self.activeEnhancedModeLaunchCompletion = nil
+                    self.enhancedModeLifecycle.finishLaunch(generation: generation)
                 }
-                completion(error)
+                completion(generation, error)
             }
         }
         activeEnhancedModeLaunchCompletion = finish
@@ -3914,7 +3976,13 @@ extension AppDelegate {
                                 self.startProxy()
                                 let error = missingProxyPorts.isEmpty
                                     ? NSLocalizedString("Enhanced Mode failed: core not responding", comment: "")
-                                    : "Configured proxy port(s) \(missingProxyPorts) are not owned by this launch; another application may be using them. ClashFX did not stop other processes."
+                                    : String(
+                                        format: NSLocalizedString(
+                                            "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details.",
+                                            comment: "Enhanced Mode startup failure"
+                                        ),
+                                        "\(missingProxyPorts)"
+                                    )
                                 completion(error)
                             }
                         }
@@ -4174,9 +4242,12 @@ extension AppDelegate {
                     now: Date()
                 ) {
                     if apiTunInterfaceReady {
+                        let dnsProbe = ownedByCurrentLaunch
+                            ? (dnsResponses != nil ? "responded" : "no valid response")
+                            : "not attempted (listener ownership unconfirmed)"
                         Logger.log(
-                            "External core API/TUN ready but DNS is not ready on port \(context.dnsPort); " +
-                                "ownsListeners=\(ownedByCurrentLaunch), protocolResponding=\(dnsResponses != nil)",
+                            "External core API/TUN ready but DNS readiness is unconfirmed on port \(context.dnsPort); " +
+                                "ownsListeners=\(ownedByCurrentLaunch), dnsProbe=\(dnsProbe)",
                             level: .warning
                         )
                     } else {
@@ -4244,8 +4315,10 @@ extension AppDelegate {
         }.resume()
     }
 
-    private func disableEnhancedMode(completion: @escaping (String?) -> Void) {
+    private func disableEnhancedMode(completion: @escaping (UInt64, String?) -> Void) {
+        cancelActiveSpeedTest(reason: "core transition", refreshMenu: false)
         let closeToken = enhancedModeLifecycle.beginClose()
+        isWakeEnhancedModeRestarting = false
         let generation = closeToken.generation
         let transactionID = closeToken.id
         let completionGate = EnhancedModeCompletionGate()
@@ -4253,7 +4326,7 @@ extension AppDelegate {
             guard completionGate.claim() else { return }
             DispatchQueue.main.async {
                 self.enhancedModeLifecycle.finishClose(id: transactionID)
-                completion(error)
+                completion(generation, error)
             }
         }
         let isCurrent: () -> Bool = { [weak self] in
@@ -4428,8 +4501,6 @@ extension AppDelegate {
         let value = status
         lock.unlock()
         guard let value,
-              let logPath = value["logPath"] as? String,
-              let launchLog = try? String(contentsOfFile: logPath, encoding: .utf8),
               let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else { return false }
         let tcpListenPorts = (value["tcpListenPorts"] as? [NSNumber])?.map(\.intValue) ?? []
         let udpListenPorts = (value["udpListenPorts"] as? [NSNumber])?.map(\.intValue) ?? []
@@ -4444,7 +4515,8 @@ extension AppDelegate {
         if missingPortsChanged, !missingProxyPorts.isEmpty {
             Logger.log(
                 "Enhanced Mode launch \(context.launchID) does not own configured proxy port(s) " +
-                    "\(missingProxyPorts); another application may be using them",
+                    "\(missingProxyPorts); pid=\(value["pid"] ?? "unknown"), " +
+                    "observed TCP=\(tcpListenPorts), UDP=\(udpListenPorts). Port owner not determined.",
                 level: .warning
             )
         }
@@ -4453,7 +4525,6 @@ extension AppDelegate {
                 helperIsRunning: value["running"] as? Bool == true,
                 processID: (value["pid"] as? NSNumber)?.intValue ?? 0,
                 helperConfigPath: value["configPath"] as? String,
-                launchLog: launchLog,
                 tcpListenPorts: tcpListenPorts,
                 udpListenPorts: udpListenPorts
             ),
@@ -4891,10 +4962,25 @@ extension AppDelegate {
     }
 
     private func restoreEnhancedModeIfNeeded() {
-        guard Settings.enhancedMode else { return }
+        guard Settings.enhancedMode else {
+            enhancedModeLifecycle.cancelRestore()
+            return
+        }
+        let restoreGeneration = enhancedModeLifecycle.beginRestore()
         let prepareAndRestore = { [weak self] in
-            guard let self else { return }
-            self.restoreEnhancedMode(attemptsLeft: Self.enhancedModeRestoreMaxAttempts)
+            guard let self,
+                  self.enhancedModeLifecycle.isCurrentRestore(
+                      restoreGeneration,
+                      isTerminating: self.isTerminating
+                  ) else { return }
+            guard Settings.enhancedMode else {
+                self.enhancedModeLifecycle.finishRestore(generation: restoreGeneration)
+                return
+            }
+            self.restoreEnhancedMode(
+                attemptsLeft: Self.enhancedModeRestoreMaxAttempts,
+                restoreGeneration: restoreGeneration
+            )
         }
 
         if PrivilegedHelperManager.shared.isHelperCheckFinished.value {
@@ -4913,20 +4999,40 @@ extension AppDelegate {
             .disposed(by: disposeBag)
     }
 
-    private func restoreEnhancedMode(attemptsLeft: Int) {
-        guard Settings.enhancedMode else { return }
+    private func restoreEnhancedMode(attemptsLeft: Int, restoreGeneration: UInt64) {
+        guard enhancedModeLifecycle.isCurrentRestore(
+                  restoreGeneration,
+                  isTerminating: isTerminating
+              ) else { return }
+        guard Settings.enhancedMode else {
+            enhancedModeLifecycle.finishRestore(generation: restoreGeneration)
+            return
+        }
 
         let retryOrFail: (String) -> Void = { [weak self] error in
-            guard let self = self else { return }
+            guard let self = self,
+                  self.enhancedModeLifecycle.isCurrentRestore(
+                      restoreGeneration,
+                      isTerminating: self.isTerminating
+                  ) else { return }
 
             if attemptsLeft > 1, Settings.enhancedMode {
                 Logger.log("Failed to restore Enhanced Mode: \(error). Retrying in \(Self.enhancedModeRestoreRetryDelay)s (\(attemptsLeft - 1) left)", level: .warning)
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.enhancedModeRestoreRetryDelay) { [weak self] in
-                    self?.restoreEnhancedMode(attemptsLeft: attemptsLeft - 1)
+                    guard let self,
+                          self.enhancedModeLifecycle.isCurrentRestore(
+                              restoreGeneration,
+                              isTerminating: self.isTerminating
+                          ) else { return }
+                    self.restoreEnhancedMode(
+                        attemptsLeft: attemptsLeft - 1,
+                        restoreGeneration: restoreGeneration
+                    )
                 }
                 return
             }
 
+            self.enhancedModeLifecycle.finishRestore(generation: restoreGeneration)
             self.finishFailedEnhancedModeRestore(error: error)
         }
 
@@ -4946,12 +5052,25 @@ extension AppDelegate {
         }
 
         enhancedModeMenuItem.isEnabled = false
-        enableEnhancedMode { [weak self] error in
-            guard let self = self else { return }
+        enableEnhancedMode(preservingRestoreGeneration: restoreGeneration) { [weak self] generation, error in
+            guard let self = self,
+                  self.enhancedModeLifecycle.isCurrentRestore(
+                      restoreGeneration,
+                      isTerminating: self.isTerminating
+                  ) else { return }
+            guard EnhancedModeLifecyclePolicy.shouldApplyLifecycleCompletion(
+                generation: generation,
+                currentGeneration: self.enhancedModeGeneration,
+                isTerminating: self.isTerminating
+            ) else {
+                self.enhancedModeLifecycle.finishRestore(generation: restoreGeneration)
+                return
+            }
             self.enhancedModeMenuItem.isEnabled = true
             if let error = error {
                 retryOrFail(error)
             } else {
+                self.enhancedModeLifecycle.finishRestore(generation: restoreGeneration)
                 self.enhancedModeMenuItem.state = .on
                 Logger.log("Enhanced Mode restored successfully")
                 self.scheduleEnhancedModePostToggleRefresh()
@@ -5208,12 +5327,21 @@ extension AppDelegate {
             DispatchQueue.main.async {
                 guard let self,
                       !session.isCancelled,
-                      self.isActiveBenchmarkSession(session),
-                      let resp else {
+                      self.isActiveBenchmarkSession(session) else {
                     self?.finishSpeedTest(
                         session: session,
-                        showNotifications: showNotifications
+                        showNotifications: false
                     )
+                    return
+                }
+                guard let resp else {
+                    self.finishSpeedTest(session: session, showNotifications: false)
+                    if showNotifications {
+                        NSUserNotificationCenter.default.post(
+                            title: NSLocalizedString("Benchmark", comment: ""),
+                            info: NSLocalizedString("Proxy core unavailable. Please try again shortly.", comment: "")
+                        )
+                    }
                     return
                 }
 
@@ -5255,19 +5383,17 @@ extension AppDelegate {
     }
 
     func beginSpeedTest(showNotifications: Bool) -> ApiRequest.BenchmarkSession? {
-        guard !isConfigUpdating else { return nil }
-        guard !isWakeEnhancedModeRestarting else {
+        guard !isConfigUpdating, !isEnhancedModeTransitionInProgress else {
             Logger.log(
-                "Benchmark blocked while Enhanced Mode recovery is in progress",
+                "Benchmark blocked while the proxy core is changing",
                 level: .warning
             )
-            NSUserNotificationCenter.default.post(
-                title: NSLocalizedString("Benchmark", comment: ""),
-                info: NSLocalizedString(
-                    "Enhanced Mode is recovering. Please try again shortly.",
-                    comment: ""
+            if showNotifications {
+                NSUserNotificationCenter.default.post(
+                    title: NSLocalizedString("Benchmark", comment: ""),
+                    info: NSLocalizedString("Proxy core is changing. Please try again shortly.", comment: "")
                 )
-            )
+            }
             return nil
         }
         guard !isSpeedTesting else {
@@ -5453,9 +5579,7 @@ extension AppDelegate {
                 _ = clashResumeCore()
                 self.statusItem.menu = self.statusMenu
                 if wasEnhancedModeActive, Settings.enhancedMode {
-                    self.restoreEnhancedMode(
-                        attemptsLeft: Self.enhancedModeRestoreMaxAttempts
-                    )
+                    self.restoreEnhancedModeIfNeeded()
                 }
                 NSAlert.alert(with: error.localizedDescription)
             }
@@ -5768,6 +5892,11 @@ extension AppDelegate: NSMenuItemValidation {
         // a no-op there. Disable it and surface the reason via tooltip.
         if action == #selector(actionToggleBypassChineseApps(_:)) {
             return Settings.enhancedMode
+        }
+
+        if action == #selector(actionToggleEnhancedMode(_:)) {
+            return !isEnhancedModeTransitionInProgress && !isTerminating && !isRestarting &&
+                ConfigManager.shared.isRunning
         }
 
         // When an External Control instance is selected, local-only

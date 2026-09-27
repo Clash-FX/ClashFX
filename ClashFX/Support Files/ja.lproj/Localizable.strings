@@ -642,4 +642,9 @@
 "Not tested" = "未測定";
 
 "No testable proxy nodes" = "測定可能なプロキシノードがありません";
+"Core switching…" = "コアを切り替え中…";
+"Proxy core unavailable. Please try again shortly." = "プロキシコアを利用できません。しばらくしてからもう一度お試しください。";
+"Proxy core is changing. Please try again shortly." = "プロキシコアを切り替えています。しばらくしてからもう一度お試しください。";
+"Proxy group is no longer available. Refresh and try again." = "プロキシグループは利用できません。更新してからもう一度お試しください。";
+"The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "新しいコアが設定済みのプロキシリスナーを確立できませんでした: %@。詳細はコア診断ログを確認してください。";
 "Direct fallback (no proxy nodes)" = "直接接続にフォールバック（プロキシノードなし）";

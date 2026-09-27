@@ -649,4 +649,9 @@
 "Not tested" = "Not tested";
 
 "No testable proxy nodes" = "No testable proxy nodes";
+"Core switching…" = "Core switching…";
+"Proxy core unavailable. Please try again shortly." = "Proxy core unavailable. Please try again shortly.";
+"Proxy core is changing. Please try again shortly." = "Proxy core is changing. Please try again shortly.";
+"Proxy group is no longer available. Refresh and try again." = "Proxy group is no longer available. Refresh and try again.";
+"The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details.";
 "Direct fallback (no proxy nodes)" = "Direct fallback (no proxy nodes)";

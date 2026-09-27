@@ -683,4 +683,9 @@
 "Not tested" = "未测速";
 
 "No testable proxy nodes" = "无可测速代理节点";
+"Core switching…" = "核心切换中…";
+"Proxy core unavailable. Please try again shortly." = "代理核心暂不可用，请稍后重试。";
+"Proxy core is changing. Please try again shortly." = "代理核心正在切换，请稍后重试。";
+"Proxy group is no longer available. Refresh and try again." = "代理组当前不可用，请刷新后重试。";
+"The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "新核心未能建立配置的代理监听端口：%@。请查看核心诊断日志了解详情。";
 "Direct fallback (no proxy nodes)" = "直连兜底（无代理节点）";
