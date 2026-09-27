@@ -1,344 +1,78 @@
-name: ClashFX
+name: Issue 236 isolated validation (no release)
+run-name: Issue 236 compatibility and isolated network validation
 
 on:
-  push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
-      - '[0-9]+.[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   FASTLANE_SKIP_UPDATE_CHECK: true
 
-permissions:
-  contents: write
-
 jobs:
-  build:
+  validate:
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
-
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-
-    - name: Setup Ruby
-      uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: '3.3'
-        bundler-cache: true
-
-    - name: setup Go
-      uses: actions/setup-go@v6
-      with:
-        go-version: '1.22'
-
-    - uses: maxim-lobanov/setup-xcode@v1
-      with:
-        xcode-version: '26.6'
-
-    - name: verify deployment toolchain
-      run: python3 scripts/verify-release-compatibility.py --sdk
-
-    - name: install deps
-      env:
-        GIT_TERMINAL_PROMPT: 0
-      run: |
-        bash install_dependency.sh
-
-    - name: update tag build version
-      if: startsWith(github.ref, 'refs/tags/')
-      run: |
-        tag=${GITHUB_REF##*/}
-        seg_count=$(echo "$tag" | awk -F. '{print NF}')
-        if [ "$seg_count" -ge 4 ]; then
-          echo "Lab release detected (4-segment tag): $tag"
-          echo "RELEASE_CHANNEL=lab" >> $GITHUB_ENV
-          beta_flag=true
-        else
-          echo "Stable release detected (3-segment tag): $tag"
-          echo "RELEASE_CHANNEL=stable" >> $GITHUB_ENV
-          beta_flag=false
-        fi
-        build_number=$(echo "$tag" | awk -F. '{ printf "%d%03d%03d%03d", $1, $2, $3, ($4 == "" ? 0 : $4) }')
-        echo "build_number=$build_number"
-        bundle exec fastlane run set_info_plist_value path:ClashFX/Info.plist key:BETA value:$beta_flag
-        bundle exec fastlane run increment_build_number_in_plist build_number:"${build_number}" scheme:"ClashFX"
-        bundle exec fastlane run increment_version_number_in_plist version_number:"${tag}" scheme:"ClashFX"
-
-    - name: update dev build version
-      if: ${{!startsWith(github.ref, 'refs/tags/')}}
-      run: |
-        tag=`git describe --abbrev=0 2>/dev/null || echo "1.0.0"`.`date '+%m%d%H%M%S'`
-        bundle exec fastlane run increment_build_number_in_plist build_number:"${tag}" scheme:"ClashFX"
-        bundle exec fastlane run increment_version_number_in_plist version_number:"${tag}" scheme:"ClashFX"
-        bundle exec fastlane run set_info_plist_value path:ClashFX/Info.plist key:BETA value:true
-
-    - name: free disk space before build
-      run: |
-        echo "Before cleanup: $(df -h / | tail -1 | awk '{print $4}') available"
-        sudo rm -rf /Users/runner/Library/Android 2>/dev/null || true
-        sudo rm -rf /Library/Frameworks/Mono.framework 2>/dev/null || true
-        sudo rm -rf /usr/local/share/dotnet 2>/dev/null || true
-        rm -rf ~/Library/Caches/CocoaPods 2>/dev/null || true
-        echo "After cleanup: $(df -h / | tail -1 | awk '{print $4}') available"
-
-    - name: build
-      run: |
-        cd ClashFX
-        python3 add_build_info.py
-        cd ..
-
-        echo "Building ClashFX..."
-        xcodebuild clean build \
-          -workspace ClashFX.xcworkspace \
-          -scheme ClashFX \
-          -configuration Release \
-          -derivedDataPath ./build_derived_data \
-          CODE_SIGN_IDENTITY="-" \
-          ENABLE_HARDENED_RUNTIME=NO
-
-        APP_PATH=$(find ./build_derived_data/Build/Products/Release -name "ClashFX.app" -type d | head -n 1)
-
-        if [ -z "$APP_PATH" ]; then
-          echo "Error: ClashFX.app not found!"
-          find ./build_derived_data -name "ClashFX.app" -type d
-          exit 1
-        fi
-
-        echo "Found app at: $APP_PATH"
-        cp -R "$APP_PATH" ./ClashFX.app
-        python3 scripts/verify-release-compatibility.py --app ./ClashFX.app
-        bash scripts/verify-dashboard-compatibility-bundle.sh ./ClashFX.app
-
-        DSYM_PATH=$(find ./build_derived_data/Build/Products/Release -name "ClashFX.app.dSYM" -type d | head -n 1)
-        if [ -n "$DSYM_PATH" ]; then
-          ditto -c -k --sequesterRsrc --keepParent "$DSYM_PATH" ClashFX.app.dSYM.zip
-        fi
-
-        echo "Build complete!"
-
-    - name: free disk space
-      run: |
-        rm -rf build_derived_data
-        rm -rf ~/Library/Developer/Xcode/DerivedData
-        rm -rf ~/Library/Caches/CocoaPods
-        rm -rf ~/Library/Caches/org.swift.swiftpm
-        rm -rf /tmp/*.log /tmp/*.zip 2>/dev/null || true
-        echo "Freed disk space: $(df -h / | tail -1 | awk '{print $4}') available"
-
-    - name: create dmg
-      if: startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[beta]')
-      run: |
-        echo "Disk before DMG: $(df -h / | tail -1 | awk '{print $4}') available"
-        echo "App size: $(du -sh ClashFX.app | cut -f1)"
-        mkdir -p /tmp/dmg_temp
-        cp -R ClashFX.app /tmp/dmg_temp/
-        ln -s /Applications /tmp/dmg_temp/Applications
-        hdiutil create -volname "ClashFX" -srcfolder /tmp/dmg_temp -ov -format UDZO -imagekey zlib-level=6 -fs HFS+ -size 300m ClashFX.dmg
-        rm -rf /tmp/dmg_temp
-        hdiutil verify ClashFX.dmg
-        DMG_VERIFY_DIR=$(mktemp -d /tmp/clashfx-dmg-verify.XXXXXX)
-        DMG_MOUNT_POINT="$DMG_VERIFY_DIR/mount"
-        mkdir "$DMG_MOUNT_POINT"
-        cleanup_dmg_verification() {
-          hdiutil detach "$DMG_MOUNT_POINT" -quiet 2>/dev/null || true
-          rmdir "$DMG_MOUNT_POINT" "$DMG_VERIFY_DIR" 2>/dev/null || true
-        }
-        trap cleanup_dmg_verification EXIT
-        hdiutil attach ClashFX.dmg -nobrowse -readonly -mountpoint "$DMG_MOUNT_POINT"
-        python3 scripts/verify-release-compatibility.py --app "$DMG_MOUNT_POINT/ClashFX.app"
-        bash scripts/verify-dashboard-compatibility-bundle.sh "$DMG_MOUNT_POINT/ClashFX.app"
-        hdiutil detach "$DMG_MOUNT_POINT" -quiet
-        trap - EXIT
-        rmdir "$DMG_MOUNT_POINT" "$DMG_VERIFY_DIR"
-        echo "DMG created: $(ls -lh ClashFX.dmg)"
-
-    - name: sign dmg with sparkle
-      if: startsWith(github.ref, 'refs/tags/')
-      env:
-        SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-      run: |
-        SIGN_OUTPUT=$(echo "$SPARKLE_PRIVATE_KEY" | ./Pods/Sparkle/bin/sign_update --ed-key-file - ClashFX.dmg)
-        echo "Sparkle signature output: $SIGN_OUTPUT"
-
-        SIGNATURE=$(echo "$SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
-        LENGTH=$(echo "$SIGN_OUTPUT" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
-
-        if [ -z "$SIGNATURE" ] || [ -z "$LENGTH" ]; then
-          echo "Error: Failed to parse signature or length"
-          echo "Raw output: $SIGN_OUTPUT"
-          exit 1
-        fi
-
-        echo "SPARKLE_SIGNATURE=$SIGNATURE" >> $GITHUB_ENV
-        echo "SPARKLE_LENGTH=$LENGTH" >> $GITHUB_ENV
-        echo "Signed successfully: signature=${SIGNATURE:0:20}... length=$LENGTH"
-
-    - name: upload build to github
-      uses: softprops/action-gh-release@v3
-      if: startsWith(github.ref, 'refs/tags/')
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        files: |
-            ClashFX.app.dSYM.zip
-            ClashFX.dmg
-        draft: false
-        prerelease: ${{ env.RELEASE_CHANNEL == 'lab' }}
-        body_path: RELEASE_NOTES.md
-
-    - name: update appcast.xml
-      if: startsWith(github.ref, 'refs/tags/')
-      run: |
-        tag=${GITHUB_REF##*/}
-        python3 - "$tag" "$SPARKLE_SIGNATURE" "$SPARKLE_LENGTH" "${RELEASE_CHANNEL:-stable}" <<'PYEOF'
-        import sys, re
-        from datetime import datetime, timezone
-
-        tag, signature, length, channel = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-        pub_date = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
-
-        parts = [int(part) for part in tag.split(".")]
-        while len(parts) < 4:
-            parts.append(0)
-        appcast_version = f"{parts[0]}{parts[1]:03d}{parts[2]:03d}{parts[3]:03d}"
-
-        is_lab = channel == "lab"
-        title_suffix = " (Lab)" if is_lab else ""
-        notes_html = f"<h2>ClashFX v{tag}{title_suffix}</h2>"
-        try:
-            with open("RELEASE_NOTES.md") as f:
-                content = f.read()
-            en_section = content.split("---")[0]
-            items = re.findall(r"^- \*\*(.+?)\*\* — (.+)$", en_section, re.MULTILINE)
-            if items:
-                notes_html += "<ul>"
-                for ti, desc in items:
-                    notes_html += f"<li><strong>{ti}</strong> — {desc}</li>"
-                notes_html += "</ul>"
-            else:
-                notes_html += "<p>See release notes on GitHub.</p>"
-        except Exception:
-            notes_html += "<p>See release notes on GitHub.</p>"
-
-        channel_tag = "          <sparkle:channel>lab</sparkle:channel>\n" if is_lab else ""
-
-        new_item = f"""    <item>
-          <title>Version {tag}{title_suffix}</title>
-          <description><![CDATA[
-            {notes_html}
-          ]]></description>
-          <pubDate>{pub_date}</pubDate>
-          <sparkle:version>{appcast_version}</sparkle:version>
-          <sparkle:shortVersionString>{tag}</sparkle:shortVersionString>
-          {channel_tag}          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
-          <enclosure
-            url="https://github.com/Clash-FX/ClashFX/releases/download/{tag}/ClashFX.dmg"
-            sparkle:version="{appcast_version}"
-            sparkle:shortVersionString="{tag}"
-            sparkle:edSignature="{signature}"
-            length="{length}"
-            type="application/x-apple-diskimage"
-          />
-        </item>"""
-
-        with open("docs/appcast.xml") as f:
-            xml = f.read()
-
-        marker = "<language>en</language>"
-        xml = xml.replace(marker, marker + "\n" + new_item, 1)
-
-        with open("docs/appcast.xml", "w") as f:
-            f.write(xml)
-
-        print(f"Updated appcast.xml with version {tag}")
-        PYEOF
-
-    - name: push appcast update
-      if: startsWith(github.ref, 'refs/tags/')
-      env:
-        WEBSITE_PAT: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
-        GH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
-      run: |
-        tag=${GITHUB_REF##*/}
-        branch="ci/appcast-v${tag}"
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git remote set-url origin "https://x-access-token:${WEBSITE_PAT}@github.com/Clash-FX/ClashFX.git"
-
-        # Save modified appcast, then branch from latest main to avoid merge conflicts
-        cp docs/appcast.xml /tmp/appcast.xml
-        git fetch origin main
-        git stash --include-untracked
-        git checkout -b "$branch" origin/main
-        cp /tmp/appcast.xml docs/appcast.xml
-
-        git add docs/appcast.xml
-        git commit -m "release: update appcast.xml for v${tag} [skip ci]"
-        git push origin "$branch"
-        pr_url=$(gh pr create --base main --head "$branch" \
-          --title "release: update appcast.xml for v${tag}" \
-          --body "Auto-generated by CI. Updates Sparkle appcast for v${tag}.")
-        echo "Created appcast PR: $pr_url"
-        echo "Leaving it open for the required review before merge."
-
-    - name: notify website repos
-      if: startsWith(github.ref, 'refs/tags/')
-      env:
-        WEBSITE_PAT: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
-      run: |
-        tag=${GITHUB_REF##*/}
-        DATE=$(date -u +%Y-%m-%d)
-        NOTES=$(head -50 RELEASE_NOTES.md | jq -Rs .)
-
-        CHANGE_TYPE="fix"
-        DESC_EN=""
-        DESC_ZH=""
-        if [ -f RELEASE_NOTES.md ]; then
-          if grep -q "New Features" RELEASE_NOTES.md; then
-            CHANGE_TYPE="feat"
-          fi
-          DESC_EN=$(sed -n 's/^- \*\*.*\*\* — \(.*\)$/\1/p' RELEASE_NOTES.md | head -1)
-          DESC_ZH=$(awk '
-            /^### 改进|^### 新功能/ { in_zh = 1; next }
-            /^---/ && in_zh { exit }
-            in_zh && /^- \*\*/ { print; exit }
-          ' RELEASE_NOTES.md | sed 's/^- \*\*.*\*\* — \(.*\)$/\1/')
-        fi
-        DESC_EN=${DESC_EN:-"See release notes on GitHub"}
-        DESC_ZH=${DESC_ZH:-"详见 GitHub Release Notes"}
-
-        PAYLOAD=$(jq -n \
-          --arg version "$tag" \
-          --arg date "$DATE" \
-          --arg product "clashfx" \
-          --arg change_type "$CHANGE_TYPE" \
-          --arg desc_en "$DESC_EN" \
-          --arg desc_zh "$DESC_ZH" \
-          --argjson notes "$NOTES" \
-          '{
-            event_type: "clashfx-release",
-            client_payload: {
-              product: $product,
-              version: $version,
-              date: $date,
-              change_type: $change_type,
-              desc_en: $desc_en,
-              desc_zh: $desc_zh,
-              release_notes: $notes,
-              download_url: "https://github.com/Clash-FX/ClashFX/releases/download/\($version)/ClashFX.dmg"
-            }
-          }')
-
-        curl -sf -X POST \
-          -H "Authorization: token $WEBSITE_PAT" \
-          -H "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/repos/mixc6763-prog/ClashFX-web/dispatches \
-          -d "$PAYLOAD" && echo "Notified ClashFX-web" || echo "Failed to notify ClashFX-web"
-
-        curl -sf -X POST \
-          -H "Authorization: token $WEBSITE_PAT" \
-          -H "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/repos/mixc6763-prog/ClashX.Web/dispatches \
-          -d "$PAYLOAD" && echo "Notified ClashX.Web" || echo "Failed to notify ClashX.Web"
+      - uses: actions/checkout@v6
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.22'
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - name: Verify macOS 10.14 toolchain
+        run: python3 scripts/verify-release-compatibility.py --sdk
+      - name: Install build dependencies in disposable runner
+        run: bash install_dependency.sh
+      - name: Isolated regression tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/issue236-validation"
+          set -o pipefail
+          xcodebuild -workspace ClashFX.xcworkspace -scheme ClashFX \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath "$RUNNER_TEMP/issue236-tests" \
+            -skip-testing:ClashFXTests/RealCoreMenuIntegrationTests \
+            test CODE_SIGNING_ALLOWED=NO \
+            | tee "$RUNNER_TEMP/issue236-validation/tests.log"
+      - name: Build universal App and helper without distribution signing
+        run: |
+          set -o pipefail
+          xcodebuild -workspace ClashFX.xcworkspace -scheme ClashFX \
+            -configuration Release -derivedDataPath "$RUNNER_TEMP/issue236-build" \
+            build CODE_SIGN_IDENTITY='-' ENABLE_HARDENED_RUNTIME=NO \
+            ONLY_ACTIVE_ARCH=NO ARCHS='arm64 x86_64' \
+            | tee "$RUNNER_TEMP/issue236-validation/build.log"
+      - name: Verify actual App, helper and core minimum OS versions
+        run: |
+          set -o pipefail
+          python3 scripts/verify-release-compatibility.py \
+            --app "$RUNNER_TEMP/issue236-build/Build/Products/Release/ClashFX.app" \
+            | tee "$RUNNER_TEMP/issue236-validation/compatibility.log"
+      - name: Real core listener readiness across log levels (TUN off)
+        run: |
+          set -o pipefail
+          python3 scripts/verify-isolated-core-readiness.py \
+            | tee "$RUNNER_TEMP/issue236-validation/listener-readiness.log"
+      - name: Real TUN lifecycle only in disposable hosted runner
+        run: |
+          set -o pipefail
+          CORE="$RUNNER_TEMP/issue236-build/Build/Products/Release/ClashFX.app/Contents/Resources/mihomo_core"
+          mkdir -p .ci-validation
+          cp "$CORE" .ci-validation/mihomo_core
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            "$(command -v python3)" scripts/verify-ci-tun-lifecycle.py --core "$GITHUB_WORKSPACE/.ci-validation/mihomo_core" \
+            | tee "$RUNNER_TEMP/issue236-validation/tun-lifecycle.log"
+      - name: Upload validation logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-236-validation-logs
+          path: ${{ runner.temp }}/issue236-validation
+          retention-days: 7
+          if-no-files-found: warn

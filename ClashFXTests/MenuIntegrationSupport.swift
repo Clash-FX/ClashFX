@@ -18,6 +18,7 @@ final class AppDelegate {
     static let shared = AppDelegate()
     private(set) var active: ApiRequest.BenchmarkSession?
     var onFinish: (() -> Void)?
+    var isEnhancedModeTransitionInProgress = false
     var isSpeedTesting: Bool {
         active != nil
     }
@@ -61,6 +62,7 @@ final class MihomoMenuURLProtocol: URLProtocol {
     static var groupReply = Reply(body: [:])
     static var groupDidRespond: (() -> Void)?
     static var requests = [URLRequest]()
+    static var proxyDataResponseStatuses = [Int]()
     static var hold = false
     static var held = [() -> Void]()
     static var delivered = 0
@@ -75,6 +77,7 @@ final class MihomoMenuURLProtocol: URLProtocol {
         groupReply = Reply(body: [:])
         groupDidRespond = nil
         requests = []
+        proxyDataResponseStatuses = []
         hold = false
         held = []
         delivered = 0
@@ -108,7 +111,9 @@ final class MihomoMenuURLProtocol: URLProtocol {
             let testURL = query.first { $0.name == "url" }?.value ?? ""
             let reply: Reply
             if path == "/proxies" {
-                reply = Reply(body: ["proxies": Self.topology])
+                let status = Self.proxyDataResponseStatuses.isEmpty
+                    ? 200 : Self.proxyDataResponseStatuses.removeFirst()
+                reply = Reply(status: status, body: ["proxies": Self.topology])
             } else if path == "/providers/proxies" {
                 reply = Reply(body: ["providers": [:]])
             } else if path.hasPrefix("/group/") && path.hasSuffix("/delay") {

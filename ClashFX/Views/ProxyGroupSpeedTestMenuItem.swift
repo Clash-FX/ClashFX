@@ -45,6 +45,12 @@ private final class SelectorBenchmarkPresentationCoalescer {
 }
 
 class ProxyGroupSpeedTestMenuItem: NSMenuItem {
+    private struct BenchmarkFeedback {
+        let identifier: UUID
+        let title: String
+        let message: String
+    }
+
     private static let interactionItems = NSHashTable<ProxyGroupSpeedTestMenuItem>.weakObjects()
     private static var interactionSession: ApiRequest.BenchmarkSession?
     private static var finishingInteractionSession: ApiRequest.BenchmarkSession?
@@ -57,6 +63,8 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     let testType: TestType
     private var isTesting = false
     private var benchmarkActionSession: ApiRequest.BenchmarkSession?
+    private var benchmarkFeedback: BenchmarkFeedback?
+    private var benchmarkFeedbackResetWorkItem: DispatchWorkItem?
 
     init(group: ClashProxy) {
         proxyGroup = group
@@ -112,19 +120,25 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
 
     @objc func healthCheck() {
         updateBenchmarkInteractionPresentation()
-        guard !isBenchmarkInteractionBusy else { return }
+        guard !isBenchmarkInteractionBusy, isEnabled else { return }
         (view as? ProxyGroupSpeedTestMenuItemView)?.didClickView()
     }
 
     func retestAutoGroup() {
         guard testType == .reTest else { return }
+        updateBenchmarkInteractionPresentation()
         guard !isBenchmarkInteractionBusy else { return }
+        guard !AppDelegate.shared.isEnhancedModeTransitionInProgress else { return }
         if (proxyGroup.all ?? []).allSatisfy({ $0 == "COMPATIBLE" })
             || proxyGroup.enclosingResp.map({ !$0.hasBenchmarkCandidates(in: proxyGroup.name) }) == true {
             updateViewTitle(NSLocalizedString("No testable proxy nodes", comment: ""))
             return
         }
         guard let session = AppDelegate.shared.beginSpeedTest(showNotifications: false) else {
+            showBenchmarkFeedback(
+                title: NSLocalizedString("Benchmark unavailable", comment: ""),
+                message: NSLocalizedString("Proxy core is changing. Please try again shortly.", comment: "")
+            )
             return
         }
 
@@ -217,6 +231,11 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
                                 groupName: self.proxyGroup.name,
                                 sessionIdentifier: presentationSessionIdentifier
                             )
+                            self.showBenchmarkFeedback(
+                                title: NSLocalizedString("Benchmark unavailable", comment: ""),
+                                message: NSLocalizedString("Proxy core unavailable. Please try again shortly.", comment: ""),
+                                session: session
+                            )
                             didFinishAction()
                             return
                         }
@@ -231,6 +250,11 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
                             AutomaticChildBenchmarkStore.settleTestingAsUnavailable(
                                 groupName: self.proxyGroup.name,
                                 sessionIdentifier: presentationSessionIdentifier
+                            )
+                            self.showBenchmarkFeedback(
+                                title: NSLocalizedString("Benchmark unavailable", comment: ""),
+                                message: NSLocalizedString("Proxy group is no longer available. Refresh and try again.", comment: ""),
+                                session: session
                             )
                             didFinishAction()
                             return
@@ -307,7 +331,31 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     }
 
     fileprivate func updateBenchmarkInteractionPresentation() {
-        (view as? ProxyGroupSpeedTestMenuItemView)?.isBusy = isBenchmarkInteractionBusy
+        let isCoreChanging = AppDelegate.shared.isEnhancedModeTransitionInProgress
+        isEnabled = !isCoreChanging
+
+        let title: String
+        let feedbackMessage: String?
+        if isCoreChanging {
+            title = NSLocalizedString("Core switching…", comment: "")
+            feedbackMessage = NSLocalizedString("Proxy core is changing. Please try again shortly.", comment: "")
+        } else if let benchmarkFeedback {
+            title = benchmarkFeedback.title
+            feedbackMessage = benchmarkFeedback.message
+        } else if benchmarkActionSession != nil {
+            title = NSLocalizedString("Testing", comment: "")
+            feedbackMessage = nil
+        } else {
+            title = testType.title
+            feedbackMessage = nil
+        }
+
+        updateViewTitle(title)
+        toolTip = feedbackMessage
+        let menuView = view as? ProxyGroupSpeedTestMenuItemView
+        menuView?.isBusy = isBenchmarkInteractionBusy
+        menuView?.isCoreChanging = isCoreChanging
+        menuView?.updateFeedbackHelp(feedbackMessage)
     }
 
     private static func updateAllBenchmarkInteractionPresentations() {
@@ -315,13 +363,13 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     }
 
     func beginBenchmarkAction(session: ApiRequest.BenchmarkSession) {
+        clearBenchmarkFeedback()
         benchmarkActionSession = session
         isTesting = true
         Self.interactionSession = session
         Self.updateAllBenchmarkInteractionPresentations()
         // Disabling the active custom-view item can end AppKit menu tracking.
         // Keep it enabled and let the benchmark session reject repeat clicks.
-        updateViewTitle(NSLocalizedString("Testing", comment: ""))
         session.onTermination { [weak self] in
             let finish = {
                 self?.finishBenchmarkActionIfOwned(session: session)
@@ -357,38 +405,79 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         guard benchmarkActionSession === session else { return false }
         benchmarkActionSession = nil
         isTesting = false
-        updateViewTitle(testType.title)
+        updateBenchmarkInteractionPresentation()
         Self.finishInteractionIfOwned(session: session)
         return true
+    }
+
+    fileprivate func showBenchmarkFeedback(
+        title: String,
+        message: String,
+        session: ApiRequest.BenchmarkSession? = nil
+    ) {
+        let show = { [weak self] in
+            guard let self else { return }
+            if let session {
+                guard !session.isCancelled,
+                      AppDelegate.shared.isActiveBenchmarkSession(session) else { return }
+            }
+
+            self.benchmarkFeedbackResetWorkItem?.cancel()
+            let feedback = BenchmarkFeedback(identifier: UUID(), title: title, message: message)
+            self.benchmarkFeedback = feedback
+            self.updateBenchmarkInteractionPresentation()
+
+            let reset = DispatchWorkItem { [weak self] in
+                guard let self,
+                      self.benchmarkFeedback?.identifier == feedback.identifier else { return }
+                self.benchmarkFeedback = nil
+                self.benchmarkFeedbackResetWorkItem = nil
+                self.updateBenchmarkInteractionPresentation()
+            }
+            self.benchmarkFeedbackResetWorkItem = reset
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: reset)
+        }
+
+        if Thread.isMainThread {
+            show()
+        } else {
+            DispatchQueue.main.async(execute: show)
+        }
+    }
+
+    private func clearBenchmarkFeedback() {
+        benchmarkFeedbackResetWorkItem?.cancel()
+        benchmarkFeedbackResetWorkItem = nil
+        benchmarkFeedback = nil
     }
 }
 
 extension ProxyGroupSpeedTestMenuItem: ProxyGroupMenuHighlightDelegate {
     func highlight(item: NSMenuItem?) {
         updateBenchmarkInteractionPresentation()
-        (view as? ProxyGroupSpeedTestMenuItemView)?.isHighlighted = !isBenchmarkInteractionBusy && item == self
+        (view as? ProxyGroupSpeedTestMenuItemView)?.isHighlighted =
+            !isBenchmarkInteractionBusy
+                && !AppDelegate.shared.isEnhancedModeTransitionInProgress
+                && item == self
     }
 }
 
 private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
     private let label: NSTextField
+    private var interactionRefreshTimer: Timer?
 
     fileprivate var isBusy = false {
         didSet {
             guard isBusy != oldValue else { return }
-            alphaValue = isBusy ? 0.5 : 1
-            setAccessibilityValue(isBusy
-                ? NSLocalizedString("Testing", comment: "")
-                : nil)
-            setAccessibilityHelp(isBusy
-                ? NSLocalizedString("Wait for the current benchmark to finish.", comment: "")
-                : nil)
-            if isBusy {
-                isHighlighted = false
-            } else {
-                isHighlighted = enclosingMenuItem?.menu?.highlightedItem == enclosingMenuItem
-            }
-            setNeedsDisplay()
+            updateInteractionVisualState()
+        }
+    }
+
+    fileprivate var isCoreChanging = false {
+        didSet {
+            guard isCoreChanging != oldValue else { return }
+            updateInteractionVisualState()
+            refreshInteractionTimer()
         }
     }
 
@@ -408,6 +497,10 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        interactionRefreshTimer?.invalidate()
+    }
+
     override var cells: [NSCell?] {
         return [label.cell]
     }
@@ -417,14 +510,70 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
     }
 
     func updateTitle(_ title: String) {
+        guard label.stringValue != title else { return }
         label.stringValue = title
+        label.sizeToFit()
+        label.frame = NSRect(x: 20, y: 0, width: label.frame.width, height: 20)
+        let requiredWidth = label.frame.maxX + 20
+        if requiredWidth > bounds.width {
+            setFrameSize(NSSize(width: requiredWidth, height: 20))
+        }
         setNeedsDisplay()
+    }
+
+    func updateFeedbackHelp(_ message: String?) {
+        toolTip = message
+        label.toolTip = message
+        setAccessibilityHelp(message ?? (isBusy
+            ? NSLocalizedString("Wait for the current benchmark to finish.", comment: "")
+            : nil))
+    }
+
+    private func updateInteractionVisualState() {
+        alphaValue = (isBusy || isCoreChanging) ? 0.5 : 1
+        let accessibilityValue: String?
+        if isCoreChanging {
+            accessibilityValue = NSLocalizedString("Core switching…", comment: "")
+        } else if isBusy {
+            accessibilityValue = NSLocalizedString("Testing", comment: "")
+        } else {
+            accessibilityValue = nil
+        }
+        setAccessibilityValue(accessibilityValue)
+        if isBusy || isCoreChanging {
+            isHighlighted = false
+        } else {
+            isHighlighted = enclosingMenuItem?.menu?.highlightedItem == enclosingMenuItem
+        }
+        setNeedsDisplay()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        (enclosingMenuItem as? ProxyGroupSpeedTestMenuItem)?.updateBenchmarkInteractionPresentation()
+        refreshInteractionTimer()
+    }
+
+    private func refreshInteractionTimer() {
+        interactionRefreshTimer?.invalidate()
+        interactionRefreshTimer = nil
+        // Only a switching core needs polling to re-enable an open menu.
+        // Benchmark sessions already publish their own begin/finish updates.
+        guard window != nil, isCoreChanging else { return }
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            guard let self,
+                  let item = self.enclosingMenuItem as? ProxyGroupSpeedTestMenuItem else { return }
+            item.updateBenchmarkInteractionPresentation()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        interactionRefreshTimer = timer
     }
 
     override func didClickView() {
         guard let speedTestItem = enclosingMenuItem as? ProxyGroupSpeedTestMenuItem else { return }
         speedTestItem.updateBenchmarkInteractionPresentation()
-        guard !speedTestItem.isBenchmarkInteractionBusy else { return }
+        guard !speedTestItem.isBenchmarkInteractionBusy,
+              !AppDelegate.shared.isEnhancedModeTransitionInProgress else { return }
         switch speedTestItem.testType {
         case .benchmark:
             startBenchmark()
@@ -440,8 +589,14 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             return
         }
         guard !speedTestItem.isBenchmarkInteractionBusy else { return }
+        speedTestItem.updateBenchmarkInteractionPresentation()
+        guard !AppDelegate.shared.isEnhancedModeTransitionInProgress else { return }
         let group = speedTestItem.proxyGroup
         guard let session = AppDelegate.shared.beginSpeedTest(showNotifications: false) else {
+            speedTestItem.showBenchmarkFeedback(
+                title: NSLocalizedString("Benchmark unavailable", comment: ""),
+                message: NSLocalizedString("Proxy core is changing. Please try again shortly.", comment: "")
+            )
             return
         }
 
@@ -592,6 +747,11 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                                         .unavailable(displayName: row.displayName)
                                     )
                                 }
+                                speedTestItem.showBenchmarkFeedback(
+                                    title: NSLocalizedString("Benchmark unavailable", comment: ""),
+                                    message: NSLocalizedString("Proxy core unavailable. Please try again shortly.", comment: ""),
+                                    session: session
+                                )
                                 continuation()
                                 return
                             }
@@ -606,6 +766,11 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                                         .unavailable(displayName: row.displayName)
                                     )
                                 }
+                                speedTestItem.showBenchmarkFeedback(
+                                    title: NSLocalizedString("Benchmark unavailable", comment: ""),
+                                    message: NSLocalizedString("Proxy group is no longer available. Refresh and try again.", comment: ""),
+                                    session: session
+                                )
                                 continuation()
                                 return
                             }
@@ -684,7 +849,26 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         }
 
         ApiRequest.getMergedProxyData(session: session, timeout: 10) { response in
-            guard let response, let selector = response.proxiesMap[group.name] else {
+            guard !session.isCancelled,
+                  AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                finish()
+                return
+            }
+            guard let response else {
+                speedTestItem.showBenchmarkFeedback(
+                    title: NSLocalizedString("Benchmark unavailable", comment: ""),
+                    message: NSLocalizedString("Proxy core unavailable. Please try again shortly.", comment: ""),
+                    session: session
+                )
+                finish()
+                return
+            }
+            guard let selector = response.proxiesMap[group.name] else {
+                speedTestItem.showBenchmarkFeedback(
+                    title: NSLocalizedString("Benchmark unavailable", comment: ""),
+                    message: NSLocalizedString("Proxy group is no longer available. Refresh and try again.", comment: ""),
+                    session: session
+                )
                 finish()
                 return
             }
@@ -698,6 +882,11 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                 timeout: 5000
             )
             guard let plan else {
+                speedTestItem.showBenchmarkFeedback(
+                    title: NSLocalizedString("Benchmark unavailable", comment: ""),
+                    message: NSLocalizedString("No testable proxy nodes", comment: ""),
+                    session: session
+                )
                 finish()
                 return
             }
