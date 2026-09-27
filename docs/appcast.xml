@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.8 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.8 (Lab)</h2><ul><li><strong>Enhanced Mode Starts Reliably at Every Log Level</strong> — Startup now checks the current core's actual listeners and valid DNS replies over UDP and TCP, so quiet core logs no longer cause a healthy launch to be reported as failed.</li><li><strong>Rapid Mode Changes Keep the Current Setting</strong> — A late startup or shutdown callback can no longer interfere with a newer change. Switching the core also cancels an in-progress benchmark.</li><li><strong>Benchmark Problems Are Easier to Understand</strong> — When a benchmark cannot start, the menu explains why and keeps earlier results. It no longer reports a false successful finish or invents failed measurements when proxy data is unavailable.</li></ul>
+  ]]></description>
+  <pubDate>Sun, 27 Sep 2026 13:51:28 +0000</pubDate>
+  <sparkle:version>1001011008</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.8</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.8/ClashFX.dmg"
+    sparkle:version="1001011008"
+    sparkle:shortVersionString="1.1.11.8"
+    sparkle:edSignature="Dk1vfUlkWjEMSt+bOtHbTBIilTljLHLb1vcEwdwE5hRdnTfODrslZVcqKESEqrKDBux+w1ksBvzJ23eMsDeTCw=="
+    length="95449587"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.7 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.7 (Lab)</h2><ul><li><strong>Enhanced Mode Confirms DNS Readiness for the Current Launch</strong> — Fixed DNS response parsing that read QDCOUNT and RCODE from the wrong bytes. Startup now waits for valid DNS responses over both UDP and TCP from the listeners owned by the current core launch. Live Xcode validation confirmed TUN startup and a disable/re-enable cycle with System Proxy enabled.</li><li><strong>Enable System Proxy with Disconnected Adapters</strong> — Old loopback proxy settings on an inactive adapter no longer block enabling System Proxy on the current network; original per-service settings are preserved for restoration.</li><li><strong>Configured Proxy Ports Stay Predictable</strong> — Enhanced Mode checks that the current launch owns the configured proxy ports, and reports conflicts without stopping another app. A busy configured mixed port is reported instead of being silently replaced; DNS fallback selection checks both TCP and UDP availability.</li><li><strong>Benchmark Controls Show When Testing Is Busy</strong> — Benchmark actions now show a clear busy state and ignore repeat clicks while a run is active, without closing the menu.</li></ul>
