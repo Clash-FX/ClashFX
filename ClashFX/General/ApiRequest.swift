@@ -165,9 +165,7 @@ class ApiRequest {
     }
 
     static let shared = ApiRequest()
-    static let benchmarkMaxConcurrent = 8
-    private static let benchmarkRequestTimeoutMargin: TimeInterval = 5
-    private static let benchmarkMinimumRequestTimeout: TimeInterval = 10
+    static let benchmarkMaxConcurrent = 10
 
     private var proxyRespCacheData: Data?
     private var rulesCache: [ClashRule] = []
@@ -748,7 +746,9 @@ class ApiRequest {
             "/group/\(groupName.encoded)/delay",
             method: .get,
             parameters: parameters,
-            timeoutInterval: benchmarkRequestTimeout(for: timeout)
+            timeoutInterval: BenchmarkRequestPolicy.timeoutInterval(
+                coreTimeoutMilliseconds: timeout
+            )
         )
         let requestID = session?.track(request)
         request
@@ -778,7 +778,9 @@ class ApiRequest {
         }
         let request = req(
             "/proxies",
-            timeoutInterval: benchmarkRequestTimeout(for: 5000)
+            timeoutInterval: BenchmarkRequestPolicy.timeoutInterval(
+                coreTimeoutMilliseconds: 5000
+            )
         )
         let requestID = session.track(request)
         request.responseData { response in
@@ -979,10 +981,13 @@ class ApiRequest {
             .start(completion: completion)
     }
 
+    /// Progress is delivered on main and counts the plan's deduplicated targets,
+    /// including successful measurements reused without another request.
     static func benchmarkSelectorPlan(
         _ plan: SelectorBenchmarkPlan,
         reusing measurements: [SelectorBenchmarkMeasurementKey: Int] = [:],
         session: BenchmarkSession,
+        progress: ((BenchmarkProgressSnapshot) -> Void)? = nil,
         result: @escaping (SelectorBenchmarkPlan.Target, ProxyDelayOutcome) -> Void,
         completion: @escaping () -> Void
     ) {
@@ -1032,6 +1037,7 @@ class ApiRequest {
         SelectorBenchmarkExecutor.runOutcomes(
             plan: plan,
             reusing: measurements,
+            progress: progress,
             isCancelled: { session.isCancelled },
             request: runTarget,
             result: { target, delay in
@@ -1046,12 +1052,6 @@ class ApiRequest {
                 }
                 result(target, delay)
             },
-            limitChanged: { previousLimit, currentLimit in
-                Logger.log(
-                    "[Proxy Delay] Adaptive Selector concurrency changed "
-                        + "from \(previousLimit) to \(currentLimit)"
-                )
-            },
             completion: {
                 guard !session.isCancelled else {
                     completion()
@@ -1065,13 +1065,6 @@ class ApiRequest {
                 )
                 completion()
             }
-        )
-    }
-
-    private static func benchmarkRequestTimeout(for coreTimeoutMilliseconds: Int) -> TimeInterval {
-        max(
-            benchmarkMinimumRequestTimeout,
-            Double(coreTimeoutMilliseconds) / 1000 + benchmarkRequestTimeoutMargin
         )
     }
 
@@ -1090,7 +1083,9 @@ class ApiRequest {
             path,
             method: .get,
             parameters: ["timeout": timeout, "url": benchmarkURL],
-            timeoutInterval: benchmarkRequestTimeout(for: timeout)
+            timeoutInterval: BenchmarkRequestPolicy.timeoutInterval(
+                coreTimeoutMilliseconds: timeout
+            )
         )
         let requestID = session?.track(request)
         request

@@ -655,3 +655,81 @@
 "Proxy group is no longer available. Refresh and try again." = "Proxy group is no longer available. Refresh and try again.";
 "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details.";
 "Direct fallback (no proxy nodes)" = "Direct fallback (no proxy nodes)";
+
+"Benchmark result with historical marker" = "%@ (previous)";
+
+"Benchmark cancelled: core changed" = "Benchmark cancelled: core changed";
+
+"Benchmark cancelled: configuration changed" = "Benchmark cancelled: configuration changed";
+
+"The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch." = "The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch.";
+
+"The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload." = "The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload.";
+
+"Display Order" = "Display Order";
+
+"Configuration Order" = "Configuration Order";
+
+"Latency First" = "Latency First";
+
+"Benchmark options" = "Benchmark options";
+
+"Quick (2.5 s)" = "Quick (2.5 s)";
+
+"Complete (5 s)" = "Complete (5 s)";
+
+"Retry failed nodes" = "Retry failed nodes";
+
+"Benchmarking %d/%d" = "Benchmarking %d/%d";
+
+"Testing automatic group" = "Testing automatic group";
+
+"Testing selected automatic group" = "Testing selected automatic group";
+
+"Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused";
+
+"Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused";
+
+"Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time." = "Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time.";
+
+"Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused";
+
+"No failed nodes to retry" = "No failed nodes to retry";
+
+"Only failed or timed-out nodes from the latest benchmark can be retried." = "Only failed or timed-out nodes from the latest benchmark can be retried.";
+
+"Group %d succeeded · %d failed" = "Group %d succeeded · %d failed";
+
+"Group timed out" = "Group timed out";
+
+"Group unavailable" = "Group unavailable";
+
+"Selected automatic group response: %d succeeded, %d failed" = "Selected automatic group response: %d succeeded, %d failed";
+
+"Selected automatic group request timed out" = "Selected automatic group request timed out";
+
+"Selected automatic group returned no results" = "Selected automatic group returned no results";
+
+"Selected automatic group was unavailable" = "Selected automatic group was unavailable";
+
+"Quick" = "Quick";
+
+"Complete" = "Complete";
+
+"Cloudflare HTTPS" = "Cloudflare HTTPS";
+
+"Google HTTPS" = "Google HTTPS";
+
+"Custom" = "Custom";
+
+"Follow Configuration" = "Follow Configuration";
+
+"Unified" = "Unified";
+
+"Connection" = "Connection";
+
+"Benchmark Mode:" = "Benchmark Mode:";
+
+"Benchmark Target:" = "Benchmark Target:";
+
+"Measurement Method:" = "Measurement Method:";

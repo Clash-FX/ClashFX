@@ -44,7 +44,15 @@ private final class SelectorBenchmarkPresentationCoalescer {
     }
 }
 
+private func isAggregateTimeout(_ outcome: ProxyGroupDelayOutcome) -> Bool {
+    if case .allFailed = outcome { return true }
+    return false
+}
+
 class ProxyGroupSpeedTestMenuItem: NSMenuItem {
+    private static let benchmarkOptionsIdentifier = NSUserInterfaceItemIdentifier(
+        "com.clashfx.benchmark-options"
+    )
     private struct BenchmarkFeedback {
         let identifier: UUID
         let title: String
@@ -52,6 +60,8 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     }
 
     private static let interactionItems = NSHashTable<ProxyGroupSpeedTestMenuItem>.weakObjects()
+    private static var cancellationFeedback: BenchmarkFeedback?
+    private static var cancellationFeedbackResetWorkItem: DispatchWorkItem?
     private static var interactionSession: ApiRequest.BenchmarkSession?
     private static var finishingInteractionSession: ApiRequest.BenchmarkSession?
 
@@ -65,6 +75,20 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     private var benchmarkActionSession: ApiRequest.BenchmarkSession?
     private var benchmarkFeedback: BenchmarkFeedback?
     private var benchmarkFeedbackResetWorkItem: DispatchWorkItem?
+    private var explicitBenchmarkMode: BenchmarkMode?
+    private weak var benchmarkOptionsMenuItem: NSMenuItem?
+    private var benchmarkProgressSnapshot: BenchmarkProgressSnapshot?
+    private var benchmarkProgressMode: BenchmarkMode = .quick
+    private var benchmarkProgressPhase: String?
+    private var benchmarkProgressWasCancelled = false
+    private var benchmarkAdditionalSummary: String?
+    private var benchmarkAdditionalTitle: String?
+    private var benchmarkAdditionalTimeouts = 0
+    private var selectorAttemptOutcomes = [SelectorBenchmarkMeasurementKey: ProxyDelayOutcome]()
+
+    var effectiveBenchmarkMode: BenchmarkMode {
+        explicitBenchmarkMode ?? Settings.benchmarkMode
+    }
 
     init(group: ClashProxy) {
         proxyGroup = group
@@ -119,6 +143,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     }
 
     @objc func healthCheck() {
+        ensureBenchmarkOptionsMenuItemAttached()
         updateBenchmarkInteractionPresentation()
         guard !isBenchmarkInteractionBusy, isEnabled else { return }
         (view as? ProxyGroupSpeedTestMenuItemView)?.didClickView()
@@ -126,6 +151,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
 
     func retestAutoGroup() {
         guard testType == .reTest else { return }
+        ensureBenchmarkOptionsMenuItemAttached()
         updateBenchmarkInteractionPresentation()
         guard !isBenchmarkInteractionBusy else { return }
         guard !AppDelegate.shared.isEnhancedModeTransitionInProgress else { return }
@@ -134,6 +160,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
             updateViewTitle(NSLocalizedString("No testable proxy nodes", comment: ""))
             return
         }
+        let benchmarkMode = effectiveBenchmarkMode
         guard let session = AppDelegate.shared.beginSpeedTest(showNotifications: false) else {
             showBenchmarkFeedback(
                 title: NSLocalizedString("Benchmark unavailable", comment: ""),
@@ -142,7 +169,11 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
             return
         }
 
-        beginBenchmarkAction(session: session)
+        beginBenchmarkAction(
+            session: session,
+            mode: benchmarkMode,
+            phase: NSLocalizedString("Testing automatic group", comment: "")
+        )
         let presentationSessionIdentifier = UUID()
         AutomaticGroupBenchmarkPresentationStore.begin(
             group: proxyGroup,
@@ -198,7 +229,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
             groupName: proxyGroup.name,
             benchmarkURL: benchmarkURL,
             expectedStatus: proxyGroup.expectedStatus,
-            timeout: 5000,
+            timeout: benchmarkMode.timeoutMilliseconds,
             session: session
         ) { result in
             DispatchQueue.main.async {
@@ -207,6 +238,8 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
                     didFinishAction()
                     return
                 }
+
+                self.recordAutomaticGroupProgress(result, session: session)
 
                 let candidateDelays = result.candidateDelays
 
@@ -263,7 +296,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
                         AutomaticChildBenchmarkStore.settle(
                             group: freshGroup,
                             candidateDelays: candidateDelays,
-                            hasProbeEvidence: result.hasProbeEvidence,
+                            hasProbeEvidence: !isAggregateTimeout(result) && result.hasProbeEvidence,
                             sessionIdentifier: presentationSessionIdentifier
                         )
 
@@ -295,7 +328,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
                                 "[Proxy Delay] Automatic group '\(self.proxyGroup.name)' has no current-run evidence on fresh path '\(retestSnapshot.selectedPath.joined(separator: " → "))' after \(result.diagnostic)",
                                 level: .warning
                             )
-                            state = result.hasProbeEvidence
+                            state = !isAggregateTimeout(result) && result.hasProbeEvidence
                                 ? .failed(displayName: displayName) : .unavailable(displayName: displayName)
                         }
                         AutomaticGroupBenchmarkPresentationStore.publish(
@@ -323,6 +356,103 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         (view as? ProxyGroupSpeedTestMenuItemView)?.updateTitle(title)
     }
 
+    /// The menu item is created before it belongs to its containing NSMenu.
+    /// Attach its sibling options row once AppKit establishes that relationship.
+    func ensureBenchmarkOptionsMenuItemAttached() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let menu, menu.index(of: self) != NSNotFound else { return }
+        if let existing = menu.items.first(where: { $0.identifier == Self.benchmarkOptionsIdentifier }) {
+            benchmarkOptionsMenuItem = existing
+            return
+        }
+
+        let optionsItem = NSMenuItem(
+            title: NSLocalizedString("Benchmark options", comment: ""),
+            action: nil,
+            keyEquivalent: ""
+        )
+        optionsItem.identifier = Self.benchmarkOptionsIdentifier
+        let optionsMenu = NSMenu(title: optionsItem.title)
+        let canChangeMode = !isBenchmarkInteractionBusy
+
+        let quickItem = NSMenuItem(
+            title: NSLocalizedString("Quick (2.5 s)", comment: ""),
+            action: #selector(selectBenchmarkMode(_:)),
+            keyEquivalent: ""
+        )
+        quickItem.target = self
+        quickItem.tag = 0
+        quickItem.isEnabled = canChangeMode
+        optionsMenu.addItem(quickItem)
+
+        let completeItem = NSMenuItem(
+            title: NSLocalizedString("Complete (5 s)", comment: ""),
+            action: #selector(selectBenchmarkMode(_:)),
+            keyEquivalent: ""
+        )
+        completeItem.target = self
+        completeItem.tag = 1
+        completeItem.isEnabled = canChangeMode
+        optionsMenu.addItem(completeItem)
+
+        if testType == .benchmark {
+            optionsMenu.addItem(.separator())
+            let retryItem = NSMenuItem(
+                title: NSLocalizedString("Retry failed nodes", comment: ""),
+                action: #selector(retryFailedBenchmarks),
+                keyEquivalent: ""
+            )
+            retryItem.target = self
+            retryItem.isEnabled = !isBenchmarkInteractionBusy
+            optionsMenu.addItem(retryItem)
+        }
+
+        optionsItem.submenu = optionsMenu
+        let speedTestIndex = menu.index(of: self)
+        guard speedTestIndex != NSNotFound else { return }
+        let displayOrderItem = menu.items.first {
+            $0.representedObject as? String == "ClashFX.ProxyGroupMenu.DisplayOrder"
+                || $0.title == NSLocalizedString("Display Order", comment: "Proxy menu row-order submenu")
+        }
+        let displayOrderIndex = displayOrderItem.map { menu.index(of: $0) }
+        let index: Int
+        if let displayOrderIndex, displayOrderIndex == speedTestIndex + 1 {
+            index = displayOrderIndex
+        } else {
+            index = speedTestIndex + 1
+        }
+        menu.insertItem(optionsItem, at: min(index, menu.numberOfItems))
+        benchmarkOptionsMenuItem = optionsItem
+        updateBenchmarkOptionsSelectionState()
+    }
+
+    @objc private func selectBenchmarkMode(_ sender: NSMenuItem) {
+        explicitBenchmarkMode = sender.tag == 0 ? .quick : .complete
+        updateBenchmarkOptionsSelectionState()
+    }
+
+    private func updateBenchmarkOptionsSelectionState() {
+        guard let optionsMenu = benchmarkOptionsMenuItem?.submenu else { return }
+        for item in optionsMenu.items where item.action == #selector(selectBenchmarkMode(_:)) {
+            let mode: BenchmarkMode = item.tag == 0 ? .quick : .complete
+            item.state = mode == effectiveBenchmarkMode ? .on : .off
+            item.isEnabled = !isBenchmarkInteractionBusy
+        }
+        if let retryItem = optionsMenu.items.first(where: { $0.action == #selector(retryFailedBenchmarks) }) {
+            retryItem.isEnabled = !isBenchmarkInteractionBusy && hasRetryableSelectorOutcomes
+        }
+    }
+
+    private var hasRetryableSelectorOutcomes: Bool {
+        selectorAttemptOutcomes.values.contains { $0 == .failed || $0 == .timedOut }
+    }
+
+    @objc private func retryFailedBenchmarks() {
+        guard testType == .benchmark, !isBenchmarkInteractionBusy,
+              !AppDelegate.shared.isEnhancedModeTransitionInProgress else { return }
+        (view as? ProxyGroupSpeedTestMenuItemView)?.startBenchmark(retryingFailures: true)
+    }
+
     fileprivate var isBenchmarkInteractionBusy: Bool {
         isTesting
             || benchmarkActionSession != nil
@@ -336,15 +466,37 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
 
         let title: String
         let feedbackMessage: String?
-        if isCoreChanging {
+        if isCoreChanging, let cancellation = Self.cancellationFeedback {
+            title = cancellation.title
+            feedbackMessage = cancellation.message + "\n" +
+                NSLocalizedString("Proxy core is changing. Please try again shortly.", comment: "")
+        } else if isCoreChanging {
             title = NSLocalizedString("Core switching…", comment: "")
             feedbackMessage = NSLocalizedString("Proxy core is changing. Please try again shortly.", comment: "")
         } else if let benchmarkFeedback {
             title = benchmarkFeedback.title
             feedbackMessage = benchmarkFeedback.message
         } else if benchmarkActionSession != nil {
-            title = NSLocalizedString("Testing", comment: "")
-            feedbackMessage = nil
+            if let benchmarkProgressPhase {
+                title = benchmarkProgressPhase
+                feedbackMessage = nil
+            } else if let benchmarkProgressSnapshot {
+                title = String(
+                    format: NSLocalizedString("Benchmarking %d/%d", comment: ""),
+                    benchmarkProgressSnapshot.completed,
+                    benchmarkProgressSnapshot.total
+                )
+                feedbackMessage = benchmarkProgressSummary(benchmarkProgressSnapshot)
+            } else {
+                title = NSLocalizedString("Testing", comment: "")
+                feedbackMessage = nil
+            }
+        } else if let cancellation = Self.cancellationFeedback {
+            title = cancellation.title
+            feedbackMessage = cancellation.message
+        } else if let benchmarkProgressSnapshot, !benchmarkProgressWasCancelled {
+            title = benchmarkProgressTitle(benchmarkProgressSnapshot)
+            feedbackMessage = benchmarkProgressSummary(benchmarkProgressSnapshot)
         } else {
             title = testType.title
             feedbackMessage = nil
@@ -356,18 +508,94 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         menuView?.isBusy = isBenchmarkInteractionBusy
         menuView?.isCoreChanging = isCoreChanging
         menuView?.updateFeedbackHelp(feedbackMessage)
+        // Start the readable feedback window only after the switch settles.
+        // Defer this check because cancellation happens before beginLaunch().
+        if Self.cancellationFeedback != nil {
+            DispatchQueue.main.async { Self.armCancellationFeedbackExpiryIfStable() }
+        }
+        updateBenchmarkOptionsSelectionState()
+    }
+
+    static func showBenchmarkCancellation(session: ApiRequest.BenchmarkSession, reason: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard AppDelegate.shared.isActiveBenchmarkSession(session), reason != "application quit" else { return }
+        let configChanged = reason == "configuration reload"
+        cancellationFeedbackResetWorkItem?.cancel()
+        cancellationFeedbackResetWorkItem = nil
+        cancellationFeedback = BenchmarkFeedback(
+            identifier: UUID(),
+            title: NSLocalizedString(
+                configChanged ? "Benchmark cancelled: configuration changed" : "Benchmark cancelled: core changed",
+                comment: ""
+            ),
+            message: NSLocalizedString(
+                configChanged
+                    ? "The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload."
+                    : "The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch.",
+                comment: ""
+            )
+        )
+        updateAllBenchmarkInteractionPresentations()
+    }
+
+    static func clearBenchmarkCancellationFeedback() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        cancellationFeedbackResetWorkItem?.cancel()
+        cancellationFeedbackResetWorkItem = nil
+        cancellationFeedback = nil
+        updateAllBenchmarkInteractionPresentations()
+    }
+
+    static func clearBenchmarkRetryHistory() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        interactionItems.allObjects.forEach { item in
+            item.selectorAttemptOutcomes.removeAll()
+            item.updateBenchmarkOptionsSelectionState()
+        }
+    }
+
+    static func clearRetryableBenchmarkOutcomes() {
+        clearBenchmarkRetryHistory()
+    }
+
+    private static func armCancellationFeedbackExpiryIfStable() {
+        guard let feedback = cancellationFeedback else { return }
+        if AppDelegate.shared.isEnhancedModeTransitionInProgress {
+            cancellationFeedbackResetWorkItem?.cancel()
+            cancellationFeedbackResetWorkItem = nil
+            return
+        }
+        guard cancellationFeedbackResetWorkItem == nil else { return }
+        let reset = DispatchWorkItem {
+            guard cancellationFeedback?.identifier == feedback.identifier else { return }
+            clearBenchmarkCancellationFeedback()
+        }
+        cancellationFeedbackResetWorkItem = reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: reset)
     }
 
     private static func updateAllBenchmarkInteractionPresentations() {
         interactionItems.allObjects.forEach { $0.updateBenchmarkInteractionPresentation() }
     }
 
-    func beginBenchmarkAction(session: ApiRequest.BenchmarkSession) {
+    func beginBenchmarkAction(
+        session: ApiRequest.BenchmarkSession,
+        mode: BenchmarkMode? = nil,
+        phase: String? = nil
+    ) {
         clearBenchmarkFeedback()
         benchmarkActionSession = session
         isTesting = true
+        benchmarkProgressSnapshot = nil
+        benchmarkProgressMode = mode ?? effectiveBenchmarkMode
+        benchmarkProgressPhase = phase
+        benchmarkProgressWasCancelled = false
+        benchmarkAdditionalSummary = nil
+        benchmarkAdditionalTitle = nil
+        benchmarkAdditionalTimeouts = 0
         Self.interactionSession = session
         Self.updateAllBenchmarkInteractionPresentations()
+        updateBenchmarkOptionsSelectionState()
         // Disabling the active custom-view item can end AppKit menu tracking.
         // Keep it enabled and let the benchmark session reject repeat clicks.
         session.onTermination { [weak self] in
@@ -403,11 +631,180 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     @discardableResult
     func finishBenchmarkActionIfOwned(session: ApiRequest.BenchmarkSession) -> Bool {
         guard benchmarkActionSession === session else { return false }
+        benchmarkProgressWasCancelled = session.isCancelled
+        benchmarkProgressPhase = nil
         benchmarkActionSession = nil
         isTesting = false
         updateBenchmarkInteractionPresentation()
+        updateBenchmarkOptionsSelectionState()
         Self.finishInteractionIfOwned(session: session)
         return true
+    }
+
+    func receiveBenchmarkProgress(_ progress: BenchmarkProgressSnapshot, session: ApiRequest.BenchmarkSession) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard benchmarkActionSession === session,
+              !session.isCancelled,
+              AppDelegate.shared.isActiveBenchmarkSession(session) else { return }
+        benchmarkProgressSnapshot = progress
+        benchmarkProgressPhase = nil
+        updateBenchmarkInteractionPresentation()
+    }
+
+    func setBenchmarkProgressPhase(_ phase: String?, session: ApiRequest.BenchmarkSession) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard benchmarkActionSession === session,
+              !session.isCancelled,
+              AppDelegate.shared.isActiveBenchmarkSession(session) else { return }
+        benchmarkProgressPhase = phase
+        updateBenchmarkInteractionPresentation()
+    }
+
+    func recordAutomaticGroupProgress(_ result: ProxyGroupDelayOutcome, session: ApiRequest.BenchmarkSession) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard benchmarkActionSession === session,
+              !session.isCancelled,
+              AppDelegate.shared.isActiveBenchmarkSession(session) else { return }
+        let progress: BenchmarkProgressSnapshot
+        switch result {
+        case let .success(candidateDelays):
+            let values = Array(candidateDelays.values)
+            progress = BenchmarkProgressSnapshot(
+                total: values.count,
+                completed: values.count,
+                succeeded: values.filter { $0 > 0 }.count,
+                failed: values.filter { $0 == 0 }.count
+            )
+        case .allFailed:
+            // The group endpoint reports one completed group request, not
+            // per-node outcomes when Mihomo returns its aggregate timeout.
+            progress = BenchmarkProgressSnapshot(total: 1, completed: 1, timedOut: 1)
+        case .empty, .httpFailure:
+            progress = BenchmarkProgressSnapshot(total: 1, completed: 1, unavailable: 1)
+        case .cancelled:
+            return
+        }
+        benchmarkProgressSnapshot = progress
+        benchmarkProgressPhase = nil
+        updateBenchmarkInteractionPresentation()
+    }
+
+    func recordSelectorAutomaticGroupOutcome(_ result: ProxyGroupDelayOutcome, session: ApiRequest.BenchmarkSession) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard benchmarkActionSession === session,
+              !session.isCancelled,
+              AppDelegate.shared.isActiveBenchmarkSession(session) else { return }
+        switch result {
+        case let .success(candidateDelays):
+            let values = Array(candidateDelays.values)
+            benchmarkAdditionalTitle = String(
+                format: NSLocalizedString("Group %d succeeded · %d failed", comment: ""),
+                values.filter { $0 > 0 }.count,
+                values.filter { $0 == 0 }.count
+            )
+            benchmarkAdditionalSummary = String(
+                format: NSLocalizedString("Selected automatic group response: %d succeeded, %d failed", comment: ""),
+                values.filter { $0 > 0 }.count,
+                values.filter { $0 == 0 }.count
+            )
+        case .allFailed:
+            benchmarkAdditionalTimeouts = 1
+            benchmarkAdditionalTitle = NSLocalizedString("Group timed out", comment: "")
+            benchmarkAdditionalSummary = NSLocalizedString("Selected automatic group request timed out", comment: "")
+        case .empty:
+            benchmarkAdditionalTitle = NSLocalizedString("Group unavailable", comment: "")
+            benchmarkAdditionalSummary = NSLocalizedString("Selected automatic group returned no results", comment: "")
+        case .httpFailure:
+            benchmarkAdditionalTitle = NSLocalizedString("Group unavailable", comment: "")
+            benchmarkAdditionalSummary = NSLocalizedString("Selected automatic group was unavailable", comment: "")
+        case .cancelled:
+            return
+        }
+        if benchmarkProgressSnapshot == nil {
+            benchmarkProgressSnapshot = BenchmarkProgressSnapshot()
+        }
+        updateBenchmarkInteractionPresentation()
+    }
+
+    func recordSelectorAttemptOutcome(
+        _ outcome: ProxyDelayOutcome,
+        for key: SelectorBenchmarkMeasurementKey,
+        session: ApiRequest.BenchmarkSession
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard benchmarkActionSession === session,
+              !session.isCancelled,
+              AppDelegate.shared.isActiveBenchmarkSession(session),
+              outcome != .cancelled else { return }
+        selectorAttemptOutcomes = selectorAttemptOutcomes.filter {
+            !key.matchesRetryConditions(of: $0.key)
+        }
+        selectorAttemptOutcomes[key] = outcome
+        updateBenchmarkOptionsSelectionState()
+    }
+
+    fileprivate func clearSelectorAttemptOutcomes() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        selectorAttemptOutcomes.removeAll()
+        updateBenchmarkOptionsSelectionState()
+    }
+
+    func retryingFailures(from plan: SelectorBenchmarkPlan) -> SelectorBenchmarkPlan? {
+        plan.retryingFailures(from: selectorAttemptOutcomes)
+    }
+
+    private func benchmarkProgressTitle(_ progress: BenchmarkProgressSnapshot) -> String {
+        let isQuickTimeout = benchmarkProgressMode == .quick
+            && progress.timedOut + benchmarkAdditionalTimeouts > 0
+        let key = isQuickTimeout
+            ? "Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused"
+            : "Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused"
+        var title = String(
+            format: NSLocalizedString(key, comment: "Completed benchmark summary"),
+            progress.succeeded,
+            progress.timedOut + benchmarkAdditionalTimeouts,
+            progress.failed,
+            progress.unavailable,
+            progress.reused
+        )
+        if let benchmarkAdditionalTitle {
+            title += " · " + benchmarkAdditionalTitle
+        }
+        return title
+    }
+
+    private func benchmarkProgressSummary(_ progress: BenchmarkProgressSnapshot) -> String {
+        var summary: String
+        if benchmarkProgressMode == .quick, progress.timedOut + benchmarkAdditionalTimeouts > 0 {
+            summary = String(
+                format: NSLocalizedString(
+                    "Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time.",
+                    comment: ""
+                ),
+                benchmarkProgressMode.timeoutMilliseconds,
+                progress.succeeded,
+                progress.timedOut + benchmarkAdditionalTimeouts,
+                progress.failed,
+                progress.unavailable,
+                progress.reused
+            )
+        } else {
+            summary = String(
+                format: NSLocalizedString(
+                    "Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused",
+                    comment: ""
+                ),
+                progress.succeeded,
+                progress.timedOut + benchmarkAdditionalTimeouts,
+                progress.failed,
+                progress.unavailable,
+                progress.reused
+            )
+        }
+        if let benchmarkAdditionalSummary {
+            summary += "\n" + benchmarkAdditionalSummary
+        }
+        return summary
     }
 
     fileprivate func showBenchmarkFeedback(
@@ -550,8 +947,16 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        (enclosingMenuItem as? ProxyGroupSpeedTestMenuItem)?.updateBenchmarkInteractionPresentation()
+        if let speedTestItem = enclosingMenuItem as? ProxyGroupSpeedTestMenuItem {
+            speedTestItem.ensureBenchmarkOptionsMenuItemAttached()
+            speedTestItem.updateBenchmarkInteractionPresentation()
+        }
         refreshInteractionTimer()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        (enclosingMenuItem as? ProxyGroupSpeedTestMenuItem)?.ensureBenchmarkOptionsMenuItemAttached()
     }
 
     private func refreshInteractionTimer() {
@@ -584,7 +989,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         }
     }
 
-    private func startBenchmark() {
+    fileprivate func startBenchmark(retryingFailures: Bool = false) {
         guard let speedTestItem = enclosingMenuItem as? ProxyGroupSpeedTestMenuItem else {
             return
         }
@@ -592,6 +997,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         speedTestItem.updateBenchmarkInteractionPresentation()
         guard !AppDelegate.shared.isEnhancedModeTransitionInProgress else { return }
         let group = speedTestItem.proxyGroup
+        let benchmarkMode = speedTestItem.effectiveBenchmarkMode
         guard let session = AppDelegate.shared.beginSpeedTest(showNotifications: false) else {
             speedTestItem.showBenchmarkFeedback(
                 title: NSLocalizedString("Benchmark unavailable", comment: ""),
@@ -600,7 +1006,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             return
         }
 
-        speedTestItem.beginBenchmarkAction(session: session)
+        speedTestItem.beginBenchmarkAction(session: session, mode: benchmarkMode)
 
         var plan: SelectorBenchmarkPlan?
         var reusableMeasurements = [SelectorBenchmarkMeasurementKey: Int]()
@@ -646,6 +1052,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                     return
                 }
                 guard outcome != .cancelled else { return }
+                speedTestItem.recordSelectorAttemptOutcome(outcome, for: target.key, session: session)
                 for row in target.aliases {
                     guard pendingRows.remove(row.rowName) != nil else { continue }
                     let state = outcome.rowState(name: row.displayName)
@@ -709,6 +1116,10 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             }
 
             let automaticRetestStartedAt = Date()
+            speedTestItem.setBenchmarkProgressPhase(
+                NSLocalizedString("Testing selected automatic group", comment: ""),
+                session: session
+            )
             Logger.log(
                 "[Proxy Delay] Refreshing selected automatic group '\(target.groupName)' with the Selector benchmark URL before other rows"
             )
@@ -717,7 +1128,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                 groupName: target.groupName,
                 benchmarkURL: target.benchmarkURL,
                 expectedStatus: target.expectedStatus,
-                timeout: 5000,
+                timeout: benchmarkMode.timeoutMilliseconds,
                 session: session
             ) { result in
                 DispatchQueue.main.async {
@@ -726,6 +1137,8 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                         finish()
                         return
                     }
+
+                    speedTestItem.recordSelectorAutomaticGroupOutcome(result, session: session)
 
                     ApiRequest.getMergedProxyData(session: session, timeout: 10) { snapshot in
                         DispatchQueue.main.async {
@@ -752,6 +1165,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                                     message: NSLocalizedString("Proxy core unavailable. Please try again shortly.", comment: ""),
                                     session: session
                                 )
+                                speedTestItem.setBenchmarkProgressPhase(nil, session: session)
                                 continuation()
                                 return
                             }
@@ -771,6 +1185,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                                     message: NSLocalizedString("Proxy group is no longer available. Refresh and try again.", comment: ""),
                                     session: session
                                 )
+                                speedTestItem.setBenchmarkProgressPhase(nil, session: session)
                                 continuation()
                                 return
                             }
@@ -796,7 +1211,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                             reusableMeasurements = plan.reusableMeasurements(
                                 group: freshGroup,
                                 candidateDelays: result.candidateDelays,
-                                timeout: 5000
+                                timeout: benchmarkMode.timeoutMilliseconds
                             )
 
                             let retestSnapshot = AutomaticGroupRetestSnapshot.make(
@@ -825,7 +1240,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                                     "[Proxy Delay] Selected automatic group '\(target.groupName)' has no current-run evidence on fresh path '\(retestSnapshot.selectedPath.joined(separator: " → "))' after \(result.diagnostic)",
                                     level: .warning
                                 )
-                                state = result.hasProbeEvidence
+                                state = !isAggregateTimeout(result) && result.hasProbeEvidence
                                     ? .failed(displayName: displayName) : .unavailable(displayName: displayName)
                             }
                             for row in deferredRows where pendingRows.remove(row.rowName) != nil {
@@ -841,6 +1256,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                                     + String(format: "%.2f", Date().timeIntervalSince(automaticRetestStartedAt))
                                     + "s; starting Selector rows"
                             )
+                            speedTestItem.setBenchmarkProgressPhase(nil, session: session)
                             continuation()
                         }
                     }
@@ -875,13 +1291,16 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             selectorBenchmarkURL = selector.effectiveBenchmarkURL(
                 fallback: Settings.benchMarkUrl
             )
-            plan = SelectorBenchmarkPlan.make(
+            let freshPlan = SelectorBenchmarkPlan.make(
                 selector: selector,
                 snapshot: response,
                 benchmarkURL: selectorBenchmarkURL,
-                timeout: 5000
+                timeout: benchmarkMode.timeoutMilliseconds
             )
-            guard let plan else {
+            if !retryingFailures {
+                speedTestItem.clearSelectorAttemptOutcomes()
+            }
+            if freshPlan.targets.isEmpty, freshPlan.selectedAutomaticRetest == nil {
                 speedTestItem.showBenchmarkFeedback(
                     title: NSLocalizedString("Benchmark unavailable", comment: ""),
                     message: NSLocalizedString("No testable proxy nodes", comment: ""),
@@ -890,14 +1309,30 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                 finish()
                 return
             }
+            var selectedPlan = freshPlan
+            if retryingFailures {
+                guard let retryPlan = speedTestItem.retryingFailures(from: freshPlan) else {
+                    speedTestItem.showBenchmarkFeedback(
+                        title: NSLocalizedString("No failed nodes to retry", comment: ""),
+                        message: NSLocalizedString("Only failed or timed-out nodes from the latest benchmark can be retried.", comment: ""),
+                        session: session
+                    )
+                    finish()
+                    return
+                }
+                selectedPlan = retryPlan
+            }
+            plan = selectedPlan
             DispatchQueue.main.async {
                 guard !session.isCancelled,
                       AppDelegate.shared.isActiveBenchmarkSession(session) else {
                     finish()
                     return
                 }
-                SelectorBenchmarkPresentationStore.clear(selectorName: group.name)
-                pendingRows = Set(plan.orderedRows.compactMap { row in
+                if !retryingFailures {
+                    SelectorBenchmarkPresentationStore.clear(selectorName: group.name)
+                }
+                pendingRows = Set(selectedPlan.orderedRows.compactMap { row in
                     row.measurementKey == nil && !row.isDeferredAutomaticRetest
                         ? nil
                         : row.rowName
@@ -908,11 +1343,11 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                     // has already lost AppDelegate ownership at this point.
                     guard session.isCancelled else { return }
                     presentationCoalescer.flush()
-                    for row in plan.orderedRows where pendingRows.remove(row.rowName) != nil {
+                    for row in selectedPlan.orderedRows where pendingRows.remove(row.rowName) != nil {
                         publishState(row, .unavailable(displayName: row.displayName))
                     }
                 }
-                for row in plan.orderedRows {
+                for row in selectedPlan.orderedRows {
                     if row.measurementKey == nil && !row.isDeferredAutomaticRetest {
                         publishState(row, .unavailable(displayName: row.displayName))
                     } else {
@@ -921,9 +1356,14 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                 }
                 retestSelectedAutomaticGroup {
                     ApiRequest.benchmarkSelectorPlan(
-                        plan,
+                        selectedPlan,
                         reusing: reusableMeasurements,
                         session: session,
+                        progress: { progress in
+                            DispatchQueue.main.async {
+                                speedTestItem.receiveBenchmarkProgress(progress, session: session)
+                            }
+                        },
                         result: publishResult,
                         completion: finish
                     )

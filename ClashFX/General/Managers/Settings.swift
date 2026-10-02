@@ -237,7 +237,7 @@ enum Settings {
 
     static let disableShowCurrentProxyInMenu = !AppDelegate.isAboveMacOS14
 
-    static let defaultBenchmarkUrl = BenchmarkURLSettings.defaultURL
+    static let defaultBenchmarkUrl = BenchmarkURLSettings.freshInstallDefaultURL
     @UserDefault("benchMarkUrl", defaultValue: defaultBenchmarkUrl)
     static var benchMarkUrl: String {
         didSet {
@@ -247,20 +247,72 @@ enum Settings {
         }
     }
 
-    @UserDefault("benchmarkURLCompatibilityRestorationCompleted", defaultValue: false)
-    private static var benchmarkURLCompatibilityRestorationCompleted: Bool
+    @UserDefault("benchmarkMode", defaultValue: BenchmarkMode.quick.rawValue)
+    private static var benchmarkModeRawValue: String
 
-    static func restoreSupersededBenchmarkURLIfNeeded() {
-        guard !benchmarkURLCompatibilityRestorationCompleted else { return }
+    static var benchmarkMode: BenchmarkMode {
+        get { BenchmarkMode(rawValue: benchmarkModeRawValue) ?? .quick }
+        set { benchmarkModeRawValue = newValue.rawValue }
+    }
 
-        if BenchmarkURLSettings.shouldRestoreSupersededBuiltInDefault(
-            savedURL: benchMarkUrl,
-            restorationCompleted: benchmarkURLCompatibilityRestorationCompleted
-        ) {
-            benchMarkUrl = defaultBenchmarkUrl
+    @UserDefault("benchmarkSortOrder", defaultValue: BenchmarkSortOrder.configuration.rawValue)
+    private static var benchmarkSortOrderRawValue: String
+
+    static var benchmarkSortOrder: BenchmarkSortOrder {
+        get { BenchmarkSortOrder(rawValue: benchmarkSortOrderRawValue) ?? .configuration }
+        set { benchmarkSortOrderRawValue = newValue.rawValue }
+    }
+
+    @UserDefault("benchmarkMeasurementMethod", defaultValue: BenchmarkMeasurementMethod.followConfiguration.rawValue)
+    private static var benchmarkMeasurementMethodRawValue: String
+
+    static var benchmarkMeasurementMethod: BenchmarkMeasurementMethod {
+        get {
+            BenchmarkMeasurementMethod(rawValue: benchmarkMeasurementMethodRawValue)
+                ?? .followConfiguration
+        }
+        set { benchmarkMeasurementMethodRawValue = newValue.rawValue }
+    }
+
+    private(set) static var lastConfirmedRuntimeBenchmarkMeasurementMethod: BenchmarkMeasurementMethod?
+
+    static func confirmRuntimeBenchmarkMeasurementMethod(_ method: BenchmarkMeasurementMethod) {
+        lastConfirmedRuntimeBenchmarkMeasurementMethod = method
+    }
+
+    @UserDefault("benchmarkSettingsMigrationVersion", defaultValue: 0)
+    private static var benchmarkSettingsMigrationVersion: Int
+
+    private static let previousLaunchVersionKey = "com.clashX.lastVersionNumber"
+
+    static func migrateBenchmarkSettingsForInstallation() {
+        guard benchmarkSettingsMigrationVersion < 1 else { return }
+
+        let defaults = UserDefaults.standard
+        let hasPreviousVersion = defaults.object(forKey: previousLaunchVersionKey) != nil
+        let preferenceDomain = defaults.persistentDomain(
+            forName: Bundle.main.bundleIdentifier ?? ""
+        ) ?? [:]
+        let hasLegacyPreferences = RuntimeBenchmarkSettingsPolicy.hasLegacyPreferenceDomainEvidence(
+            keys: Set(preferenceDomain.keys)
+        )
+        let isFreshInstall = RuntimeBenchmarkSettingsPolicy.isFreshInstall(
+            previousVersionExists: hasPreviousVersion,
+            hasLegacyPreferenceDomainEvidence: hasLegacyPreferences
+        )
+        benchmarkMeasurementMethod = RuntimeBenchmarkSettingsPolicy.initialMeasurementMethod(
+            isFreshInstall: isFreshInstall,
+            savedRawValue: defaults.string(forKey: "benchmarkMeasurementMethod")
+        )
+
+        // Before this preference existed, an installation with no saved URL
+        // used the HTTP Cloudflare fallback. Preserve that effective value on
+        // upgrades while new installs start with the HTTPS preset.
+        if !isFreshInstall, defaults.object(forKey: "benchMarkUrl") == nil {
+            benchMarkUrl = BenchmarkURLSettings.defaultURL
         }
 
-        benchmarkURLCompatibilityRestorationCompleted = true
+        benchmarkSettingsMigrationVersion = 1
     }
 
     @UserDefault("hideDockIcon", defaultValue: false)

@@ -8,6 +8,43 @@
 
 import Cocoa
 
+struct ProxyBenchmarkSortMetadata: Equatable {
+    let configurationIndex: Int
+    let freshDelay: Int?
+}
+
+enum ProxyBenchmarkRowSorting {
+    static func ordered<Row>(
+        _ rows: [Row],
+        by order: BenchmarkSortOrder,
+        metadata: (Row) -> ProxyBenchmarkSortMetadata
+    ) -> [Row] {
+        return rows.enumerated().sorted { left, right in
+            let leftMetadata = metadata(left.element)
+            let rightMetadata = metadata(right.element)
+
+            if order == .latency {
+                if let leftDelay = leftMetadata.freshDelay,
+                   let rightDelay = rightMetadata.freshDelay,
+                   leftDelay != rightDelay {
+                    return leftDelay < rightDelay
+                }
+                if leftMetadata.freshDelay != nil, rightMetadata.freshDelay == nil {
+                    return true
+                }
+                if leftMetadata.freshDelay == nil, rightMetadata.freshDelay != nil {
+                    return false
+                }
+            }
+
+            if leftMetadata.configurationIndex != rightMetadata.configurationIndex {
+                return leftMetadata.configurationIndex < rightMetadata.configurationIndex
+            }
+            return left.offset < right.offset
+        }.map { $0.element }
+    }
+}
+
 enum SelectorBenchmarkPresentationStore {
     private struct Key: Hashable {
         let selectorName: ClashProxyName
@@ -200,11 +237,21 @@ enum AutomaticChildBenchmarkStore {
 class ProxyMenuItem: NSMenuItem {
     let proxyName: String
     let maxProxyNameLength: CGFloat
+    let isSortableProxyRow: Bool
     private let parentGroupName: ClashProxyName
     private let parentGroupType: ClashProxyType
     private var presentationName: String
     private var latestProxy: ClashProxy
     private var latestSnapshot: ClashProxyResp?
+    private(set) var configurationSortIndex: Int?
+    private var freshBenchmarkSortDelay: Int?
+
+    var benchmarkSortMetadata: ProxyBenchmarkSortMetadata {
+        ProxyBenchmarkSortMetadata(
+            configurationIndex: configurationSortIndex ?? Int.max,
+            freshDelay: freshBenchmarkSortDelay
+        )
+    }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -221,6 +268,7 @@ class ProxyMenuItem: NSMenuItem {
         proxyName = proxy.name
         parentGroupName = group.name
         parentGroupType = group.type
+        isSortableProxyRow = !simpleItem && group.isSpeedTestable
         latestProxy = proxy
         latestSnapshot = proxy.enclosingResp
         presentationName = proxy.name
@@ -232,7 +280,11 @@ class ProxyMenuItem: NSMenuItem {
         if !simpleItem && enableShowUsingView && group.isSpeedTestable {
             view = ProxyItemView(proxy: proxy)
         } else if !simpleItem {
-            attributedTitle = getAttributedTitle(name: proxyName, delay: proxy.history.last?.delayDisplay)
+            attributedTitle = getAttributedTitle(
+                name: proxyName,
+                delay: proxy.history.last?.delayDisplay,
+                rawValue: proxy.history.last?.delay
+            )
         }
         let selected = group.now == proxy.name
         updateSelected(selected)
@@ -261,6 +313,12 @@ class ProxyMenuItem: NSMenuItem {
             _ = target?.perform(action, with: self)
         }
         menu?.cancelTracking()
+    }
+
+    func captureConfigurationSortIndex(_ index: Int) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard configurationSortIndex == nil else { return }
+        configurationSortIndex = index
     }
 
     @objc private func updateDelayNotification(note: Notification) {
@@ -342,6 +400,7 @@ class ProxyMenuItem: NSMenuItem {
     }
 
     private func refreshBenchmark(from info: ClashProxy) {
+        dispatchPrecondition(condition: .onQueue(.main))
         latestProxy = info
         if let snapshot = info.enclosingResp { latestSnapshot = snapshot }
         guard let snapshot = latestSnapshot,
@@ -358,25 +417,36 @@ class ProxyMenuItem: NSMenuItem {
             // into a successful proxy measurement through core direct fallback.
             presentationName = proxyName
             let message = NSLocalizedString(isFallback ? "Direct fallback (no proxy nodes)" : "No testable proxy nodes", comment: "")
+            freshBenchmarkSortDelay = nil
             updateBenchmarkToolTip(nil)
             updatePresentation(name: proxyName, delay: message, rawValue: nil)
             return
         }
         var contextual: BenchmarkRowResolver.Evidence?
+        var freshMeasurementDates = [Date]()
         if group.type == .select,
            let presentation = SelectorBenchmarkPresentationStore.presentation(
                selectorName: parentGroupName, rowName: proxyName,
                currentBenchmarkURL: conditions.url, snapshot: snapshot
            ) {
             contextual = .init(state: presentation.rowState, measuredAt: presentation.publishedAt)
+            if !presentation.isStale, (presentation.rowState.rawDelay ?? 0) > 0 {
+                freshMeasurementDates.append(presentation.publishedAt)
+            }
         } else if group.type.isAutoGroup,
                   let presentation = AutomaticChildBenchmarkStore.presentation(group: group, rowName: proxyName) {
             contextual = .init(state: presentation.rowState, measuredAt: presentation.publishedAt)
+            if !presentation.isStale, (presentation.rowState.rawDelay ?? 0) > 0 {
+                freshMeasurementDates.append(presentation.publishedAt)
+            }
         }
 
         let leaf = finalLeaf(from: info)
         let cached = leaf.flatMap {
             GlobalLeafBenchmarkPresentationStore.presentation(for: $0, conditions: conditions)
+        }
+        if let cached, !cached.isStale, (cached.rowState.rawDelay ?? 0) > 0 {
+            freshMeasurementDates.append(cached.publishedAt)
         }
         let attempt = leaf.flatMap {
             GlobalLeafBenchmarkPresentationStore.attempt(for: $0, conditions: conditions)
@@ -394,6 +464,16 @@ class ProxyMenuItem: NSMenuItem {
             cached: cached.map { .init(state: $0.rowState, measuredAt: $0.publishedAt) },
             contextual: contextual, activity: activity
         )
+        if !presentation.isHistorical,
+           !presentation.lastAttemptUnavailable,
+           let measuredAt = presentation.measuredAt,
+           freshMeasurementDates.contains(measuredAt),
+           case let .measured(_, delay) = presentation.state,
+           delay > 0 {
+            freshBenchmarkSortDelay = delay
+        } else {
+            freshBenchmarkSortDelay = nil
+        }
         presentationName = proxyName
         var tooltip = [String]()
         if let leaf, leaf.name != proxyName { tooltip.append(leaf.name) }
@@ -416,9 +496,16 @@ class ProxyMenuItem: NSMenuItem {
         var delay = presentation.state.delayDisplay
         if presentation.measuredAt == nil, activity == nil {
             delay = NSLocalizedString("Not tested", comment: "")
-        } else if presentation.isHistorical {
-            delay = delay.map { $0 + " *" }
         }
+        delay = BenchmarkRowDelayPresentation.applyingHistoryMarker(
+            to: delay,
+            isHistorical: presentation.isHistorical,
+            localizedFormat: NSLocalizedString(
+                "Benchmark result with historical marker",
+                value: "%@ (previous)",
+                comment: "Format for a benchmark result that is historical"
+            )
+        )
         updatePresentation(name: proxyName, delay: delay, rawValue: presentation.state.rawDelay)
     }
 
@@ -441,7 +528,7 @@ class ProxyMenuItem: NSMenuItem {
             (view as? ProxyItemView)?.update(name: name)
             (view as? ProxyItemView)?.update(str: delay, value: rawValue)
         } else {
-            attributedTitle = getAttributedTitle(name: name, delay: delay)
+            attributedTitle = getAttributedTitle(name: name, delay: delay, rawValue: rawValue)
         }
     }
 }
@@ -453,7 +540,7 @@ extension ProxyMenuItem: ProxyGroupMenuHighlightDelegate {
 }
 
 extension ProxyMenuItem {
-    func getAttributedTitle(name: String, delay: String?) -> NSAttributedString {
+    func getAttributedTitle(name: String, delay: String?, rawValue: Int? = nil) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.tabStops = [
             NSTextTab(textAlignment: .right, location: 65 + maxProxyNameLength, options: [:])
@@ -478,7 +565,10 @@ extension ProxyMenuItem {
         attributed.addAttributes(hackAttr, range: NSRange(name.utf16.count ..< name.utf16.count + 1))
 
         if delay != nil {
-            let delayAttr = [NSAttributedString.Key.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)]
+            let delayAttr: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: ProxyBenchmarkDelayColorCategory.labelColor(for: rawValue)
+            ]
             attributed.addAttributes(delayAttr, range: NSRange(name.utf16.count + 1 ..< str.utf16.count))
         }
         return attributed

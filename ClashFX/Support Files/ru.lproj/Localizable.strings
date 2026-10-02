@@ -648,3 +648,81 @@
 "Proxy group is no longer available. Refresh and try again." = "Группа прокси больше недоступна. Обновите список и повторите попытку.";
 "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "Новый core не смог открыть настроенные прокси-порты прослушивания: %@. Подробности см. в диагностическом журнале core.";
 "Direct fallback (no proxy nodes)" = "Прямое соединение (нет узлов прокси)";
+
+"Benchmark result with historical marker" = "%@ (предыдущее)";
+
+"Benchmark cancelled: core changed" = "Тест отменён: смена ядра";
+
+"Benchmark cancelled: configuration changed" = "Тест отменён: настройки";
+
+"The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch." = "Ядро переключается, поэтому незавершённые проверки отменены. Готовые результаты сохранены. Повторите тест после переключения.";
+
+"The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload." = "Настройки изменены, поэтому незавершённые проверки отменены. Готовые результаты сохранены. Повторите тест после перезагрузки настроек.";
+
+"Display Order" = "Порядок отображения";
+
+"Configuration Order" = "Порядок в конфигурации";
+
+"Latency First" = "Сначала узлы с низкой задержкой";
+
+"Benchmark options" = "Параметры проверки";
+
+"Quick (2.5 s)" = "Быстрая (2,5 с)";
+
+"Complete (5 s)" = "Полная (5 с)";
+
+"Retry failed nodes" = "Повторно проверить узлы с ошибкой";
+
+"Benchmarking %d/%d" = "Проверка: %d/%d";
+
+"Testing automatic group" = "Проверка автоматической группы";
+
+"Testing selected automatic group" = "Проверка выбранной автоматической группы";
+
+"Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Быстрая проверка: успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d";
+
+"Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Готово: успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d";
+
+"Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time." = "Время быстрой проверки истекло через %d мс. Успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d. Для узлов, которым нужно больше времени, выберите полную проверку.";
+
+"Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Итоги проверки: успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d";
+
+"No failed nodes to retry" = "Нет узлов с ошибками для повторной проверки";
+
+"Only failed or timed-out nodes from the latest benchmark can be retried." = "Повторно проверить можно только узлы, завершившиеся ошибкой или по тайм-ауту при последней проверке.";
+
+"Group %d succeeded · %d failed" = "Группа: успешно %d · ошибок %d";
+
+"Group timed out" = "Истекло время ожидания ответа группы";
+
+"Group unavailable" = "Группа недоступна";
+
+"Selected automatic group response: %d succeeded, %d failed" = "Ответ выбранной автоматической группы: успешно %d, ошибок %d";
+
+"Selected automatic group request timed out" = "Истекло время ожидания ответа выбранной автоматической группы";
+
+"Selected automatic group returned no results" = "Выбранная автоматическая группа не вернула результатов";
+
+"Selected automatic group was unavailable" = "Выбранная автоматическая группа недоступна";
+
+"Quick" = "Быстрая";
+
+"Complete" = "Полная";
+
+"Cloudflare HTTPS" = "Cloudflare HTTPS";
+
+"Google HTTPS" = "Google HTTPS";
+
+"Custom" = "Пользовательский";
+
+"Follow Configuration" = "Как в конфигурации";
+
+"Unified" = "Единый способ";
+
+"Connection" = "Для каждого подключения";
+
+"Benchmark Mode:" = "Режим проверки:";
+
+"Benchmark Target:" = "Адрес проверки:";
+
+"Measurement Method:" = "Метод измерения:";

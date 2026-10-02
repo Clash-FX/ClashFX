@@ -9,6 +9,7 @@
 import Alamofire
 import Cocoa
 import CocoaLumberjack
+import Darwin
 import KeyboardShortcuts
 import LetsMove
 import RxCocoa
@@ -29,6 +30,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private enum EnhancedModeLaunchPreparation {
         case success(port: String, secret: String, dnsPort: Int, proxyPorts: [Int])
         case failure(String)
+    }
+
+    private enum EnhancedModeStartRequestResult {
+        case reply(String?)
+        case xpcFailure
+        case timedOut
+    }
+
+    private enum EnhancedModeOwnershipStatusResult {
+        case status(running: Bool, configPath: String?, launchID: String?)
+        case unavailable(String)
+    }
+
+    private enum EnhancedModeListenerOwnership: Equatable {
+        case ready
+        case missingProxyPorts([Int])
+        case notCurrentLaunch
+        case unknown
+    }
+
+    private struct EnhancedModeOwnershipBlock: Equatable {
+        let requestID: UUID
+        let generation: UInt64
+        let launchID: UUID
+        let configPath: String
+        var helperLaunchID: String?
     }
 
     private struct EnhancedModeLaunchContext {
@@ -178,6 +205,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var didLoadInitialConfigForProxyRecovery = false
     private var lastStartupProxyRecoveryDecision: StartupProxyRecoveryDecision?
     private var lastStartupProxyConfigSyncTime = Date.distantPast
+    private var startupCoreHandoffRetryAvailable = false
+    private var isStartupCoreHandoffRetryInProgress = false
+    private var startupHelperRecoveryDisposable: Disposable?
+    private var isBuiltInCoreResumeRetryAvailable = false
     private var isWakeEnhancedModeRestarting = false
     private var enhancedModeHealthTimer: Timer?
     private var isEnhancedModeHealthCheckInFlight = false
@@ -196,7 +227,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var isEnhancedModeTransitionInProgress: Bool {
         enhancedModeLifecycle.isTransitionInProgress ||
             isWakeEnhancedModeRestarting ||
-            isEnhancedModeRuntimeRecoveryPending
+            isEnhancedModeRuntimeRecoveryPending ||
+            isStartupCoreHandoffRetryInProgress
+    }
+
+    var isEnhancedModeCleanupRequired: Bool {
+        EnhancedModeCleanupPolicy.isRequired(
+            enhancedModeActive: ConfigManager.shared.isEnhancedModeActive,
+            ownershipBlocked: enhancedModeOwnershipBlock != nil
+        )
     }
 
     private var activeEnhancedModeLaunchID: UUID? {
@@ -212,12 +251,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var enhancedModeLastMissingProxyPorts = [Int]()
     private var latestTrafficUpdateTime = Date.distantPast
     private var consecutiveEnhancedModeHealthFailures = 0
+    private var consecutiveEnhancedModeAPIFailures = 0
+    private var enhancedModeAPIFailureStartedAt: Date?
     private var consecutiveEnhancedModeDataPlaneFailures = 0
     private var enhancedModeHealthGraceUntil = Date.distantPast
     private var lastEnhancedModeDataPlaneProbeAt = Date.distantPast
     private var lastEnhancedModeDataPlaneRecoveryTime = Date.distantPast
     private var lastCoreCPURecoveryTime = Date.distantPast
+    private var lastEnhancedModeRuntimeRecoveryTime = Date.distantPast
     private var isEnhancedModeRuntimeRecoveryPending = false
+    // A timed-out or disconnected start request may still have launched a
+    // helper-owned process. Keep new starts isolated until status plus a
+    // bounded stop proves the request's exact config path is no longer active.
+    private var enhancedModeOwnershipBlock: EnhancedModeOwnershipBlock?
+    private var isEnhancedModeOwnershipCleanupInFlight = false
+    private var activeEnhancedModeClientLaunchID: UUID?
+    private var activeEnhancedModeConfigPath: String?
     private(set) var enhancedModeRuntimeHealthSummary = "not checked"
     private(set) var coreCPUWatchdogSummary = "not checked"
     private(set) var wakeRecoveryDiagnosticSummary = "idle"
@@ -244,6 +293,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private static let wakeEnhancedModeRestartMaxAttempts = 3
     private static let enhancedModeHealthInterval: TimeInterval = 15
     private static let enhancedModeHealthFailureThreshold = 3
+    private static let enhancedModeAPIActiveTrafficFailureLimit = 6
+    private static let enhancedModeAPIActiveTrafficFailureDeadline: TimeInterval = 90
+    private static let enhancedModeRuntimeRecoveryCooldown: TimeInterval = 60
     private static let enhancedModeHealthGracePeriod: TimeInterval = 60
     private static let enhancedModeHealthRequestTimeout: TimeInterval = 5
     private static let enhancedModeDataPlaneProbeInterval: TimeInterval = 60
@@ -267,6 +319,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private static let enhancedModeHelperRequestTimeout: TimeInterval = 5
     private static let tunDNSRestoreTimeout: TimeInterval = 8
     private static let staleEnhancedCoreCleanupTimeout: TimeInterval = 3
+    private static let staleEnhancedCoreCleanupMaxAttempts = 3
+    private static let staleEnhancedCoreCleanupRetryDelay: TimeInterval = 2
     private static let fatalTunRecoveryCooldown: TimeInterval = 30
     private static let runtimePatchedConfigPath = kConfigFolderPath + ".runtime_config.yaml"
 
@@ -298,6 +352,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        Settings.migrateBenchmarkSettingsForInstallation()
         Logger.log("applicationWillFinishLaunching")
         signal(SIGPIPE, SIG_IGN)
         // crash recorder
@@ -341,7 +396,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func postFinishLaunching() {
         Logger.log("postFinishLaunching")
-        Settings.restoreSupersededBenchmarkURLIfNeeded()
         defer {
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 self.checkMenuIconVisable()
@@ -414,14 +468,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.selectAllowLanWithMenory()
             }
         }
-        cleanupStaleMihomoCoreOnLaunch { [weak self] in
-            guard let self = self, !self.isTerminating else { return }
-            self.updateConfig(showNotification: false) { [weak self] error in
-                guard let self = self else { return }
-                self.completeInitialConfigLoadForProxyRecovery(error: error)
-                self.updateLoggingLevel()
-                self.restoreEnhancedModeIfNeeded()
-            }
+        cleanupStaleMihomoCoreOnLaunch { [weak self] cleanupEvidence in
+            self?.continueStartupAfterCoreCleanup(cleanupEvidence)
         }
 
         // start watch config file change
@@ -465,6 +513,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         pendingStartupProxyRecoveryWork?.cancel()
         pendingStartupProxyRecoveryWork = nil
         isStartupProxyRecoveryActive = false
+        startupHelperRecoveryDisposable?.dispose()
+        startupHelperRecoveryDisposable = nil
         pendingWakeRecoveryWork?.cancel()
         pendingWakeRecoveryWork = nil
         wakeRecoveryGeneration += 1
@@ -518,8 +568,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Fallback: TerminalCleanUpAction.run() already handles Enhanced Mode cleanup
         // in the normal quit path. This guard only fires if applicationWillTerminate
         // is reached without going through TerminalCleanUpAction (e.g. forced termination).
-        if ConfigManager.shared.isEnhancedModeActive, !isRestarting, !isTerminating {
-            cleanupEnhancedModeForTermination {}
+        if isEnhancedModeCleanupRequired, !isRestarting, !isTerminating {
+            cleanupEnhancedModeForTermination { error in
+                if let error {
+                    Logger.log("Termination fallback could not confirm Enhanced Mode cleanup: \(error)", level: .error)
+                }
+            }
         }
         if !Settings.claudeProxyLockEnabled, !isRestarting, !isTerminating,
            NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true) ||
@@ -1686,6 +1740,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var changed = applyProfileRuleDirectives(in: &root)
             changed = applyProfileMixin(to: &root) || changed
 
+            let measurementMethod = Settings.benchmarkMeasurementMethod
+            changed = RuntimeBenchmarkSettingsPolicy.apply(
+                measurementMethod,
+                to: &root
+            ) || changed
+
             if Settings.claudeProxyLockEnabled {
                 if ClaudeProxyLockPolicy.isValidTarget(Settings.claudeProxyLockTarget) {
                     let target = Settings.claudeProxyLockTarget
@@ -1985,6 +2045,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 ? "enabled preference; runtime not active"
                 : "inactive"
             consecutiveEnhancedModeHealthFailures = 0
+            consecutiveEnhancedModeAPIFailures = 0
+            enhancedModeAPIFailureStartedAt = nil
             consecutiveEnhancedModeDataPlaneFailures = 0
             enhancedModeRuntimeHealthSummary = Settings.enhancedMode
                 ? "enabled preference; runtime not active"
@@ -1997,6 +2059,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             coreCPUWatchdogPolicy.reset()
             coreCPUWatchdogSummary = "startup grace period"
             consecutiveEnhancedModeHealthFailures = 0
+            consecutiveEnhancedModeAPIFailures = 0
+            enhancedModeAPIFailureStartedAt = nil
             consecutiveEnhancedModeDataPlaneFailures = 0
             return
         }
@@ -2026,6 +2090,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         "control plane recovered; awaiting data-plane probe"
                 }
                 self.consecutiveEnhancedModeHealthFailures = 0
+                self.consecutiveEnhancedModeAPIFailures = 0
+                self.enhancedModeAPIFailureStartedAt = nil
                 self.checkEnhancedModeDataPlaneIfDue()
             case let .unhealthy(reason):
                 if NetworkChangeNotifier.getPrimaryInterface() == nil {
@@ -2040,16 +2106,55 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         : (reason.localizedCaseInsensitiveContains("TUN")
                             ? .tunDisabled
                             : .apiUnavailable)
+                let now = Date()
+                let trafficIsFlowing = self.enhancedModeTrafficIsFlowing()
+                let apiFailureDuration: TimeInterval
+                if failureKind == .apiUnavailable {
+                    if self.enhancedModeAPIFailureStartedAt == nil {
+                        self.enhancedModeAPIFailureStartedAt = now
+                    }
+                    self.consecutiveEnhancedModeAPIFailures += 1
+                    apiFailureDuration = max(
+                        0,
+                        now.timeIntervalSince(self.enhancedModeAPIFailureStartedAt ?? now)
+                    )
+                } else {
+                    self.consecutiveEnhancedModeAPIFailures = 0
+                    self.enhancedModeAPIFailureStartedAt = nil
+                    apiFailureDuration = 0
+                }
                 if !EnhancedModeRuntimeRecoveryPolicy.shouldRecover(
                     from: failureKind,
-                    trafficIsFlowing: self.enhancedModeTrafficIsFlowing()
+                    trafficIsFlowing: trafficIsFlowing,
+                    sustainedAPIFailureCount: self.consecutiveEnhancedModeAPIFailures,
+                    sustainedAPIFailureDuration: apiFailureDuration,
+                    apiFailureAttemptLimit: Self.enhancedModeAPIActiveTrafficFailureLimit,
+                    apiFailureDeadline: Self.enhancedModeAPIActiveTrafficFailureDeadline
                 ) {
                     self.isEnhancedModeHealthCheckInFlight = false
                     self.enhancedModeRuntimeHealthSummary =
-                        "control plane reported \(reason); traffic still flowing"
+                        "control plane reported \(reason); traffic still flowing; " +
+                        "failure \(self.consecutiveEnhancedModeAPIFailures)/" +
+                        "\(Self.enhancedModeAPIActiveTrafficFailureLimit)"
                     Logger.log(
                         "Enhanced Mode transient API health failure (\(reason)) while traffic is still flowing; deferring rebuild",
                         level: .warning
+                    )
+                    return
+                }
+                if failureKind == .apiUnavailable, trafficIsFlowing {
+                    self.isEnhancedModeHealthCheckInFlight = false
+                    self.consecutiveEnhancedModeHealthFailures = 0
+                    self.consecutiveEnhancedModeDataPlaneFailures = 0
+                    self.enhancedModeRuntimeHealthSummary =
+                        "API failed \(self.consecutiveEnhancedModeAPIFailures) times over " +
+                        "\(Int(apiFailureDuration))s while traffic continued; rebuilding core"
+                    let failureCount = self.consecutiveEnhancedModeAPIFailures
+                    self.consecutiveEnhancedModeAPIFailures = 0
+                    self.enhancedModeAPIFailureStartedAt = nil
+                    self.captureAndRestartEnhancedMode(
+                        reason: "control plane API stayed unavailable for " +
+                            "\(failureCount) checks / \(Int(apiFailureDuration))s while traffic continued: \(reason)"
                     )
                     return
                 }
@@ -2564,6 +2669,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        let now = Date()
+        guard now.timeIntervalSince(lastEnhancedModeRuntimeRecoveryTime) >=
+            Self.enhancedModeRuntimeRecoveryCooldown else {
+            enhancedModeRuntimeHealthSummary = "automatic recovery cooldown active"
+            Logger.log(
+                "Enhanced Mode recovery skipped during cooldown",
+                level: .warning
+            )
+            return
+        }
+
+        lastEnhancedModeRuntimeRecoveryTime = now
         isEnhancedModeRuntimeRecoveryPending = true
         let generation = enhancedModeGeneration
         enhancedModeRuntimeHealthSummary =
@@ -2922,72 +3039,58 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.finishFailedEnhancedModeRestore(error: error)
         }
 
-        guard let helper = PrivilegedHelperManager.shared.helper(failture: {
-            DispatchQueue.main.async {
-                guard self.enhancedModeGeneration == generation,
-                      !self.isTerminating else { return }
-                if wasActive {
-                    ConfigManager.shared.isEnhancedModeActive = false
-                    clashResumeCallbacks()
-                    _ = clashResumeCore()
-                }
-                retryOrFail(NSLocalizedString("Helper not available", comment: ""))
-            }
-        }) else {
-            guard generation == enhancedModeGeneration, !isTerminating else { return }
-            if wasActive {
-                ConfigManager.shared.isEnhancedModeActive = false
-                clashResumeCallbacks()
-                _ = clashResumeCore()
-            }
-            retryOrFail(NSLocalizedString("Helper not available", comment: ""))
-            return
-        }
-
         enhancedModeMenuItem.isEnabled = false
-        let stopAndRestart = { [weak self] in
+        let stopAndRestart: () -> Void = { [weak self] in
             guard let self = self,
                   self.enhancedModeGeneration == generation,
                   !self.isTerminating else { return }
-            helper.stopMihomoCore { [weak self] stopError in
-                DispatchQueue.main.async {
+            self.stopExternalCoreBounded(
+                isCurrent: {
+                    generation == self.enhancedModeGeneration &&
+                        !self.isTerminating &&
+                        !attemptCompleted
+                }
+            ) { stopError in
+                guard generation == self.enhancedModeGeneration,
+                      !self.isTerminating,
+                      !attemptCompleted else { return }
+                if let stopError {
+                    self.blockActiveEnhancedModeOwnership(
+                        generation: generation,
+                        reason: stopError
+                    )
+                    retryOrFail("Failed to confirm old Enhanced Mode core stopped: \(stopError)")
+                    return
+                }
+
+                self.activeEnhancedModeClientLaunchID = nil
+                self.activeEnhancedModeConfigPath = nil
+                ConfigManager.shared.isEnhancedModeActive = false
+                self.refreshStatusItemViewStatus()
+
+                let completion: (String?) -> Void = { [weak self] error in
                     guard let self = self else { return }
                     guard generation == self.enhancedModeGeneration, !self.isTerminating else { return }
                     guard !attemptCompleted else { return }
-                    if let stopError {
-                        Logger.log(
-                            "Wake recovery: failed to stop stale Enhanced Mode core: \(stopError)",
-                            level: .warning
-                        )
+                    if let error {
+                        retryOrFail(error)
+                        return
                     }
 
-                    ConfigManager.shared.isEnhancedModeActive = false
-                    self.refreshStatusItemViewStatus()
-
-                    let completion: (String?) -> Void = { [weak self] error in
-                        guard let self = self else { return }
-                        guard generation == self.enhancedModeGeneration, !self.isTerminating else { return }
-                        guard !attemptCompleted else { return }
-                        if let error {
-                            retryOrFail(error)
-                            return
-                        }
-
-                        attemptCompleted = true
-                        self.isWakeEnhancedModeRestarting = false
-                        self.enhancedModeMenuItem.isEnabled = true
-                        self.enhancedModeMenuItem.state = .on
-                        Logger.log("Wake recovery: Enhanced Mode rebuilt successfully")
-                        self.scheduleEnhancedModePostToggleRefresh()
-                    }
-
-                    self.attemptEnableEnhancedMode(
-                        attemptsLeft: 1,
-                        alreadySuspended: true,
-                        generation: generation,
-                        completion: completion
-                    )
+                    attemptCompleted = true
+                    self.isWakeEnhancedModeRestarting = false
+                    self.enhancedModeMenuItem.isEnabled = true
+                    self.enhancedModeMenuItem.state = .on
+                    Logger.log("Wake recovery: Enhanced Mode rebuilt successfully")
+                    self.scheduleEnhancedModePostToggleRefresh()
                 }
+
+                self.attemptEnableEnhancedMode(
+                    attemptsLeft: 1,
+                    alreadySuspended: true,
+                    generation: generation,
+                    completion: completion
+                )
             }
         }
 
@@ -3051,12 +3154,23 @@ extension AppDelegate {
 
     @IBAction func actionToggleEnhancedMode(_ sender: NSMenuItem?) {
         guard !isEnhancedModeTransitionInProgress, !isTerminating, !isRestarting else { return }
+        if startupCoreHandoffRetryAvailable, !ConfigManager.shared.isRunning {
+            retryStartupCoreHandoff()
+            return
+        }
+        if isBuiltInCoreResumeRetryAvailable, !ConfigManager.shared.isRunning {
+            if let resumeError = checkedResumeBuiltInCore() {
+                NSAlert.alert(with: "Built-in core recovery failed: \(resumeError)")
+                return
+            }
+            clashResumeCallbacks()
+        }
         let newState = !Settings.enhancedMode
         guard newState || !Settings.claudeProxyLockEnabled else {
             presentClaudeProxyLockProtectionNotice()
             return
         }
-        guard ConfigManager.shared.isRunning else { return }
+        guard ConfigManager.shared.isRunning || enhancedModeOwnershipBlock != nil else { return }
         enhancedModeMenuItem.isEnabled = false
 
         let completion: (UInt64, String?) -> Void = { [weak self] generation, error in
@@ -3634,7 +3748,14 @@ extension AppDelegate {
                 }
                 if self.enhancedModeGeneration == generation {
                     self.activeEnhancedModeLaunchCompletion = nil
-                    self.enhancedModeLifecycle.finishLaunch(generation: generation)
+                    if let launchID = self.activeEnhancedModeLaunchID, error != nil {
+                        self.enhancedModeLifecycle.finishFailedLaunch(
+                            generation: generation,
+                            launchID: launchID
+                        )
+                    } else {
+                        self.enhancedModeLifecycle.finishLaunch(generation: generation)
+                    }
                 }
                 completion(generation, error)
             }
@@ -3671,6 +3792,25 @@ extension AppDelegate {
             return
         }
         let launchID = enhancedModeLifecycle.beginLaunchAttempt()
+        if let ownershipBlock = enhancedModeOwnershipBlock {
+            reconcileUncertainEnhancedCoreOwnership(ownershipBlock) { [weak self] error in
+                guard let self = self,
+                      generation == self.enhancedModeGeneration,
+                      self.activeEnhancedModeLaunchID == launchID,
+                      !self.isTerminating else { return }
+                guard let error else {
+                    self.attemptEnableEnhancedMode(
+                        attemptsLeft: attemptsLeft,
+                        alreadySuspended: alreadySuspended,
+                        generation: generation,
+                        completion: completion
+                    )
+                    return
+                }
+                completion("Existing external core ownership is still blocked: \(error)")
+            }
+            return
+        }
         enhancedModeReadinessLock.lock()
         enhancedModeLastMissingProxyPorts = []
         enhancedModeReadinessLock.unlock()
@@ -3830,10 +3970,298 @@ extension AppDelegate {
         }
     }
 
-    private func resumeEnhancedModeCallbacksIfNeeded(alreadySuspended: Bool) {
-        if alreadySuspended {
+    private func checkedResumeBuiltInCore() -> String? {
+        guard let responsePointer = clashResumeCore() else {
+            ConfigManager.shared.isRunning = false
+            isBuiltInCoreResumeRetryAvailable = true
+            refreshStatusItemViewStatus()
+            Logger.log("Built-in core resume failed: no result from core bridge", level: .error)
+            return "No result from built-in core resume"
+        }
+        let response = String(cString: responsePointer)
+        defer { Darwin.free(UnsafeMutableRawPointer(responsePointer)) }
+        guard response == "success" else {
+            let reason = response.hasPrefix("error:")
+                ? String(response.dropFirst("error:".count))
+                : response
+            ConfigManager.shared.isRunning = false
+            isBuiltInCoreResumeRetryAvailable = true
+            refreshStatusItemViewStatus()
+            Logger.log("Built-in core resume failed: \(reason)", level: .error)
+            return reason.isEmpty ? "Built-in core resume failed" : reason
+        }
+        ConfigManager.shared.isRunning = true
+        isBuiltInCoreResumeRetryAvailable = false
+        refreshStatusItemViewStatus()
+        return nil
+    }
+
+    private func resumeEnhancedModeCallbacksIfNeeded(alreadySuspended: Bool) -> String? {
+        guard alreadySuspended else { return nil }
+        guard let error = checkedResumeBuiltInCore() else {
             clashResumeCallbacks()
-            _ = clashResumeCore()
+            return nil
+        }
+        return error
+    }
+
+    private func combiningFailure(_ primary: String, resumeError: String?) -> String {
+        guard let resumeError else { return primary }
+        return "\(primary); built-in core recovery also failed: \(resumeError)"
+    }
+
+    private func installEnhancedModeOwnershipBlock(
+        requestID: UUID,
+        generation: UInt64,
+        launchID: UUID,
+        configPath: String
+    ) -> EnhancedModeOwnershipBlock {
+        if let existing = enhancedModeOwnershipBlock {
+            return existing
+        }
+        let block = EnhancedModeOwnershipBlock(
+            requestID: requestID,
+            generation: generation,
+            launchID: launchID,
+            configPath: configPath,
+            helperLaunchID: nil
+        )
+        enhancedModeOwnershipBlock = block
+        enhancedModeRuntimeHealthSummary = "external core ownership is unconfirmed; retry will verify status"
+        return block
+    }
+
+    private func clearEnhancedModeOwnershipBlock(requestID: UUID) {
+        guard enhancedModeOwnershipBlock?.requestID == requestID else { return }
+        let launchID = enhancedModeOwnershipBlock?.launchID
+        enhancedModeOwnershipBlock = nil
+        isEnhancedModeOwnershipCleanupInFlight = false
+        if activeEnhancedModeClientLaunchID == launchID {
+            activeEnhancedModeClientLaunchID = nil
+            activeEnhancedModeConfigPath = nil
+        }
+    }
+
+    private func noteEnhancedModeOwnershipBlocked(
+        _ block: EnhancedModeOwnershipBlock,
+        error: String
+    ) {
+        guard enhancedModeOwnershipBlock?.requestID == block.requestID else { return }
+        isEnhancedModeOwnershipCleanupInFlight = false
+        ConfigManager.shared.isRunning = false
+        refreshStatusItemViewStatus()
+        enhancedModeRuntimeHealthSummary = "external core ownership blocked; retry available: \(error)"
+        Logger.log(
+            "Enhanced Mode ownership remains blocked for config \(block.configPath): \(error)",
+            level: .error
+        )
+    }
+
+    @discardableResult
+    private func blockActiveEnhancedModeOwnership(
+        generation: UInt64,
+        reason: String
+    ) -> EnhancedModeOwnershipBlock? {
+        guard let launchID = activeEnhancedModeClientLaunchID,
+              let configPath = activeEnhancedModeConfigPath else { return nil }
+        let block = installEnhancedModeOwnershipBlock(
+            requestID: UUID(),
+            generation: generation,
+            launchID: launchID,
+            configPath: configPath
+        )
+        noteEnhancedModeOwnershipBlocked(block, error: reason)
+        return block
+    }
+
+    private func stopExternalCoreBounded(
+        timeout: TimeInterval? = nil,
+        isCurrent: @escaping () -> Bool,
+        completion: @escaping (String?) -> Void
+    ) {
+        let requestDeadline = Date().addingTimeInterval(
+            timeout ?? AppDelegate.enhancedModeHelperRequestTimeout
+        )
+        let settlement = ManagedOperationSettlement<String?> { error in
+            DispatchQueue.main.async {
+                guard isCurrent() else { return }
+                completion(error)
+            }
+        }
+        guard let helper = PrivilegedHelperManager.shared.helper(failture: {
+            _ = settlement.finish("Helper XPC request failed while stopping core")
+        }) else {
+            _ = settlement.finish("Helper not available while stopping core")
+            return
+        }
+        settlement.scheduleTimeout(
+            after: max(0, requestDeadline.timeIntervalSinceNow),
+            outcome: { "Timed out while stopping external core" }
+        )
+        helper.stopMihomoCore { error in
+            _ = settlement.finish(error)
+        }
+    }
+
+    private func reconcileUncertainEnhancedCoreOwnership(
+        _ block: EnhancedModeOwnershipBlock,
+        allowTerminating: Bool = false,
+        completion: @escaping (String?) -> Void
+    ) {
+        guard enhancedModeOwnershipBlock?.requestID == block.requestID else {
+            completion("ownership request was superseded")
+            return
+        }
+        guard !isEnhancedModeOwnershipCleanupInFlight else {
+            completion("ownership verification is already in progress")
+            return
+        }
+        isEnhancedModeOwnershipCleanupInFlight = true
+
+        let requestDeadline = Date().addingTimeInterval(Self.enhancedModeHelperRequestTimeout)
+        let settlement = ManagedOperationSettlement<EnhancedModeOwnershipStatusResult> { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self,
+                      self.enhancedModeOwnershipBlock?.requestID == block.requestID else { return }
+                switch result {
+                case let .unavailable(error):
+                    self.noteEnhancedModeOwnershipBlocked(block, error: error)
+                    completion(error)
+                case let .status(running, configPath, helperLaunchID):
+                    if running {
+                        guard EnhancedModeOwnershipPolicy.matchesExpectedLaunch(
+                            running: running,
+                            observedConfigPath: configPath,
+                            observedLaunchID: helperLaunchID,
+                            expectedConfigPath: block.configPath,
+                            expectedLaunchID: block.helperLaunchID
+                        ), let helperLaunchID else {
+                            let error = "helper reports a different or unidentified core"
+                            self.noteEnhancedModeOwnershipBlocked(block, error: error)
+                            completion(error)
+                            return
+                        }
+                        var updatedBlock = block
+                        updatedBlock.helperLaunchID = helperLaunchID
+                        self.enhancedModeOwnershipBlock = updatedBlock
+                    }
+
+                    // The helper serializes lifecycle requests. Even a status
+                    // reply saying not-running is followed by stop as a fence
+                    // behind the timed-out start request before isolation clears.
+                    self.stopExternalCoreBounded(
+                        isCurrent: {
+                            self.enhancedModeOwnershipBlock?.requestID == block.requestID &&
+                                (allowTerminating || !self.isTerminating)
+                        }
+                    ) { stopError in
+                        guard self.enhancedModeOwnershipBlock?.requestID == block.requestID else { return }
+                        guard let stopError else {
+                            self.clearEnhancedModeOwnershipBlock(requestID: block.requestID)
+                            completion(nil)
+                            return
+                        }
+                        self.noteEnhancedModeOwnershipBlocked(block, error: stopError)
+                        completion(stopError)
+                    }
+                }
+            }
+        }
+        guard let helper = PrivilegedHelperManager.shared.helper(failture: {
+            _ = settlement.finish(.unavailable("Helper XPC failed during ownership verification"))
+        }) else {
+            _ = settlement.finish(.unavailable("Helper not available for ownership verification"))
+            return
+        }
+        settlement.scheduleTimeout(
+            after: max(0, requestDeadline.timeIntervalSinceNow),
+            outcome: { .unavailable("Timed out verifying external core ownership") }
+        )
+        let invocation: Void? = helper.getMihomoCoreStatus? { optionalStatus in
+            guard let status = optionalStatus,
+                  let running = (status["running"] as? NSNumber)?.boolValue else {
+                _ = settlement.finish(.unavailable("Helper returned no usable core status"))
+                return
+            }
+            _ = settlement.finish(.status(
+                running: running,
+                configPath: status["configPath"] as? String,
+                launchID: status["launchID"] as? String
+            ))
+        }
+        if invocation == nil {
+            _ = settlement.finish(.unavailable("Installed helper does not expose core ownership status"))
+        }
+    }
+
+    private func handleFailedEnhancedModeStart(
+        error: String,
+        attemptsLeft: Int,
+        generation: UInt64,
+        launchID: UUID,
+        configPath: String,
+        requestID: UUID,
+        completion: @escaping (String?) -> Void
+    ) {
+        let block = installEnhancedModeOwnershipBlock(
+            requestID: requestID,
+            generation: generation,
+            launchID: launchID,
+            configPath: configPath
+        )
+        reconcileUncertainEnhancedCoreOwnership(block) { [weak self] stopError in
+            guard let self,
+                  generation == self.enhancedModeGeneration,
+                  self.activeEnhancedModeLaunchID == launchID,
+                  !self.isTerminating else { return }
+            guard let stopError else {
+                if attemptsLeft > 0, !Settings.enhancedModeUseCustomConfig {
+                    Logger.log(
+                        "External core start failed after confirmed cleanup (\(error)); retrying",
+                        level: .warning
+                    )
+                    self.attemptEnableEnhancedMode(
+                        attemptsLeft: attemptsLeft - 1,
+                        alreadySuspended: true,
+                        generation: generation,
+                        completion: completion
+                    )
+                    return
+                }
+                let resumeError = self.resumeEnhancedModeCallbacksIfNeeded(alreadySuspended: true)
+                completion(self.combiningFailure(error, resumeError: resumeError))
+                return
+            }
+            self.noteEnhancedModeOwnershipBlocked(block, error: stopError)
+            completion(
+                "\(error); external core ownership remains blocked until stop is confirmed: \(stopError)"
+            )
+        }
+    }
+
+    private func handleLateEnhancedModeStartSuccess(
+        generation: UInt64,
+        launchID: UUID,
+        configPath: String,
+        requestID: UUID
+    ) {
+        guard let block = enhancedModeOwnershipBlock,
+              block.requestID == requestID,
+              block.generation == generation,
+              block.launchID == launchID,
+              block.configPath == configPath,
+              !isTerminating else { return }
+        Logger.log(
+            "Late Enhanced Mode start reply arrived; verifying its config and helper launch before cleanup",
+            level: .warning
+        )
+        reconcileUncertainEnhancedCoreOwnership(block) { [weak self] error in
+            guard let self else { return }
+            if let error {
+                Logger.log("Late Enhanced Mode start remains blocked: \(error)", level: .error)
+            } else {
+                Logger.log("Late Enhanced Mode start was stopped after ownership verification", level: .warning)
+            }
         }
     }
 
@@ -3853,23 +4281,22 @@ extension AppDelegate {
             return
         }
         guard case let .success(port, secret, dnsPort, proxyPorts) = result else {
-            resumeEnhancedModeCallbacksIfNeeded(alreadySuspended: alreadySuspended)
             if case let .failure(error) = result {
-                completion(error)
+                completion(combiningFailure(
+                    error,
+                    resumeError: resumeEnhancedModeCallbacksIfNeeded(alreadySuspended: alreadySuspended)
+                ))
             }
             return
         }
         expectedEnhancedDNSPort = dnsPort
 
         guard let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else {
-            resumeEnhancedModeCallbacksIfNeeded(alreadySuspended: alreadySuspended)
-            completion(NSLocalizedString("mihomo_core not found", comment: ""))
-            return
-        }
-
-        guard let helper = PrivilegedHelperManager.shared.helper() else {
-            resumeEnhancedModeCallbacksIfNeeded(alreadySuspended: alreadySuspended)
-            completion(NSLocalizedString("Helper not available", comment: ""))
+            let error = NSLocalizedString("mihomo_core not found", comment: "")
+            completion(combiningFailure(
+                error,
+                resumeError: resumeEnhancedModeCallbacksIfNeeded(alreadySuspended: alreadySuspended)
+            ))
             return
         }
 
@@ -3878,118 +4305,207 @@ extension AppDelegate {
             clashSuspendCore()
         }
 
+        let requestDeadline = Date().addingTimeInterval(Self.enhancedModeHelperRequestTimeout)
+        let requestID = UUID()
+        let startSettlement = ManagedOperationSettlement<EnhancedModeStartRequestResult> { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                guard generation == self.enhancedModeGeneration,
+                      self.activeEnhancedModeLaunchID == launchID,
+                      !self.isTerminating else { return }
+
+                switch result {
+                case .reply(nil):
+                    self.logExternalCoreLaunchStatus()
+                    let launchContext = EnhancedModeLaunchContext(
+                        generation: generation,
+                        launchID: launchID,
+                        apiPort: port,
+                        secret: secret,
+                        dnsPort: self.expectedEnhancedDNSPort,
+                        proxyPorts: proxyPorts,
+                        configPath: configPath,
+                        deadline: Date().addingTimeInterval(25)
+                    )
+                    self.waitForExternalCore(context: launchContext) { success in
+                        guard generation == self.enhancedModeGeneration,
+                              self.activeEnhancedModeLaunchID == launchID,
+                              !self.isTerminating else { return }
+                        if success {
+                            ConfigManager.shared.apiPort = port
+                            ConfigManager.shared.apiSecret = secret
+                            ConfigManager.shared.isEnhancedModeActive = true
+                            self.refreshStatusItemViewStatus()
+                            clashResumeCallbacks()
+                            if Settings.enhancedModeUseCustomConfig {
+                                Logger.log("Enhanced Mode started with custom config as-is; applying TUN checks and system DNS override")
+                            } else {
+                                Logger.log("Enhanced Mode started with generated enhanced config")
+                            }
+                            self.verifyTunStatus(
+                                port: port,
+                                secret: secret,
+                                generation: generation,
+                                launchID: launchID
+                            )
+                            self.overrideDNSForTun(generation: generation, launchID: launchID)
+                            self.restoreSelectedOutboundModeAfterCoreChange {
+                                guard generation == self.enhancedModeGeneration,
+                                      self.activeEnhancedModeLaunchID == launchID,
+                                      !self.isTerminating else { return }
+                                self.clearEnhancedModeOwnershipBlock(requestID: requestID)
+                                completion(nil)
+                            }
+                        } else {
+                            Logger.log("External core failed readiness checks; stopping the current launch before rollback", level: .error)
+                            self.enhancedModeReadinessLock.lock()
+                            let missingProxyPorts = self.enhancedModeLastMissingProxyPorts
+                            self.enhancedModeReadinessLock.unlock()
+                            let block = self.installEnhancedModeOwnershipBlock(
+                                requestID: requestID,
+                                generation: generation,
+                                launchID: launchID,
+                                configPath: configPath
+                            )
+                            self.stopExternalCoreBounded(
+                                isCurrent: {
+                                    generation == self.enhancedModeGeneration &&
+                                        self.activeEnhancedModeLaunchID == launchID &&
+                                        self.enhancedModeOwnershipBlock?.requestID == block.requestID &&
+                                        !self.isTerminating
+                                }
+                            ) { stopError in
+                                guard generation == self.enhancedModeGeneration,
+                                      self.activeEnhancedModeLaunchID == launchID,
+                                      !self.isTerminating else { return }
+                                guard let stopError else {
+                                    self.clearEnhancedModeOwnershipBlock(requestID: block.requestID)
+                                    ConfigManager.shared.isEnhancedModeActive = false
+                                    self.refreshStatusItemViewStatus()
+                                    if attemptsLeft > 0, !Settings.enhancedModeUseCustomConfig {
+                                        self.prepareHelperForEnhancedModeRetry(
+                                            generation: generation,
+                                            launchID: launchID
+                                        ) { retryPreparationError in
+                                            guard generation == self.enhancedModeGeneration,
+                                                  self.activeEnhancedModeLaunchID == launchID,
+                                                  !self.isTerminating else { return }
+                                            guard let retryPreparationError else {
+                                                self.attemptEnableEnhancedMode(
+                                                    attemptsLeft: attemptsLeft - 1,
+                                                    alreadySuspended: true,
+                                                    generation: generation,
+                                                    completion: completion
+                                                )
+                                                return
+                                            }
+                                            completion(retryPreparationError)
+                                        }
+                                        return
+                                    }
+
+                                    ConfigManager.shared.isRunning = false
+                                    clashReopenCacheDB()
+                                    clashResumeCallbacks()
+                                    self.startProxy()
+                                    let coreError = missingProxyPorts.isEmpty
+                                        ? NSLocalizedString("Enhanced Mode failed: core not responding", comment: "")
+                                        : String(
+                                            format: NSLocalizedString(
+                                                "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details.",
+                                                comment: "Enhanced Mode startup failure"
+                                            ),
+                                            "\(missingProxyPorts)"
+                                        )
+                                    completion(ConfigManager.shared.isRunning
+                                        ? coreError
+                                        : "\(coreError); built-in core restart failed")
+                                    return
+                                }
+                                self.noteEnhancedModeOwnershipBlocked(block, error: stopError)
+                                completion(
+                                    "Enhanced Mode startup failed and the external core could not be confirmed stopped; built-in core remains isolated: \(stopError)"
+                                )
+                            }
+                        }
+                    }
+
+                case let .reply(error?):
+                    self.handleFailedEnhancedModeStart(
+                        error: error,
+                        attemptsLeft: attemptsLeft,
+                        generation: generation,
+                        launchID: launchID,
+                        configPath: configPath,
+                        requestID: requestID,
+                        completion: completion
+                    )
+                case .xpcFailure:
+                    self.handleFailedEnhancedModeStart(
+                        error: NSLocalizedString("Enhanced Mode helper request failed", comment: ""),
+                        attemptsLeft: attemptsLeft,
+                        generation: generation,
+                        launchID: launchID,
+                        configPath: configPath,
+                        requestID: requestID,
+                        completion: completion
+                    )
+                case .timedOut:
+                    self.handleFailedEnhancedModeStart(
+                        error: NSLocalizedString("Enhanced Mode helper request timed out", comment: ""),
+                        attemptsLeft: attemptsLeft,
+                        generation: generation,
+                        launchID: launchID,
+                        configPath: configPath,
+                        requestID: requestID,
+                        completion: completion
+                    )
+                }
+            }
+        }
+
+        guard let helper = PrivilegedHelperManager.shared.helper(failture: {
+            _ = startSettlement.finish(.xpcFailure)
+        }) else {
+            completion(combiningFailure(
+                NSLocalizedString("Helper not available", comment: ""),
+                resumeError: resumeEnhancedModeCallbacksIfNeeded(alreadySuspended: true)
+            ))
+            return
+        }
+
+        activeEnhancedModeClientLaunchID = launchID
+        activeEnhancedModeConfigPath = configPath
+        startSettlement.scheduleTimeout(
+            after: max(0, requestDeadline.timeIntervalSinceNow),
+            outcome: { .timedOut }
+        )
         helper.startMihomoCore(
             withBinaryPath: binaryPath,
             configPath: configPath,
             homeDir: kConfigFolderPath
         ) { [weak self] error in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                guard generation == self.enhancedModeGeneration,
-                      self.activeEnhancedModeLaunchID == launchID,
-                      !self.isTerminating else {
-                    completion("Enhanced Mode launch cancelled: lifecycle changed")
-                    return
-                }
-                if let error = error {
-                    if attemptsLeft > 0, !Settings.enhancedModeUseCustomConfig {
-                        Logger.log("External core launch failed (\(error)), retrying (\(attemptsLeft) left)", level: .warning)
-                        helper.stopMihomoCore { _ in
-                            DispatchQueue.main.async {
-                                self.attemptEnableEnhancedMode(attemptsLeft: attemptsLeft - 1, alreadySuspended: true, generation: generation, completion: completion)
-                            }
-                        }
-                    } else {
-                        clashResumeCallbacks()
-                        _ = clashResumeCore()
-                        completion(error)
-                    }
-                    return
-                }
-
-                self.logExternalCoreLaunchStatus(using: helper)
-                let launchContext = EnhancedModeLaunchContext(
-                    generation: generation,
-                    launchID: launchID,
-                    apiPort: port,
-                    secret: secret,
-                    dnsPort: self.expectedEnhancedDNSPort,
-                    proxyPorts: proxyPorts,
-                    configPath: configPath,
-                    deadline: Date().addingTimeInterval(25)
-                )
-                self.waitForExternalCore(context: launchContext) { success in
-                    guard generation == self.enhancedModeGeneration,
-                          self.activeEnhancedModeLaunchID == launchID,
-                          !self.isTerminating else { return }
-                    if success {
-                        ConfigManager.shared.apiPort = port
-                        ConfigManager.shared.apiSecret = secret
-                        ConfigManager.shared.isEnhancedModeActive = true
-                        self.refreshStatusItemViewStatus()
-                        clashResumeCallbacks()
-                        if Settings.enhancedModeUseCustomConfig {
-                            Logger.log("Enhanced Mode started with custom config as-is; applying TUN checks and system DNS override")
-                        } else {
-                            Logger.log("Enhanced Mode started with generated enhanced config")
-                        }
-                        self.verifyTunStatus(
-                            port: port,
-                            secret: secret,
-                            generation: generation,
-                            launchID: launchID
-                        )
-                        self.overrideDNSForTun(generation: generation, launchID: launchID)
-                        self.restoreSelectedOutboundModeAfterCoreChange {
-                            guard generation == self.enhancedModeGeneration,
-                                  self.activeEnhancedModeLaunchID == launchID,
-                                  !self.isTerminating else { return }
-                            completion(nil)
-                        }
-                    } else if attemptsLeft > 0, !Settings.enhancedModeUseCustomConfig {
-                        Logger.log("External core not ready, regenerating config and retrying (\(attemptsLeft) left)", level: .warning)
-                        ConfigManager.shared.isEnhancedModeActive = false
-                        self.refreshStatusItemViewStatus()
-                        self.prepareHelperForEnhancedModeRetry(helper: helper) {
-                            DispatchQueue.main.async { [weak self] in
-                                guard let self = self else { return }
-                                guard generation == self.enhancedModeGeneration,
-                                      !self.isTerminating else { return }
-                                self.attemptEnableEnhancedMode(attemptsLeft: attemptsLeft - 1, alreadySuspended: true, generation: generation, completion: completion)
-                            }
-                        }
-                    } else {
-                        Logger.log("External core failed to start, rolling back", level: .error)
-                        self.enhancedModeReadinessLock.lock()
-                        let missingProxyPorts = self.enhancedModeLastMissingProxyPorts
-                        self.enhancedModeReadinessLock.unlock()
-                        helper.stopMihomoCore { _ in
-                            DispatchQueue.main.async {
-                                guard generation == self.enhancedModeGeneration,
-                                      self.activeEnhancedModeLaunchID == launchID,
-                                      !self.isTerminating else { return }
-                                ConfigManager.shared.isEnhancedModeActive = false
-                                ConfigManager.shared.isRunning = false
-                                self.refreshStatusItemViewStatus()
-                                clashReopenCacheDB()
-                                clashResumeCallbacks()
-                                self.startProxy()
-                                let error = missingProxyPorts.isEmpty
-                                    ? NSLocalizedString("Enhanced Mode failed: core not responding", comment: "")
-                                    : String(
-                                        format: NSLocalizedString(
-                                            "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details.",
-                                            comment: "Enhanced Mode startup failure"
-                                        ),
-                                        "\(missingProxyPorts)"
-                                    )
-                                completion(error)
-                            }
-                        }
-                    }
+            let didSettle = startSettlement.finish(.reply(error))
+            guard let self else { return }
+            if !didSettle, error == nil {
+                DispatchQueue.main.async {
+                    self.handleLateEnhancedModeStartSuccess(
+                        generation: generation,
+                        launchID: launchID,
+                        configPath: configPath,
+                        requestID: requestID
+                    )
                 }
             }
         }
+    }
+
+    private func logExternalCoreLaunchStatus() {
+        guard let helper = PrivilegedHelperManager.shared.helper() else {
+            Logger.log("Unable to read external core launch status: helper unavailable", level: .warning)
+            return
+        }
+        logExternalCoreLaunchStatus(using: helper)
     }
 
     private func logExternalCoreLaunchStatus(using helper: ProxyConfigRemoteProcessProtocol) {
@@ -4068,89 +4584,58 @@ extension AppDelegate {
     }
 
     private func prepareHelperForEnhancedModeRetry(
-        helper: ProxyConfigRemoteProcessProtocol,
-        completion: @escaping () -> Void
+        generation: UInt64,
+        launchID: UUID,
+        completion: @escaping (String?) -> Void
     ) {
         guard !didRestartHelperDuringEnhancedLaunch else {
-            stopExternalCoreForRetry(helper: helper, completion: completion)
+            completion(nil)
             return
         }
-
         didRestartHelperDuringEnhancedLaunch = true
-        var didFinishRequest = false
-        let finishRequest: (String?) -> Void = { error in
-            guard !didFinishRequest else { return }
-            didFinishRequest = true
-            if let error {
-                Logger.log(
-                    "Helper host restart reported an error: \(error)",
-                    level: .warning
-                )
-            } else {
-                Logger.log(
-                    "Restarted helper host before retrying the external core",
-                    level: .warning
-                )
+
+        let requestDeadline = Date().addingTimeInterval(Self.enhancedModeHelperRequestTimeout)
+        let settlement = ManagedOperationSettlement<String?> { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self,
+                      generation == self.enhancedModeGeneration,
+                      self.activeEnhancedModeLaunchID == launchID,
+                      !self.isTerminating else { return }
+                guard let error else {
+                    Logger.log("Restarted helper host before retrying the external core", level: .warning)
+                    PrivilegedHelperManager.shared.resetConnection()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.enhancedModeHelperRestartDelay) { [weak self] in
+                        guard let self,
+                              generation == self.enhancedModeGeneration,
+                              self.activeEnhancedModeLaunchID == launchID,
+                              !self.isTerminating else { return }
+                        completion(nil)
+                    }
+                    return
+                }
+                Logger.log("Helper host restart failed: \(error)", level: .warning)
+                PrivilegedHelperManager.shared.resetConnection()
+                completion(error)
             }
-            PrivilegedHelperManager.shared.resetConnection()
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + Self.enhancedModeHelperRestartDelay,
-                execute: completion
-            )
+        }
+        guard let helper = PrivilegedHelperManager.shared.helper(failture: {
+            _ = settlement.finish("Helper XPC failed while restarting helper host")
+        }) else {
+            completion("Helper not available for bounded restart")
+            return
         }
         let invocation: Void? = helper.restartMihomoCoreHost? { error in
-            DispatchQueue.main.async {
-                finishRequest(error)
-            }
+            _ = settlement.finish(error)
         }
-        if invocation == nil {
-            Logger.log(
-                "Installed helper does not support a host restart; stopping only",
-                level: .warning
-            )
-            stopExternalCoreForRetry(helper: helper, completion: completion)
+        guard invocation != nil else {
+            Logger.log("Installed helper does not support host restart; confirmed stop is sufficient for retry")
+            completion(nil)
             return
         }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.enhancedModeHelperRequestTimeout) {
-            guard !didFinishRequest else { return }
-            Logger.log(
-                "Helper host restart request timed out; reconnecting before retry",
-                level: .warning
-            )
-            finishRequest("request timed out")
-        }
-    }
-
-    private func stopExternalCoreForRetry(
-        helper: ProxyConfigRemoteProcessProtocol,
-        completion: @escaping () -> Void
-    ) {
-        var didFinish = false
-        let finish: () -> Void = {
-            guard !didFinish else { return }
-            didFinish = true
-            completion()
-        }
-        helper.stopMihomoCore { error in
-            DispatchQueue.main.async {
-                if let error {
-                    Logger.log(
-                        "Failed stopping external core before retry: \(error)",
-                        level: .warning
-                    )
-                }
-                finish()
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.enhancedModeHelperRequestTimeout) {
-            guard !didFinish else { return }
-            Logger.log(
-                "Stopping external core timed out; continuing bounded retry",
-                level: .warning
-            )
-            finish()
-        }
+        settlement.scheduleTimeout(
+            after: max(0, requestDeadline.timeIntervalSinceNow),
+            outcome: { "Helper host restart timed out" }
+        )
     }
 
     private func isCurrentEnhancedModeLaunch(_ context: EnhancedModeLaunchContext) -> Bool {
@@ -4201,7 +4686,8 @@ extension AppDelegate {
     ) {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
-            let ownedByCurrentLaunch = self.currentCoreOwnsExpectedListeners(context)
+            let ownership = self.currentCoreOwnsExpectedListeners(context)
+            let ownedByCurrentLaunch = ownership == .ready
             let dnsResponses = ownedByCurrentLaunch
                 ? self.expectedEnhancedDNSPortResponses(context.dnsPort)
                 : nil
@@ -4242,12 +4728,20 @@ extension AppDelegate {
                     now: Date()
                 ) {
                     if apiTunInterfaceReady {
-                        let dnsProbe = ownedByCurrentLaunch
-                            ? (dnsResponses != nil ? "responded" : "no valid response")
-                            : "not attempted (listener ownership unconfirmed)"
+                        let dnsProbe: String
+                        switch ownership {
+                        case .ready:
+                            dnsProbe = dnsResponses != nil ? "responded" : "no valid response"
+                        case .missingProxyPorts:
+                            dnsProbe = "listener set is incomplete"
+                        case .notCurrentLaunch:
+                            dnsProbe = "status belongs to another launch"
+                        case .unknown:
+                            dnsProbe = "listener status is unknown; continuing bounded poll"
+                        }
                         Logger.log(
                             "External core API/TUN ready but DNS readiness is unconfirmed on port \(context.dnsPort); " +
-                                "ownsListeners=\(ownedByCurrentLaunch), dnsProbe=\(dnsProbe)",
+                                "ownership=\(ownership), dnsProbe=\(dnsProbe)",
                             level: .warning
                         )
                     } else {
@@ -4297,7 +4791,8 @@ extension AppDelegate {
                 }()
                 DispatchQueue.global(qos: .utility).async { [weak self] in
                     guard let self = self else { return }
-                    let ownsListeners = self.currentCoreOwnsExpectedListeners(context)
+                    let ownership = self.currentCoreOwnsExpectedListeners(context)
+                    let ownsListeners = ownership == .ready
                     let dnsResponses = ownsListeners
                         ? self.expectedEnhancedDNSPortResponses(context.dnsPort)
                         : nil
@@ -4341,80 +4836,76 @@ extension AppDelegate {
         cancelConfigUpdateForLifecycle("enhanced mode is closing")
         isEnhancedModeRuntimeRecoveryPending = false
         expectedEnhancedDNSPort = 0
-        let group = DispatchGroup()
-
-        group.enter()
-        restoreDNSAfterTun(expectedGeneration: generation) {
-            group.leave()
-        }
-
-        if let helper = PrivilegedHelperManager.shared.helper() {
-            group.enter()
-            let stopLock = NSLock()
-            var stopDidFinish = false
-            let leaveStopGroup = {
-                stopLock.lock()
-                guard !stopDidFinish else {
-                    stopLock.unlock()
-                    return
-                }
-                stopDidFinish = true
-                stopLock.unlock()
-                group.leave()
-            }
-            helper.stopMihomoCore { _ in
-                leaveStopGroup()
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.enhancedModeHelperRequestTimeout) {
-                // The client transaction has a bounded wait even when an XPC
-                // connection is interrupted. The queued Helper operation can
-                // finish later, but its reply cannot mutate this transaction.
-                leaveStopGroup()
-            }
-        }
-
-        group.notify(queue: .main) { [weak self] in
-            guard let self = self, isCurrent() else {
+        let proceedAfterStop: (String?) -> Void = { [weak self] stopError in
+            guard let self, isCurrent() else {
                 finish("Enhanced Mode close cancelled: lifecycle changed")
                 return
             }
-            clashPauseCallbacks()
-            ConfigManager.shared.isEnhancedModeActive = false
-            ConfigManager.shared.isRunning = false
-            self.refreshStatusItemViewStatus()
-            clashReopenCacheDB()
-            self.startProxy()
-            guard isCurrent() else {
-                finish("Enhanced Mode close cancelled: lifecycle changed")
-                return
-            }
-            guard ConfigManager.shared.isRunning else {
-                clashResumeCallbacks()
-                finish(NSLocalizedString("Failed to restart built-in core", comment: ""))
-                return
-            }
-            let selectedConfig = ConfigManager.selectConfigName
-            self.requestConfigUpdateApplyingRuntimePatch(configName: selectedConfig) { [weak self] error in
-                guard let self = self, isCurrent() else {
-                    finish("Enhanced Mode close cancelled: lifecycle changed")
-                    return
+            guard let stopError else {
+                if let block = self.enhancedModeOwnershipBlock {
+                    self.clearEnhancedModeOwnershipBlock(requestID: block.requestID)
+                } else {
+                    self.activeEnhancedModeClientLaunchID = nil
+                    self.activeEnhancedModeConfigPath = nil
                 }
-                clashResumeCallbacks()
-                if error == nil {
-                    self.selectProxyGroupWithMemory()
-                    self.selectOutBoundModeWithMenory()
-                    MenuItemFactory.recreateProxyMenuItems(coreReloaded: true)
-                    NotificationCenter.default.post(name: .reloadDashboard, object: nil)
-                    self.syncConfig {
-                        guard isCurrent() else {
+                    clashPauseCallbacks()
+                    ConfigManager.shared.isEnhancedModeActive = false
+                    ConfigManager.shared.isRunning = false
+                    self.refreshStatusItemViewStatus()
+                    clashReopenCacheDB()
+                    self.startProxy()
+                    guard isCurrent() else {
+                        finish("Enhanced Mode close cancelled: lifecycle changed")
+                        return
+                    }
+                    guard ConfigManager.shared.isRunning else {
+                        self.isBuiltInCoreResumeRetryAvailable = true
+                        finish(NSLocalizedString("Failed to restart built-in core", comment: ""))
+                        return
+                    }
+                    let selectedConfig = ConfigManager.selectConfigName
+                    self.requestConfigUpdateApplyingRuntimePatch(configName: selectedConfig) { [weak self] error in
+                        guard let self, isCurrent() else {
                             finish("Enhanced Mode close cancelled: lifecycle changed")
                             return
                         }
-                        finish(nil)
+                        if error == nil {
+                            clashResumeCallbacks()
+                            self.selectProxyGroupWithMemory()
+                            self.selectOutBoundModeWithMenory()
+                            MenuItemFactory.recreateProxyMenuItems(coreReloaded: true)
+                            NotificationCenter.default.post(name: .reloadDashboard, object: nil)
+                            self.syncConfig {
+                                guard isCurrent() else {
+                                    finish("Enhanced Mode close cancelled: lifecycle changed")
+                                    return
+                                }
+                                finish(nil)
+                            }
+                            return
+                        }
+                        clashResumeCallbacks()
+                        finish(error)
                     }
-                    return
-                }
-                finish(error)
+                return
+            }
+            self.blockActiveEnhancedModeOwnership(generation: generation, reason: stopError)
+            Logger.log(
+                "Enhanced Mode close remains active because external core stop was not confirmed: \(stopError)",
+                level: .error
+            )
+            finish("Could not confirm external core stopped: \(stopError)")
+        }
+
+        restoreDNSAfterTun(expectedGeneration: generation) { [weak self] in
+            guard let self, isCurrent() else {
+                finish("Enhanced Mode close cancelled: lifecycle changed")
+                return
+            }
+            if let block = self.enhancedModeOwnershipBlock {
+                self.reconcileUncertainEnhancedCoreOwnership(block, completion: proceedAfterStop)
+            } else {
+                self.stopExternalCoreBounded(isCurrent: isCurrent, completion: proceedAfterStop)
             }
         }
 
@@ -4484,8 +4975,10 @@ extension AppDelegate {
         return Int(port) ?? 0
     }
 
-    private func currentCoreOwnsExpectedListeners(_ context: EnhancedModeLaunchContext) -> Bool {
-        guard let helper = PrivilegedHelperManager.shared.helper() else { return false }
+    private func currentCoreOwnsExpectedListeners(
+        _ context: EnhancedModeLaunchContext
+    ) -> EnhancedModeListenerOwnership {
+        guard let helper = PrivilegedHelperManager.shared.helper() else { return .unknown }
         let semaphore = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var status: [String: Any]?
@@ -4496,18 +4989,39 @@ extension AppDelegate {
             semaphore.signal()
         }
         guard invocation != nil,
-              semaphore.wait(timeout: .now() + 1.0) == .success else { return false }
+              semaphore.wait(timeout: .now() + 0.35) == .success else { return .unknown }
         lock.lock()
         let value = status
         lock.unlock()
         guard let value,
-              let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else { return false }
+              let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else { return .unknown }
+        guard let isRunning = (value["running"] as? NSNumber)?.boolValue else { return .unknown }
+        guard isRunning else {
+            return .notCurrentLaunch
+        }
+        guard let helperLaunchID = value["launchID"] as? String,
+              !helperLaunchID.isEmpty,
+              value["configPath"] as? String == context.configPath,
+              (value["binaryPath"] as? String).map({
+                  URL(fileURLWithPath: $0).standardizedFileURL.path ==
+                      URL(fileURLWithPath: binaryPath).standardizedFileURL.path
+              }) == true else {
+            return .notCurrentLaunch
+        }
+
+        let portStateType = EnhancedModeDNSReadinessPolicy.HelperListenerPortsState.self
+        let tcpState = portStateType.init(rawValue: value["tcpListenPortsState"] as? String ?? "") ?? .unknown
+        let udpState = portStateType.init(rawValue: value["udpListenPortsState"] as? String ?? "") ?? .unknown
+        if tcpState == .notRunning || udpState == .notRunning {
+            return .notCurrentLaunch
+        }
+        guard tcpState == .known, udpState == .known else {
+            return .unknown
+        }
         let tcpListenPorts = (value["tcpListenPorts"] as? [NSNumber])?.map(\.intValue) ?? []
         let udpListenPorts = (value["udpListenPorts"] as? [NSNumber])?.map(\.intValue) ?? []
         let apiPort = Int(context.apiPort) ?? 0
-        let missingProxyPorts = tcpListenPorts.contains(apiPort)
-            ? context.proxyPorts.filter { !tcpListenPorts.contains($0) }
-            : []
+        let missingProxyPorts = context.proxyPorts.filter { !tcpListenPorts.contains($0) }
         enhancedModeReadinessLock.lock()
         let missingPortsChanged = enhancedModeLastMissingProxyPorts != missingProxyPorts
         enhancedModeLastMissingProxyPorts = missingProxyPorts
@@ -4515,18 +5029,20 @@ extension AppDelegate {
         if missingPortsChanged, !missingProxyPorts.isEmpty {
             Logger.log(
                 "Enhanced Mode launch \(context.launchID) does not own configured proxy port(s) " +
-                    "\(missingProxyPorts); pid=\(value["pid"] ?? "unknown"), " +
-                    "observed TCP=\(tcpListenPorts), UDP=\(udpListenPorts). Port owner not determined.",
+                    "\(missingProxyPorts); helperLaunchID=\(helperLaunchID), pid=\(value["pid"] ?? "unknown"), " +
+                    "observed TCP=\(tcpListenPorts), UDP=\(udpListenPorts).",
                 level: .warning
             )
         }
-        return EnhancedModeDNSReadinessPolicy.currentLaunchOwnsDNSListeners(
+        let ownsListeners = EnhancedModeDNSReadinessPolicy.currentLaunchOwnsDNSListeners(
             observed: .init(
-                helperIsRunning: value["running"] as? Bool == true,
+                helperIsRunning: true,
                 processID: (value["pid"] as? NSNumber)?.intValue ?? 0,
                 helperConfigPath: value["configPath"] as? String,
                 tcpListenPorts: tcpListenPorts,
-                udpListenPorts: udpListenPorts
+                udpListenPorts: udpListenPorts,
+                tcpListenPortsState: tcpState,
+                udpListenPortsState: udpState
             ),
             expected: .init(
                 expectedConfigPath: context.configPath,
@@ -4534,10 +5050,11 @@ extension AppDelegate {
                 apiPort: apiPort,
                 port: context.dnsPort
             )
-        ) && (value["binaryPath"] as? String).map {
-            URL(fileURLWithPath: $0).standardizedFileURL.path ==
-                URL(fileURLWithPath: binaryPath).standardizedFileURL.path
-        } == true
+        )
+        guard ownsListeners else {
+            return .missingProxyPorts(missingProxyPorts)
+        }
+        return .ready
     }
 
     private func expectedEnhancedDNSPortResponses(
@@ -4817,31 +5334,57 @@ extension AppDelegate {
         }
     }
 
-    func cleanupEnhancedModeForTermination(completion: @escaping () -> Void) {
+    func cleanupEnhancedModeForTermination(completion: @escaping (String?) -> Void) {
+        let generation: UInt64
         enhancedModeLifecycle.invalidate()
+        generation = enhancedModeGeneration
         expectedEnhancedDNSPort = 0
-        guard ConfigManager.shared.isEnhancedModeActive else {
-            completion()
+        guard isEnhancedModeCleanupRequired else {
+            completion(nil)
             return
         }
 
-        let group = DispatchGroup()
-        group.enter()
-        restoreDNSAfterTun {
-            group.leave()
+        let ownershipBlock: EnhancedModeOwnershipBlock
+        if let existingBlock = enhancedModeOwnershipBlock {
+            ownershipBlock = existingBlock
+        } else if let launchID = activeEnhancedModeClientLaunchID,
+                  let configPath = activeEnhancedModeConfigPath {
+            ownershipBlock = installEnhancedModeOwnershipBlock(
+                requestID: UUID(),
+                generation: generation,
+                launchID: launchID,
+                configPath: configPath
+            )
+        } else {
+            completion("External core is active but its launch identity is unavailable")
+            return
         }
 
-        if let helper = PrivilegedHelperManager.shared.helper() {
-            group.enter()
-            helper.stopMihomoCore { _ in
-                group.leave()
+        restoreDNSAfterTun { [weak self] in
+            guard let self else {
+                completion("ClashFX cleanup was cancelled")
+                return
             }
-        }
-
-        group.notify(queue: .main) {
-            ConfigManager.shared.isEnhancedModeActive = false
-            Logger.log("Enhanced Mode cleanup finished")
-            completion()
+            self.reconcileUncertainEnhancedCoreOwnership(
+                ownershipBlock,
+                allowTerminating: true
+            ) { error in
+                guard let error else {
+                    ConfigManager.shared.isEnhancedModeActive = false
+                    ConfigManager.shared.isRunning = false
+                    self.activeEnhancedModeClientLaunchID = nil
+                    self.activeEnhancedModeConfigPath = nil
+                    Logger.log("Enhanced Mode cleanup finished")
+                    completion(nil)
+                    return
+                }
+                Logger.log("Enhanced Mode cleanup could not confirm core exit: \(error)", level: .error)
+                self.blockActiveEnhancedModeOwnership(
+                    generation: self.enhancedModeGeneration,
+                    reason: error
+                )
+                completion(error)
+            }
         }
     }
 
@@ -4869,38 +5412,64 @@ extension AppDelegate {
         return []
     }
 
-    private func cleanupStaleMihomoCoreOnLaunch(completion: @escaping () -> Void) {
+    private func cleanupStaleMihomoCoreOnLaunch(
+        attemptsLeft: Int? = nil,
+        completion: @escaping (StartupCoreCleanupEvidence) -> Void
+    ) {
+        let attemptsRemaining = attemptsLeft ?? AppDelegate.staleEnhancedCoreCleanupMaxAttempts
         guard !didCompleteStaleEnhancedCoreCleanup else {
-            completion()
+            completion(.confirmedAbsent)
             return
         }
-        if !PrivilegedHelperManager.shared.isHelperCheckFinished.value {
-            let lock = NSLock()
-            var didFinishWaiting = false
+
+        let finishAttempt: (StartupCoreCleanupEvidence) -> Void = { [weak self] evidence in
+            guard let self = self else {
+                completion(.unknown)
+                return
+            }
+            guard !StartupCoreHandoffPolicy.mayStartBuiltInCore(after: evidence) else {
+                self.didCompleteStaleEnhancedCoreCleanup = true
+                Logger.log("Stale mihomo_core cleanup confirmed before built-in handoff")
+                completion(evidence)
+                return
+            }
+            self.didCompleteStaleEnhancedCoreCleanup = false
+            guard attemptsRemaining > 1 else {
+                Logger.log(
+                    "Stale mihomo_core cleanup remained unconfirmed after bounded attempts: \(evidence)",
+                    level: .error
+                )
+                completion(evidence)
+                return
+            }
+            Logger.log(
+                "Stale mihomo_core cleanup is unconfirmed (\(evidence)); retrying with \(attemptsRemaining - 1) attempts left",
+                level: .warning
+            )
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.staleEnhancedCoreCleanupRetryDelay) { [weak self] in
+                self?.cleanupStaleMihomoCoreOnLaunch(
+                    attemptsLeft: attemptsRemaining - 1,
+                    completion: completion
+                )
+            }
+        }
+
+        guard PrivilegedHelperManager.shared.isHelperCheckFinished.value else {
             let waitDisposable = CompositeDisposable()
-            let finishWaiting: (Bool) -> Void = { [weak self] helperReady in
-                lock.lock()
-                guard !didFinishWaiting else {
-                    lock.unlock()
-                    return
-                }
-                didFinishWaiting = true
-                lock.unlock()
+            let settlement = ManagedOperationSettlement<Bool> { [weak self] helperReady in
                 waitDisposable.dispose()
                 DispatchQueue.main.async {
                     guard let self = self else {
-                        completion()
+                        completion(.unknown)
                         return
                     }
                     if helperReady {
-                        self.cleanupStaleMihomoCoreOnLaunch(completion: completion)
-                    } else {
-                        Logger.log(
-                            "Helper readiness timed out before stale-core cleanup; continuing bounded startup",
-                            level: .warning
+                        self.cleanupStaleMihomoCoreOnLaunch(
+                            attemptsLeft: attemptsLeft,
+                            completion: completion
                         )
-                        self.didCompleteStaleEnhancedCoreCleanup = true
-                        completion()
+                    } else {
+                        finishAttempt(.unknown)
                     }
                 }
             }
@@ -4908,57 +5477,153 @@ extension AppDelegate {
                 PrivilegedHelperManager.shared.isHelperCheckFinished
                     .filter { $0 }
                     .take(1)
-                    .subscribe(onNext: { _ in finishWaiting(true) })
+                    .subscribe(onNext: { _ in _ = settlement.finish(true) })
             )
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.staleEnhancedCoreCleanupTimeout) {
-                finishWaiting(false)
+            settlement.scheduleTimeout(
+                after: Self.staleEnhancedCoreCleanupTimeout,
+                outcome: { false }
+            )
+            PrivilegedHelperManager.shared.refreshReadiness(
+                timeout: Self.staleEnhancedCoreCleanupTimeout
+            ) { ready in
+                _ = settlement.finish(ready)
             }
             return
         }
-        Logger.log("Cleanup stale mihomo_core from previous session", level: .info)
-        var didFinish = false
-        let finish: (Bool) -> Void = { [weak self] timedOut in
-            DispatchQueue.main.async {
-                guard !didFinish else { return }
-                didFinish = true
-                if timedOut {
-                    Logger.log(
-                        "Stale mihomo_core cleanup timed out; continuing restore",
-                        level: .warning
-                    )
-                }
-                self?.didCompleteStaleEnhancedCoreCleanup = true
-                Logger.log("Stale mihomo_core cleanup finished")
-                completion()
-            }
-        }
+
         guard let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else {
-            finish(false)
+            finishAttempt(.failed("mihomo_core not found"))
             return
         }
+        var cleanupSettlement: ManagedOperationSettlement<StartupCoreCleanupEvidence>?
         guard let helper = PrivilegedHelperManager.shared.helper(failture: {
-            finish(false)
+            _ = cleanupSettlement?.finish(.unknown)
         }) else {
-            finish(false)
+            finishAttempt(.unknown)
             return
         }
 
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.staleEnhancedCoreCleanupTimeout
-        ) {
-            finish(true)
+        Logger.log("Cleanup stale mihomo_core from previous session", level: .info)
+        let activeCleanupSettlement = ManagedOperationSettlement<StartupCoreCleanupEvidence> { [weak self] evidence in
+            DispatchQueue.main.async {
+                guard let self = self else {
+                    completion(.unknown)
+                    return
+                }
+                guard case .confirmedStopped = evidence else {
+                    finishAttempt(evidence)
+                    return
+                }
+                self.verifyStaleCoreIsStopped { statusEvidence in
+                    finishAttempt(statusEvidence)
+                }
+            }
         }
-
+        cleanupSettlement = activeCleanupSettlement
+        activeCleanupSettlement.scheduleTimeout(
+            after: Self.staleEnhancedCoreCleanupTimeout,
+            outcome: { .unknown }
+        )
         helper.cleanupMihomoCore(
             withBinaryPath: binaryPath,
             configPath: kConfigFolderPath + ".enhanced_config.",
             homeDir: kConfigFolderPath
         ) { error in
-            if let error = error {
+            if let error {
                 Logger.log("Stale mihomo_core cleanup failed: \(error)", level: .warning)
+                _ = activeCleanupSettlement.finish(.failed(error))
+            } else {
+                _ = activeCleanupSettlement.finish(.confirmedStopped)
             }
-            finish(false)
         }
+    }
+
+    private func verifyStaleCoreIsStopped(completion: @escaping (StartupCoreCleanupEvidence) -> Void) {
+        let settlement = ManagedOperationSettlement<StartupCoreCleanupEvidence>(completion: completion)
+        settlement.scheduleTimeout(
+            after: Self.staleEnhancedCoreCleanupTimeout,
+            outcome: { .unknown }
+        )
+        guard let helper = PrivilegedHelperManager.shared.helper(failture: {
+            _ = settlement.finish(.unknown)
+        }) else {
+            _ = settlement.finish(.unknown)
+            return
+        }
+        let invocation: Void? = helper.getMihomoCoreStatus? { status in
+            guard let status,
+                  let running = (status["running"] as? NSNumber)?.boolValue else {
+                _ = settlement.finish(.unknown)
+                return
+            }
+            if running {
+                _ = settlement.finish(.failed("helper still reports a running core"))
+            } else {
+                _ = settlement.finish(.confirmedAbsent)
+            }
+        }
+        if invocation == nil {
+            _ = settlement.finish(.unknown)
+        }
+    }
+
+    private func continueStartupAfterCoreCleanup(_ evidence: StartupCoreCleanupEvidence) {
+        guard !isTerminating else { return }
+        guard StartupCoreHandoffPolicy.mayStartBuiltInCore(after: evidence) else {
+            startupCoreHandoffRetryAvailable = true
+            Logger.log(
+                "Startup core cleanup could not verify stale-core exit (\(evidence)); keeping built-in core stopped",
+                level: .error
+            )
+            watchForStartupHelperRecovery()
+            return
+        }
+
+        startupCoreHandoffRetryAvailable = false
+        startupHelperRecoveryDisposable?.dispose()
+        startupHelperRecoveryDisposable = nil
+        updateConfig(showNotification: false) { [weak self] error in
+            guard let self = self, !self.isTerminating else { return }
+            self.completeInitialConfigLoadForProxyRecovery(error: error)
+            self.updateLoggingLevel()
+            self.restoreEnhancedModeIfNeeded()
+        }
+    }
+
+    private func retryStartupCoreHandoff() {
+        guard !didCompleteStaleEnhancedCoreCleanup,
+              startupCoreHandoffRetryAvailable,
+              !isStartupCoreHandoffRetryInProgress,
+              !isTerminating,
+              !isRestarting else { return }
+        isStartupCoreHandoffRetryInProgress = true
+        enhancedModeMenuItem.isEnabled = false
+        cleanupStaleMihomoCoreOnLaunch { [weak self] evidence in
+            guard let self else { return }
+            self.isStartupCoreHandoffRetryInProgress = false
+            self.enhancedModeMenuItem.isEnabled = true
+            self.continueStartupAfterCoreCleanup(evidence)
+        }
+    }
+
+    private func watchForStartupHelperRecovery() {
+        guard !didCompleteStaleEnhancedCoreCleanup,
+              !isTerminating,
+              startupHelperRecoveryDisposable == nil else { return }
+
+        let readiness = PrivilegedHelperManager.shared.isHelperCheckFinished
+        let readinessEvents = readiness.asObservable()
+        let futureReadiness = readiness.value ? readinessEvents.skip(1) : readinessEvents
+        startupHelperRecoveryDisposable = futureReadiness
+            .filter { $0 }
+            .take(1)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] _ in
+                guard let self else { return }
+                self.startupHelperRecoveryDisposable?.dispose()
+                self.startupHelperRecoveryDisposable = nil
+                self.retryStartupCoreHandoff()
+            })
     }
 
     private func restoreEnhancedModeIfNeeded() {
@@ -5310,7 +5975,7 @@ extension AppDelegate {
     @IBAction func actionSpeedTest(_ sender: Any) {
         runSpeedTest(
             benchmarkURL: Settings.benchMarkUrl,
-            timeout: 5000,
+            timeout: Settings.benchmarkMode.timeoutMilliseconds,
             showNotifications: true
         )
     }
@@ -5403,6 +6068,7 @@ extension AppDelegate {
             return nil
         }
 
+        ProxyGroupSpeedTestMenuItem.clearBenchmarkCancellationFeedback()
         let session = ApiRequest.BenchmarkSession()
         activeBenchmarkSession = session
         isSpeedTesting = true
@@ -5445,6 +6111,7 @@ extension AppDelegate {
             "Cancelling active benchmark before \(reason)",
             level: .warning
         )
+        ProxyGroupSpeedTestMenuItem.showBenchmarkCancellation(session: session, reason: reason)
         finishSpeedTest(
             session: session,
             showNotifications: false,
@@ -5575,9 +6242,20 @@ extension AppDelegate {
                     level: .error
                 )
                 self.isRestarting = false
-                clashResumeCallbacks()
-                _ = clashResumeCore()
                 self.statusItem.menu = self.statusMenu
+                if let resumeError = self.checkedResumeBuiltInCore() {
+                    ConfigManager.shared.isRunning = false
+                    ConfigManager.shared.isEnhancedModeActive = false
+                    self.refreshStatusItemViewStatus()
+                    Logger.log(
+                        "ClashFX restart recovery could not start the built-in core: \(resumeError)",
+                        level: .error
+                    )
+                    NSAlert.alert(with: "\(error.localizedDescription); built-in core recovery failed: \(resumeError)")
+                    return
+                }
+                clashResumeCallbacks()
+                ConfigManager.shared.isRunning = true
                 if wasEnhancedModeActive, Settings.enhancedMode {
                     self.restoreEnhancedModeIfNeeded()
                 }
@@ -5587,8 +6265,18 @@ extension AppDelegate {
 
         if ConfigManager.shared.isEnhancedModeActive {
             Logger.log("ClashFX restart: cleaning Enhanced Mode before relaunch")
-            cleanupEnhancedModeForTermination {
-                launchAfterOldProcessExits()
+            cleanupEnhancedModeForTermination { error in
+                guard let error else {
+                    launchAfterOldProcessExits()
+                    return
+                }
+                self.isRestarting = false
+                self.statusItem.menu = self.statusMenu
+                Logger.log(
+                    "ClashFX restart aborted because external core exit was not confirmed: \(error)",
+                    level: .error
+                )
+                NSAlert.alert(with: "Restart aborted because the external core is still unconfirmed: \(error)")
             }
         } else {
             launchAfterOldProcessExits()
@@ -5895,8 +6583,15 @@ extension AppDelegate: NSMenuItemValidation {
         }
 
         if action == #selector(actionToggleEnhancedMode(_:)) {
-            return !isEnhancedModeTransitionInProgress && !isTerminating && !isRestarting &&
-                ConfigManager.shared.isRunning
+            return EnhancedModeMenuAvailabilityPolicy.shouldEnableToggle(
+                isTransitioning: isEnhancedModeTransitionInProgress,
+                isTerminating: isTerminating,
+                isRestarting: isRestarting,
+                coreIsRunning: ConfigManager.shared.isRunning,
+                ownershipRetryAvailable: enhancedModeOwnershipBlock != nil,
+                startupCleanupRetryAvailable: startupCoreHandoffRetryAvailable,
+                builtInResumeRetryAvailable: isBuiltInCoreResumeRetryAvailable
+            )
         }
 
         // When an External Control instance is selected, local-only

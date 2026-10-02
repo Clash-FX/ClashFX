@@ -1084,42 +1084,9 @@ final class BenchmarkRegressionTests: XCTestCase {
         )
 
         XCTAssertEqual(plan.targets.count, 25)
-        XCTAssertEqual(plan.maxConcurrentRequests, 8)
-        XCTAssertEqual(plan.concurrencyPolicy.minimumLimit, 8)
-        XCTAssertEqual(plan.concurrencyPolicy.maximumLimit, 12)
-    }
-
-    func testSelectorConcurrencyRampsFromEightToTwelveAndStops() {
-        var policy = SelectorBenchmarkConcurrencyPolicy(targetCount: 49)
-        XCTAssertEqual(policy.currentLimit, 8)
-
-        policy.recordCohort(Array(repeating: true, count: 8))
-        XCTAssertEqual(policy.currentLimit, 12)
-
-        policy.recordCohort(Array(repeating: true, count: 10) + [false, false])
-        XCTAssertEqual(policy.currentLimit, 12)
-
-        policy.recordCohort(Array(repeating: true, count: 16))
-        XCTAssertEqual(policy.currentLimit, 12)
-    }
-
-    func testSelectorConcurrencyHoldsForMixedWindowAndBacksOffOnClusteredFailures() {
-        var policy = SelectorBenchmarkConcurrencyPolicy(targetCount: 49)
-
-        policy.recordCohort(Array(repeating: true, count: 5) + Array(repeating: false, count: 3))
-        XCTAssertEqual(policy.currentLimit, 8)
-
-        policy.recordCohort(Array(repeating: true, count: 4) + Array(repeating: false, count: 4))
-        XCTAssertEqual(policy.currentLimit, 8)
-
-        policy.recordCohort(Array(repeating: false, count: 8))
-        XCTAssertEqual(policy.currentLimit, 8)
-
-        policy.recordCohort(Array(repeating: true, count: 4))
-        XCTAssertEqual(policy.currentLimit, 12)
-
-        policy.recordCohort(Array(repeating: false, count: 12))
-        XCTAssertEqual(policy.currentLimit, 8)
+        XCTAssertEqual(plan.maxConcurrentRequests, 10)
+        XCTAssertEqual(plan.concurrencyPolicy.minimumLimit, 10)
+        XCTAssertEqual(plan.concurrencyPolicy.maximumLimit, 10)
     }
 
     func testSelectorConcurrencyNeverExceedsSmallPlanSize() {
@@ -1128,7 +1095,6 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertEqual(policy.currentLimit, 3)
         XCTAssertEqual(policy.maximumLimit, 3)
 
-        policy.recordCohort(Array(repeating: true, count: 3))
         XCTAssertEqual(policy.currentLimit, 3)
     }
 
@@ -1238,7 +1204,7 @@ final class BenchmarkRegressionTests: XCTestCase {
         XCTAssertTrue(plan.reusableMeasurements(group: group, candidateDelays: delays, timeout: 10).isEmpty)
     }
 
-    func testAdaptiveRunnerAppliesPolicyLimitChanges() {
+    func testFixedRunnerDoesNotEmitPolicyLimitChanges() {
         let completion = expectation(description: "adaptive runner completes")
         var limitChanges = [(Int, Int)]()
         let tasks: [AdaptiveAsyncTaskRunner.Task] = (0 ..< 49).map { _ in
@@ -1259,8 +1225,7 @@ final class BenchmarkRegressionTests: XCTestCase {
         }
         wait(for: [completion], timeout: 2)
 
-        XCTAssertEqual(limitChanges.map(\.0), [8])
-        XCTAssertEqual(limitChanges.map(\.1), [12])
+        XCTAssertTrue(limitChanges.isEmpty)
     }
 
     func testSelectorDoesNotReuseAutomaticResultsWithDifferentURLOrStatus() throws {
@@ -1804,7 +1769,7 @@ final class BenchmarkEvidenceFlowTests: XCTestCase {
         XCTAssertEqual(decode(504, "<html>gateway timeout</html>"), .unavailable)
         XCTAssertEqual(decode(503, "{\"message\":\"upstream unavailable\"}"), .unavailable)
         XCTAssertEqual(decode(503, "{\"message\":\"An error occurred in the delay test\"}"), .failed)
-        XCTAssertEqual(decode(504, "{\"message\":\"Timeout\"}"), .failed)
+        XCTAssertEqual(decode(504, "{\"message\":\"Timeout\"}"), .timedOut)
         XCTAssertEqual(decode(200, "{\"delay\":83}", failed: true), .unavailable)
         XCTAssertEqual(ProxyDelayOutcome.decode(statusCode: nil, data: nil, transportFailed: true, cancelled: true), .cancelled)
     }

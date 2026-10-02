@@ -226,11 +226,12 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         effectView.addSubview(delayLabel)
         delayLabel.rightAnchor.constraint(equalTo: effectView.rightAnchor, constant: -30).isActive = true
         delayLabel.centerYAnchor.constraint(equalTo: effectView.centerYAnchor).isActive = true
-        delayLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        delayLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         delayLabel.setContentHuggingPriority(.required, for: .horizontal)
         delaySpacingConstraint = delayLabel.leftAnchor.constraint(equalTo: selectProxyLabel.rightAnchor)
         delaySpacingConstraint?.isActive = true
         selectProxyLabel.centerYAnchor.constraint(equalTo: effectView.centerYAnchor).isActive = true
+        delayLabel.lineBreakMode = .byTruncatingTail
         selectProxyLabel.lineBreakMode = .byTruncatingHead
         selectProxyLabel.leftAnchor.constraint(greaterThanOrEqualTo: groupNameLabel.rightAnchor, constant: 20).isActive = true
 
@@ -259,6 +260,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
     }
 
     private func updateLeftMenuPadding(show: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
         leftPaddingConstraint?.constant = show ? leftPadding : 10
     }
 
@@ -292,6 +294,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
     }
 
     private func render(_ presentation: AutomaticGroupBenchmarkPresentation) {
+        dispatchPrecondition(condition: .onQueue(.main))
         clearBenchmarkDetails()
         effectView.alphaValue = 1
         let leaf = presentation.finalLeaf ?? presentation.rowState.presentationName
@@ -310,9 +313,17 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
             contextual: .init(state: presentation.rowState, measuredAt: presentation.publishedAt),
             activity: .init(state: presentation.rowState, measuredAt: presentation.publishedAt)
         )
-        let suffix = resolved.isHistorical ? " *" : ""
         selectProxyLabel.stringValue = "\(leaf) ·"
-        delayLabel.stringValue = "\(resolved.state.delayDisplay ?? "")\(suffix)"
+        delayLabel.stringValue = BenchmarkRowDelayPresentation.applyingHistoryMarker(
+            to: resolved.state.delayDisplay,
+            isHistorical: resolved.isHistorical,
+            localizedFormat: NSLocalizedString(
+                "Benchmark result with historical marker",
+                value: "%@ (previous)",
+                comment: "Format for a benchmark result that is historical"
+            )
+        ) ?? ""
+        delayLabel.textColor = ProxyBenchmarkDelayColorCategory.labelColor(for: resolved.state.rawDelay)
         delaySpacingConstraint?.constant = 4
         var details = [conditions.url]
         if let date = resolved.measuredAt {
@@ -328,6 +339,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
     }
 
     private func clearBenchmarkDetails() {
+        dispatchPrecondition(condition: .onQueue(.main))
         toolTip = nil
         delayLabel.toolTip = nil
         delayLabel.stringValue = ""

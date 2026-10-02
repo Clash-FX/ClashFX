@@ -648,3 +648,81 @@
 "Proxy group is no longer available. Refresh and try again." = "プロキシグループは利用できません。更新してからもう一度お試しください。";
 "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "新しいコアが設定済みのプロキシリスナーを確立できませんでした: %@。詳細はコア診断ログを確認してください。";
 "Direct fallback (no proxy nodes)" = "直接接続にフォールバック（プロキシノードなし）";
+
+"Benchmark result with historical marker" = "%@（過去の結果）";
+
+"Benchmark cancelled: core changed" = "測定中止：コア切替";
+
+"Benchmark cancelled: configuration changed" = "測定中止：設定変更";
+
+"The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch." = "コアの切替により未完了の測定を中止しました。完了した結果は保持されます。切替後に再測定できます。";
+
+"The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload." = "設定変更により未完了の測定を中止しました。完了した結果は保持されます。再読込後に再測定できます。";
+
+"Display Order" = "表示順序";
+
+"Configuration Order" = "設定順";
+
+"Latency First" = "低遅延順";
+
+"Benchmark options" = "測定オプション";
+
+"Quick (2.5 s)" = "クイック（2.5秒）";
+
+"Complete (5 s)" = "完全測定（5秒）";
+
+"Retry failed nodes" = "失敗したノードを再測定";
+
+"Benchmarking %d/%d" = "測定中 %d/%d";
+
+"Testing automatic group" = "自動グループを測定中";
+
+"Testing selected automatic group" = "選択中の自動グループを測定中";
+
+"Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "クイック：成功 %d、タイムアウト %d、失敗 %d、利用不可 %d、再利用 %d";
+
+"Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "完了：成功 %d、タイムアウト %d、失敗 %d、利用不可 %d、再利用 %d";
+
+"Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time." = "クイック測定は %d ms でタイムアウトしました。成功 %d、タイムアウト %d、失敗 %d、利用不可 %d、再利用 %d。より時間が必要なノードには「完全測定」モードを選択してください。";
+
+"Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "測定結果：成功 %d、タイムアウト %d、失敗 %d、利用不可 %d、再利用 %d";
+
+"No failed nodes to retry" = "再測定できる失敗ノードはありません";
+
+"Only failed or timed-out nodes from the latest benchmark can be retried." = "再測定できるのは、直近の測定で失敗またはタイムアウトしたノードのみです。";
+
+"Group %d succeeded · %d failed" = "グループ：成功 %d · 失敗 %d";
+
+"Group timed out" = "グループがタイムアウトしました";
+
+"Group unavailable" = "グループを利用できません";
+
+"Selected automatic group response: %d succeeded, %d failed" = "選択中の自動グループの応答：成功 %d、失敗 %d";
+
+"Selected automatic group request timed out" = "選択中の自動グループへのリクエストがタイムアウトしました";
+
+"Selected automatic group returned no results" = "選択中の自動グループから結果が返されませんでした";
+
+"Selected automatic group was unavailable" = "選択中の自動グループを利用できませんでした";
+
+"Quick" = "クイック";
+
+"Complete" = "完全測定";
+
+"Cloudflare HTTPS" = "Cloudflare HTTPS";
+
+"Google HTTPS" = "Google HTTPS";
+
+"Custom" = "カスタム";
+
+"Follow Configuration" = "設定に従う";
+
+"Unified" = "統一";
+
+"Connection" = "接続ごと";
+
+"Benchmark Mode:" = "測定モード：";
+
+"Benchmark Target:" = "測定先：";
+
+"Measurement Method:" = "測定方法：";

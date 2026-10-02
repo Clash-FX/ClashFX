@@ -383,7 +383,7 @@ final class IsolatedSelectorExecutionTests: XCTestCase {
         transport.drain()
         wait(for: [complete], timeout: 2)
         XCTAssertEqual(transport.now, 1500)
-        XCTAssertEqual(transport.peak, 12)
+        XCTAssertEqual(transport.peak, 10)
         XCTAssertEqual(transport.requested.count, 24)
         XCTAssertEqual(Set(transport.requested).count, 24)
         XCTAssertEqual(transport.results.count, 24)
@@ -396,7 +396,7 @@ final class IsolatedSelectorExecutionTests: XCTestCase {
         transport.drain()
         wait(for: [complete], timeout: 2)
         XCTAssertEqual(transport.now, 15000) // exactly three windows, not retry windows
-        XCTAssertEqual(transport.peak, 8)
+        XCTAssertEqual(transport.peak, 10)
         XCTAssertEqual(transport.requested.count, 24)
         XCTAssertEqual(transport.results.count, 24)
         XCTAssertTrue(transport.results.values.allSatisfy { $0 == 0 })
@@ -432,7 +432,7 @@ final class IsolatedSelectorExecutionTests: XCTestCase {
         transport.queue.sync { transport.cancelled = true }
         transport.drain()
         wait(for: [complete], timeout: 2)
-        XCTAssertEqual(transport.requested.count, 8)
+        XCTAssertEqual(transport.requested.count, 10)
         XCTAssertTrue(transport.results.isEmpty)
     }
 

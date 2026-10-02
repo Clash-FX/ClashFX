@@ -329,13 +329,13 @@
                                         </view>
                                     </box>
                                     <box borderType="line" title="Connectivity Test" translatesAutoresizingMaskIntoConstraints="NO" id="BeT-cl-vgr" customClass="SettingsGroupBox" customModule="ClashFX" customModuleProvider="target">
-                                        <rect key="frame" x="-3" y="209" width="438" height="68"/>
+                                        <rect key="frame" x="-3" y="209" width="438" height="152"/>
                                         <view key="contentView" id="kkS-1K-s09">
-                                            <rect key="frame" x="4" y="5" width="430" height="60"/>
+                                            <rect key="frame" x="4" y="5" width="430" height="144"/>
                                             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                             <subviews>
-                                                <stackView distribution="fill" orientation="vertical" alignment="leading" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="YUR-mA-R4I">
-                                                    <rect key="frame" x="20" y="20" width="390" height="20"/>
+                                                <stackView distribution="fill" orientation="vertical" alignment="leading" spacing="4" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="YUR-mA-R4I">
+                                                    <rect key="frame" x="20" y="20" width="390" height="104"/>
                                                     <subviews>
                                                         <customView focusRingType="none" verticalHuggingPriority="1000" translatesAutoresizingMaskIntoConstraints="NO" id="dcS-bg-IKd">
                                                             <rect key="frame" x="0.0" y="0.0" width="390" height="20"/>
@@ -379,14 +379,110 @@
                                                                 <constraint firstAttribute="trailing" secondItem="benchmark-url-save" secondAttribute="trailing" id="benchmark-url-save-trailing"/>
                                                             </constraints>
                                                         </customView>
+                                                        <stackView distribution="fill" orientation="horizontal" alignment="centerY" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-mode-row">
+                                                            <rect key="frame" x="0.0" y="0.0" width="390" height="20"/>
+                                                            <subviews>
+                                                                <textField horizontalHuggingPriority="251" verticalHuggingPriority="1000" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-mode-label">
+                                                                    <textFieldCell key="cell" lineBreakMode="clipping" title="" id="benchmark-mode-label-cell">
+                                                                        <font key="font" metaFont="system"/>
+                                                                        <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                    </textFieldCell>
+                                                                </textField>
+                                                                <popUpButton verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-mode-popup">
+                                                                    <rect key="frame" x="90" y="-3" width="300" height="25"/>
+                                                                    <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="borderAndBezel" imageScaling="proportionallyDown" inset="2" id="benchmark-mode-popup-cell">
+                                                                        <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                                        <font key="font" metaFont="smallSystem"/>
+                                                                        <menu key="menu" id="benchmark-mode-menu"/>
+                                                                    </popUpButtonCell>
+                                                                    <connections>
+                                                                        <action selector="actionBenchmarkModeChanged:" target="kma-mp-ncL" id="benchmark-mode-action"/>
+                                                                    </connections>
+                                                                </popUpButton>
+                                                            </subviews>
+                                                            <constraints>
+                                                                <constraint firstAttribute="height" constant="24" id="benchmark-mode-row-height"/>
+                                                                <constraint firstItem="benchmark-mode-label" firstAttribute="leading" secondItem="benchmark-mode-row" secondAttribute="leading" id="benchmark-mode-label-leading"/>
+                                                                <constraint firstItem="benchmark-mode-popup" firstAttribute="leading" secondItem="benchmark-mode-label" secondAttribute="trailing" constant="8" id="benchmark-mode-popup-leading"/>
+                                                                <constraint firstAttribute="trailing" secondItem="benchmark-mode-popup" secondAttribute="trailing" id="benchmark-mode-popup-trailing"/>
+                                                            </constraints>
+                                                        </stackView>
+                                                        <stackView distribution="fill" orientation="horizontal" alignment="centerY" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-url-preset-row">
+                                                            <rect key="frame" x="0.0" y="0.0" width="390" height="20"/>
+                                                            <subviews>
+                                                                <textField horizontalHuggingPriority="251" verticalHuggingPriority="1000" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-url-preset-label">
+                                                                    <textFieldCell key="cell" lineBreakMode="clipping" title="" id="benchmark-url-preset-label-cell">
+                                                                        <font key="font" metaFont="system"/>
+                                                                        <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                    </textFieldCell>
+                                                                </textField>
+                                                                <popUpButton verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-url-preset-popup">
+                                                                    <rect key="frame" x="90" y="-3" width="300" height="25"/>
+                                                                    <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="borderAndBezel" imageScaling="proportionallyDown" inset="2" id="benchmark-url-preset-popup-cell">
+                                                                        <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                                        <font key="font" metaFont="smallSystem"/>
+                                                                        <menu key="menu" id="benchmark-url-preset-menu"/>
+                                                                    </popUpButtonCell>
+                                                                    <connections>
+                                                                        <action selector="actionBenchmarkURLPresetChanged:" target="kma-mp-ncL" id="benchmark-url-preset-action"/>
+                                                                    </connections>
+                                                                </popUpButton>
+                                                            </subviews>
+                                                            <constraints>
+                                                                <constraint firstAttribute="height" constant="24" id="benchmark-url-preset-row-height"/>
+                                                                <constraint firstItem="benchmark-url-preset-label" firstAttribute="leading" secondItem="benchmark-url-preset-row" secondAttribute="leading" id="benchmark-url-preset-label-leading"/>
+                                                                <constraint firstItem="benchmark-url-preset-popup" firstAttribute="leading" secondItem="benchmark-url-preset-label" secondAttribute="trailing" constant="8" id="benchmark-url-preset-popup-leading"/>
+                                                                <constraint firstAttribute="trailing" secondItem="benchmark-url-preset-popup" secondAttribute="trailing" id="benchmark-url-preset-popup-trailing"/>
+                                                            </constraints>
+                                                        </stackView>
+                                                        <stackView distribution="fill" orientation="horizontal" alignment="centerY" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-measurement-row">
+                                                            <rect key="frame" x="0.0" y="0.0" width="390" height="20"/>
+                                                            <subviews>
+                                                                <textField horizontalHuggingPriority="251" verticalHuggingPriority="1000" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-measurement-label">
+                                                                    <textFieldCell key="cell" lineBreakMode="clipping" title="" id="benchmark-measurement-label-cell">
+                                                                        <font key="font" metaFont="system"/>
+                                                                        <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                    </textFieldCell>
+                                                                </textField>
+                                                                <popUpButton verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-measurement-popup">
+                                                                    <rect key="frame" x="90" y="-3" width="300" height="25"/>
+                                                                    <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="borderAndBezel" imageScaling="proportionallyDown" inset="2" id="benchmark-measurement-popup-cell">
+                                                                        <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                                        <font key="font" metaFont="smallSystem"/>
+                                                                        <menu key="menu" id="benchmark-measurement-menu"/>
+                                                                    </popUpButtonCell>
+                                                                    <connections>
+                                                                        <action selector="actionBenchmarkMeasurementMethodChanged:" target="kma-mp-ncL" id="benchmark-measurement-action"/>
+                                                                    </connections>
+                                                                </popUpButton>
+                                                            </subviews>
+                                                            <constraints>
+                                                                <constraint firstAttribute="height" constant="24" id="benchmark-measurement-row-height"/>
+                                                                <constraint firstItem="benchmark-measurement-label" firstAttribute="leading" secondItem="benchmark-measurement-row" secondAttribute="leading" id="benchmark-measurement-label-leading"/>
+                                                                <constraint firstItem="benchmark-measurement-popup" firstAttribute="leading" secondItem="benchmark-measurement-label" secondAttribute="trailing" constant="8" id="benchmark-measurement-popup-leading"/>
+                                                                <constraint firstAttribute="trailing" secondItem="benchmark-measurement-popup" secondAttribute="trailing" id="benchmark-measurement-popup-trailing"/>
+                                                            </constraints>
+                                                        </stackView>
                                                     </subviews>
                                                     <constraints>
                                                         <constraint firstItem="dcS-bg-IKd" firstAttribute="width" secondItem="YUR-mA-R4I" secondAttribute="width" id="w2c-SA-paf"/>
+                                                        <constraint firstItem="benchmark-mode-row" firstAttribute="width" secondItem="YUR-mA-R4I" secondAttribute="width" id="benchmark-mode-row-width"/>
+                                                        <constraint firstItem="benchmark-url-preset-row" firstAttribute="width" secondItem="YUR-mA-R4I" secondAttribute="width" id="benchmark-url-preset-row-width"/>
+                                                        <constraint firstItem="benchmark-measurement-row" firstAttribute="width" secondItem="YUR-mA-R4I" secondAttribute="width" id="benchmark-measurement-row-width"/>
                                                     </constraints>
                                                     <visibilityPriorities>
                                                         <integer value="1000"/>
+                                                        <integer value="1000"/>
+                                                        <integer value="1000"/>
+                                                        <integer value="1000"/>
                                                     </visibilityPriorities>
                                                     <customSpacing>
+                                                        <real value="3.4028234663852886e+38"/>
+                                                        <real value="3.4028234663852886e+38"/>
+                                                        <real value="3.4028234663852886e+38"/>
                                                         <real value="3.4028234663852886e+38"/>
                                                     </customSpacing>
                                                 </stackView>
@@ -581,6 +677,12 @@
                         <outlet property="apiPortTextField" destination="xJH-gA-vcL" id="L8f-GZ-BYW"/>
                         <outlet property="apiSecretOverrideButton" destination="N0V-ac-Acm" id="n9x-y4-XsR"/>
                         <outlet property="apiSecretTextField" destination="CE4-Aa-FiI" id="po3-LI-T3l"/>
+                        <outlet property="benchmarkModePopUp" destination="benchmark-mode-popup" id="benchmark-mode-popup-outlet"/>
+                        <outlet property="benchmarkMeasurementMethodPopUp" destination="benchmark-measurement-popup" id="benchmark-measurement-popup-outlet"/>
+                        <outlet property="benchmarkURLPresetPopUp" destination="benchmark-url-preset-popup" id="benchmark-url-preset-popup-outlet"/>
+                        <outlet property="benchmarkModeLabel" destination="benchmark-mode-label" id="benchmark-mode-label-outlet"/>
+                        <outlet property="benchmarkURLPresetLabel" destination="benchmark-url-preset-label" id="benchmark-url-preset-label-outlet"/>
+                        <outlet property="benchmarkMeasurementMethodLabel" destination="benchmark-measurement-label" id="benchmark-measurement-label-outlet"/>
                         <outlet property="benchmarkURLSaveButton" destination="benchmark-url-save" id="benchmark-url-save-outlet"/>
                         <outlet property="ignoreListTextView" destination="JDw-FW-A2o" id="fhs-QW-Ug6"/>
                         <outlet property="tunRouteExcludeTextView" destination="UuX-eK-vWq" id="iK2-ZL-s3Q"/>
