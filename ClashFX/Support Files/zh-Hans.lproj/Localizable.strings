@@ -689,3 +689,81 @@
 "Proxy group is no longer available. Refresh and try again." = "代理组当前不可用，请刷新后重试。";
 "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "新核心未能建立配置的代理监听端口：%@。请查看核心诊断日志了解详情。";
 "Direct fallback (no proxy nodes)" = "直连兜底（无代理节点）";
+
+"Benchmark result with historical marker" = "%@（历史）";
+
+"Benchmark cancelled: core changed" = "测速已取消：核心切换";
+
+"Benchmark cancelled: configuration changed" = "测速已取消：配置变更";
+
+"The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch." = "核心正在切换，未完成的测速请求已取消。已完成的结果会保留，切换结束后可重新测速。";
+
+"The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload." = "配置已变更，未完成的测速请求已取消。已完成的结果会保留，重载结束后可重新测速。";
+
+"Display Order" = "显示顺序";
+
+"Configuration Order" = "配置顺序";
+
+"Latency First" = "延迟优先";
+
+"Benchmark options" = "测速选项";
+
+"Quick (2.5 s)" = "快速测速（2.5 秒）";
+
+"Complete (5 s)" = "完整测速（5 秒）";
+
+"Retry failed nodes" = "重测失败节点";
+
+"Benchmarking %d/%d" = "测速中 %d/%d";
+
+"Testing automatic group" = "策略组复测中…";
+
+"Testing selected automatic group" = "所选策略组复测中…";
+
+"Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "快速：成功%d 超时%d 失败%d 不可用%d 复用%d";
+
+"Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "完成：成功%d 超时%d 失败%d 不可用%d 复用%d";
+
+"Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time." = "快速测速等待上限为 %d 毫秒。成功%d、超时%d、失败%d、不可用%d，其中复用%d。需要更多时间的节点可选完整测速。";
+
+"Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "测速汇总：成功%d、超时%d、失败%d、不可用%d，其中复用%d";
+
+"No failed nodes to retry" = "没有可重测的失败节点";
+
+"Only failed or timed-out nodes from the latest benchmark can be retried." = "只重测上一批测速中失败或超时的节点。";
+
+"Group %d succeeded · %d failed" = "策略组：成功%d · 失败%d";
+
+"Group timed out" = "策略组复测超时";
+
+"Group unavailable" = "策略组复测不可用";
+
+"Selected automatic group response: %d succeeded, %d failed" = "所选策略组结果：成功%d、失败%d";
+
+"Selected automatic group request timed out" = "所选策略组请求超时";
+
+"Selected automatic group returned no results" = "所选策略组未返回结果";
+
+"Selected automatic group was unavailable" = "所选策略组不可用";
+
+"Quick" = "快速";
+
+"Complete" = "完整";
+
+"Cloudflare HTTPS" = "Cloudflare HTTPS";
+
+"Google HTTPS" = "Google HTTPS";
+
+"Custom" = "自定义";
+
+"Follow Configuration" = "遵循配置";
+
+"Unified" = "统一延迟";
+
+"Connection" = "完整连接（含握手）";
+
+"Benchmark Mode:" = "测速模式：";
+
+"Benchmark Target:" = "测速目标：";
+
+"Measurement Method:" = "测量方式：";

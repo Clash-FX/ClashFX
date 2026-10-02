@@ -5,6 +5,7 @@ import Foundation
 enum ProxyDelayOutcome: Equatable {
     case measured(Int)
     case failed
+    case timedOut
     case unavailable
     case cancelled
 
@@ -12,7 +13,7 @@ enum ProxyDelayOutcome: Equatable {
         switch self {
         case let .measured(value): return value
         case .failed: return 0
-        case .unavailable, .cancelled: return nil
+        case .timedOut, .unavailable, .cancelled: return nil
         }
     }
 
@@ -20,7 +21,7 @@ enum ProxyDelayOutcome: Equatable {
         switch self {
         case let .measured(value): return .measured(displayName: name, delay: value)
         case .failed: return .failed(displayName: name)
-        case .unavailable, .cancelled: return .unavailable(displayName: name)
+        case .timedOut, .unavailable, .cancelled: return .unavailable(displayName: name)
         }
     }
 
@@ -43,8 +44,10 @@ enum ProxyDelayOutcome: Equatable {
         }
         // These are Mihomo's node-delay failure responses, not generic 5xx.
         let message = object["message"] as? String
-        if (statusCode == 503 && message == "An error occurred in the delay test")
-            || (statusCode == 504 && message == "Timeout") {
+        if statusCode == 504 && message == "Timeout" {
+            return .timedOut
+        }
+        if statusCode == 503 && message == "An error occurred in the delay test" {
             return .failed
         }
         return .unavailable
@@ -178,8 +181,11 @@ enum BenchmarkRowResolver {
     static func resolve(name: String, core: ClashProxyTestState?,
                         cached: Evidence?, contextual: Evidence?,
                         activity: Evidence?, now: Date = Date()) -> Presentation {
-        var candidates = [cached, contextual].compactMap { $0 }.filter { $0.state.rawDelay != nil }
-        if let core, let history = core.history.last {
+        var candidates = [cached, contextual].compactMap { $0 }.filter {
+            $0.state.rawDelay != nil && BenchmarkMeasurementEpoch.acceptsMeasurement(at: $0.measuredAt)
+        }
+        if let core, let history = core.history.last,
+           BenchmarkMeasurementEpoch.acceptsMeasurement(at: history.time) {
             candidates.append(Evidence(
                 state: core.alive && history.delay > 0
                     ? .measured(displayName: name, delay: history.meanDelay.flatMap { $0 > 0 ? $0 : nil } ?? history.delay)
@@ -188,6 +194,9 @@ enum BenchmarkRowResolver {
             ))
         }
         let newest = candidates.max { $0.measuredAt < $1.measuredAt }
+        let activity = activity.flatMap {
+            BenchmarkMeasurementEpoch.acceptsMeasurement(at: $0.measuredAt) ? $0 : nil
+        }
         if let activity, case .testing = activity.state {
             return Presentation(state: .testing(displayName: name), measuredAt: nil,
                                 isHistorical: false, lastAttemptUnavailable: false)
@@ -206,6 +215,17 @@ enum BenchmarkRowResolver {
         return Presentation(state: state, measuredAt: newest.measuredAt,
                             isHistorical: unavailable || now.timeIntervalSince(newest.measuredAt) > 30 * 60,
                             lastAttemptUnavailable: unavailable)
+    }
+}
+
+enum BenchmarkRowDelayPresentation {
+    static func applyingHistoryMarker(
+        to delay: String?,
+        isHistorical: Bool,
+        localizedFormat: String
+    ) -> String? {
+        guard isHistorical, let delay else { return delay }
+        return String(format: localizedFormat, delay)
     }
 }
 

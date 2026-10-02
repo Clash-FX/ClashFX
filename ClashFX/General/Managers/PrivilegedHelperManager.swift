@@ -71,6 +71,11 @@ class PrivilegedHelperManager {
                 }
             case .installed:
                 self.isHelperCheckFinished.accept(true)
+            case .unresponsive:
+                // A lost reply does not prove the daemon or its core is gone.
+                // Reinstalling here can strand the old core and its cache lock.
+                self.resetConnection()
+                Logger.log("Installed helper is not responding; leaving core ownership unchanged", level: .error)
             }
         }
     }
@@ -84,6 +89,39 @@ class PrivilegedHelperManager {
         staleConnection?.invalidationHandler = nil
         staleConnection?.interruptionHandler = nil
         staleConnection?.invalidate()
+    }
+
+    /// Refresh a stale readiness hint without installing or stopping anything.
+    /// Startup retries must ask the daemon again after an earlier lost reply.
+    func refreshReadiness(timeout: TimeInterval, completion: @escaping (Bool) -> Void) {
+        let settlement = ManagedOperationSettlement<Bool> { [weak self] ready in
+            DispatchQueue.main.async {
+                if ready {
+                    self?.isHelperCheckFinished.accept(true)
+                }
+                completion(ready)
+            }
+        }
+        let bundled = Bundle.main.bundleURL.appendingPathComponent(
+            "Contents/Library/LaunchServices/" + Self.machServiceName
+        )
+        let installed = "/Library/PrivilegedHelperTools/" + Self.machServiceName
+        guard FileManager.default.contentsEqual(atPath: bundled.path, andPath: installed),
+              FileManager.default.fileExists(atPath: installed) else {
+            _ = settlement.finish(false)
+            return
+        }
+        guard let helper = helper(failture: { _ = settlement.finish(false) }) else {
+            _ = settlement.finish(false)
+            return
+        }
+        settlement.scheduleTimeout(after: timeout, outcome: { false })
+        let invocation: Void? = helper.getHelperProtocolVersion? { version in
+            _ = settlement.finish(version == UInt(CLASHFX_HELPER_PROTOCOL_VERSION))
+        }
+        if invocation == nil {
+            _ = settlement.finish(false)
+        }
     }
 
     private func initAuthorizationRef() {
@@ -223,6 +261,7 @@ class PrivilegedHelperManager {
         case installed
         case noFound
         case needUpdate
+        case unresponsive
     }
 
     private static let firstHelperProtocolVersion = "1.0.38.1"
@@ -270,14 +309,10 @@ class PrivilegedHelperManager {
             finish(.noFound)
             return
         }
-        if !FileManager.default.contentsEqual(
+        let needsBinaryUpdate = !FileManager.default.contentsEqual(
             atPath: helperURL.path,
             andPath: installedHelperURL.path
-        ) {
-            Logger.log("Installed helper differs from bundled helper; update required")
-            finish(.needUpdate)
-            return
-        }
+        )
         let timeout = helperFileExists
             ? Self.installedHelperResponseTimeout
             : Self.missingHelperResponseTimeout
@@ -285,46 +320,49 @@ class PrivilegedHelperManager {
 
         timer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
             Logger.log("check helper timeout time: \(timeout)")
-            finish(.noFound)
+            finish(.unresponsive)
         }
 
-        guard let h = helper() else {
-            finish(.noFound)
+        guard let h = helper(failture: { finish(.unresponsive) }) else {
+            finish(.unresponsive)
             return
+        }
+        let stopBeforeUpgrade = { [weak self] in
+            h.stopMihomoCore { error in
+                if let error {
+                    Logger.log("Failed to stop core before helper upgrade: \(error)", level: .warning)
+                    finish(.unresponsive)
+                    return
+                }
+                self?.resetConnection()
+                finish(.needUpdate)
+            }
         }
         h.getVersion { [weak self] installedHelperVersion in
             Logger.log("helper version \(installedHelperVersion ?? "nil") require version \(helperVersion)", level: .debug)
             Logger.log("check helper using time: \(Date().timeIntervalSince(time))")
             guard let installedHelperVersion else {
-                finish(.needUpdate)
+                finish(.unresponsive)
                 return
             }
             let cmp = Self.compareVersion(installedHelperVersion, Self.firstHelperProtocolVersion)
             guard cmp != .orderedAscending else {
                 Logger.log("old helper \(installedHelperVersion) predates protocol versioning; needUpdate", level: .debug)
-                self?.resetConnection()
-                finish(.needUpdate)
+                stopBeforeUpgrade()
                 return
             }
             h.getHelperProtocolVersion? { [weak self] installedProtocolVersion in
                 let expected = UInt(CLASHFX_HELPER_PROTOCOL_VERSION)
                 Logger.log("helper protocol v\(installedProtocolVersion) expect v\(expected)", level: .debug)
-                guard installedProtocolVersion != expected else {
+                guard installedProtocolVersion != expected || needsBinaryUpdate else {
                     finish(.installed)
                     return
                 }
 
-                // A running legacy helper keeps its old executable and XPC
-                // interface even after the on-disk tool is replaced. Stop its
-                // managed core and release the connection before installing
-                // the new protocol version so launchd can start the new helper.
-                h.stopMihomoCore { error in
-                    if let error {
-                        Logger.log("Failed to stop core before helper upgrade: \(error)", level: .warning)
-                    }
-                    self?.resetConnection()
-                    finish(.needUpdate)
-                }
+                // Byte changes also require stopping the managed core. A
+                // daemon with the same protocol can still own the old cache.
+                // The status deadline covers a lost stop reply as well.
+                stopBeforeUpgrade()
             }
         }
     }

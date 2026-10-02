@@ -70,3 +70,63 @@ jobs:
 
         echo "Build complete! App at: $APP_PATH"
         python3 scripts/verify-release-compatibility.py --app "$APP_PATH"
+
+    - name: Go core tests with race detector
+      run: |
+        mkdir -p "$RUNNER_TEMP/lab-validation"
+        set -o pipefail
+        (
+          cd ClashFX/goClash
+          python3 - <<'PY'
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path.cwd()))
+        from core_overlay import core_modfile
+
+        with core_modfile() as modfile:
+            env = dict(os.environ, CGO_ENABLED="1", GOMAXPROCS="2")
+            for mode in ([], ["-race"]):
+                subprocess.run(
+                    ["go", "test", "-tags=with_gvisor", *mode,
+                     f"-modfile={modfile}", "./..."],
+                    check=True,
+                    env=env,
+                )
+        PY
+        ) 2>&1 | tee "$RUNNER_TEMP/lab-validation/go-core-race.log"
+
+    - name: Real core listener readiness across log levels
+      run: |
+        mkdir -p "$RUNNER_TEMP/lab-validation"
+        set -o pipefail
+        python3 scripts/verify-isolated-core-readiness.py \
+          2>&1 | tee "$RUNNER_TEMP/lab-validation/listener-readiness.log"
+
+    - name: Real TUN lifecycle on hosted runner
+      run: |
+        mkdir -p "$RUNNER_TEMP/lab-validation"
+        set -o pipefail
+        APP_PATH=$(find ./build_derived_data/Build/Products/Release -name "ClashFX.app" -type d | head -n 1)
+        CORE_PATH="$APP_PATH/Contents/Resources/mihomo_core"
+        if [ -z "$APP_PATH" ] || [ ! -x "$CORE_PATH" ]; then
+          echo "Error: fresh app mihomo_core executable not found at $CORE_PATH"
+          exit 1
+        fi
+        mkdir -p .ci-validation
+        cp "$CORE_PATH" .ci-validation/mihomo_core
+        sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+          "$(command -v python3)" scripts/verify-ci-tun-lifecycle.py \
+          --core "$GITHUB_WORKSPACE/.ci-validation/mihomo_core" \
+          2>&1 | tee "$RUNNER_TEMP/lab-validation/tun-lifecycle.log"
+
+    - name: Upload Lab validation logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: lab-validation-logs
+        path: ${{ runner.temp }}/lab-validation/*.log
+        retention-days: 7
+        if-no-files-found: warn

@@ -518,6 +518,39 @@ struct SelectorBenchmarkMeasurementKey: Hashable {
     let benchmarkURL: String
     let timeout: Int
     var coreID: String?
+    let expectedStatus: String?
+
+    init(
+        endpoint: SelectorBenchmarkEndpoint,
+        providerName: ClashProviderName?,
+        proxyName: ClashProxyName,
+        benchmarkURL: String,
+        timeout: Int,
+        coreID: String? = nil,
+        expectedStatus: String? = nil
+    ) {
+        self.endpoint = endpoint
+        self.providerName = providerName
+        self.proxyName = proxyName
+        self.benchmarkURL = benchmarkURL
+        self.timeout = timeout
+        self.coreID = coreID
+        let status = expectedStatus?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.expectedStatus = status?.isEmpty == false ? status : nil
+    }
+
+    func matchesRetryConditions(of previous: SelectorBenchmarkMeasurementKey) -> Bool {
+        guard let currentCoreID = coreID,
+              let previousCoreID = previous.coreID,
+              currentCoreID == previousCoreID else {
+            return false
+        }
+        return endpoint == previous.endpoint
+            && providerName == previous.providerName
+            && proxyName == previous.proxyName
+            && benchmarkURL == previous.benchmarkURL
+            && expectedStatus == previous.expectedStatus
+    }
 }
 
 struct SelectorBenchmarkSchedulingBucket: Hashable {
@@ -605,42 +638,32 @@ struct SelectorBenchmarkRow {
     let unavailableReason: SelectorBenchmarkUnavailableReason?
 }
 
-struct SelectorBenchmarkConcurrencyPolicy {
-    // Failed nodes are not proof of local congestion. Keep the normal starting
-    // capacity instead of halving throughput for the remaining timeout tail.
-    private static let minimumConcurrency = 8
-    private static let initialConcurrency = 8
-    private static let maximumConcurrency = 12
-    private static let adjustmentStep = 4
+enum SelectorBenchmarkConcurrencyStrategy: Int, CaseIterable {
+    case eight = 8
+    case ten = 10
+    case twelve = 12
+}
 
-    private let targetCount: Int
-    private(set) var currentLimit: Int
+struct SelectorBenchmarkConcurrencyPolicy {
+    let strategy: SelectorBenchmarkConcurrencyStrategy
+    let currentLimit: Int
 
     var minimumLimit: Int {
-        return max(1, min(targetCount, Self.minimumConcurrency))
+        return currentLimit
     }
 
     var maximumLimit: Int {
-        return max(1, min(targetCount, Self.maximumConcurrency))
+        return currentLimit
     }
 
     init(targetCount: Int) {
-        let normalizedTargetCount = max(0, targetCount)
-        self.targetCount = normalizedTargetCount
-        currentLimit = max(1, min(normalizedTargetCount, Self.initialConcurrency))
+        self.init(targetCount: targetCount, strategy: .ten)
     }
 
-    mutating func recordCohort(_ outcomes: [Bool]) {
-        guard targetCount > 0, !outcomes.isEmpty else { return }
-        let failureCount = outcomes.filter { !$0 }.count
-        let healthyMaximumFailures = outcomes.count / 4
-        let clusteredFailureMinimum = max(2, outcomes.count / 2)
-
-        if failureCount <= healthyMaximumFailures {
-            currentLimit = min(maximumLimit, currentLimit + Self.adjustmentStep)
-        } else if failureCount >= clusteredFailureMinimum {
-            currentLimit = max(minimumLimit, currentLimit - Self.adjustmentStep)
-        }
+    init(targetCount: Int, strategy: SelectorBenchmarkConcurrencyStrategy) {
+        let normalizedTargetCount = max(0, targetCount)
+        self.strategy = strategy
+        currentLimit = min(normalizedTargetCount, strategy.rawValue)
     }
 }
 
@@ -649,20 +672,9 @@ final class AdaptiveAsyncTaskRunner {
 
     private let tasks: [Task]
     private let stateQueue: DispatchQueue
-    private let limitChanged: ((Int, Int) -> Void)?
-    private var policy: SelectorBenchmarkConcurrencyPolicy
+    private let policy: SelectorBenchmarkConcurrencyPolicy
     private var nextTaskIndex = 0
     private var activeTaskCount = 0
-    private struct LaunchCohort {
-        var expectedCount = 0
-        var outcomes = [Bool]()
-        var isClosed = false
-    }
-
-    private var cohorts = [Int: LaunchCohort]()
-    private var launchCohortIdentifier = 0
-    private var nextDecisionCohortIdentifier = 0
-    private var remainingLaunchesInCohort: Int
     private var completion: (() -> Void)?
 
     init(tasks: [Task],
@@ -672,8 +684,7 @@ final class AdaptiveAsyncTaskRunner {
         self.tasks = tasks
         self.policy = policy
         self.stateQueue = stateQueue
-        self.limitChanged = limitChanged
-        remainingLaunchesInCohort = policy.currentLimit
+        _ = limitChanged
     }
 
     func start(completion: @escaping () -> Void) {
@@ -693,56 +704,65 @@ final class AdaptiveAsyncTaskRunner {
             return
         }
 
-        // Replenish the pool whenever a request settles. Concurrency decisions
-        // still use complete observation windows, but slow requests no longer
-        // hold every later target behind a cohort barrier.
+        // Replenish at a fixed limit. Node outcomes do not change the selected
+        // 8 / 10 / 12 request strategy.
         while nextTaskIndex < tasks.count, activeTaskCount < policy.currentLimit {
             let task = tasks[nextTaskIndex]
             nextTaskIndex += 1
             activeTaskCount += 1
 
-            let cohortIdentifier = launchCohortIdentifier
-            var cohort = cohorts[cohortIdentifier] ?? LaunchCohort()
-            cohort.expectedCount += 1
-            remainingLaunchesInCohort -= 1
-            if remainingLaunchesInCohort == 0 {
-                cohort.isClosed = true
-                launchCohortIdentifier += 1
-                remainingLaunchesInCohort = policy.currentLimit
-            }
-            cohorts[cohortIdentifier] = cohort
-
-            if nextTaskIndex == tasks.count,
-               remainingLaunchesInCohort != policy.currentLimit {
-                var finalCohort = cohorts[launchCohortIdentifier] ?? LaunchCohort()
-                finalCohort.isClosed = true
-                cohorts[launchCohortIdentifier] = finalCohort
-            }
-
-            task { succeeded in
+            task { _ in
                 self.stateQueue.async {
                     self.activeTaskCount -= 1
-                    self.cohorts[cohortIdentifier]?.outcomes.append(succeeded)
-                    self.evaluateSettledLaunchCohorts()
                     self.scheduleAvailableTasks()
                 }
             }
         }
     }
+}
 
-    private func evaluateSettledLaunchCohorts() {
-        while let cohort = cohorts[nextDecisionCohortIdentifier],
-              cohort.isClosed,
-              cohort.outcomes.count == cohort.expectedCount,
-              cohort.expectedCount > 0 {
-            let previousLimit = policy.currentLimit
-            policy.recordCohort(cohort.outcomes)
-            cohorts[nextDecisionCohortIdentifier] = nil
-            nextDecisionCohortIdentifier += 1
-            if policy.currentLimit != previousLimit {
-                limitChanged?(previousLimit, policy.currentLimit)
+private final class SelectorBenchmarkProgressReporter {
+    private let queue = DispatchQueue(label: "com.clashfx.selectorBenchmarkProgress")
+    private let callback: ((BenchmarkProgressSnapshot) -> Void)?
+    private var progress: BenchmarkProgressSnapshot
+
+    init(total: Int, callback: ((BenchmarkProgressSnapshot) -> Void)?) {
+        self.callback = callback
+        progress = BenchmarkProgressSnapshot(total: total)
+    }
+
+    func record(_ outcome: ProxyDelayOutcome, reused: Bool = false) {
+        guard outcome != .cancelled else { return }
+        queue.sync {
+            let succeeded = progress.succeeded + (isSuccess(outcome) ? 1 : 0)
+            let timedOut = progress.timedOut + (outcome == .timedOut ? 1 : 0)
+            let failed = progress.failed + (outcome == .failed ? 1 : 0)
+            let unavailable = progress.unavailable + (outcome == .unavailable ? 1 : 0)
+            progress = BenchmarkProgressSnapshot(
+                total: progress.total,
+                completed: progress.completed + 1,
+                succeeded: succeeded,
+                timedOut: timedOut,
+                failed: failed,
+                unavailable: unavailable,
+                reused: progress.reused + (reused ? 1 : 0)
+            )
+            if let callback {
+                let snapshot = progress
+                DispatchQueue.main.async { callback(snapshot) }
             }
         }
+    }
+
+    func finish(_ completion: @escaping () -> Void) {
+        queue.sync {
+            DispatchQueue.main.async(execute: completion)
+        }
+    }
+
+    private func isSuccess(_ outcome: ProxyDelayOutcome) -> Bool {
+        if case .measured = outcome { return true }
+        return false
     }
 }
 
@@ -764,7 +784,8 @@ enum SelectorBenchmarkExecutor {
         limitChanged: ((Int, Int) -> Void)? = nil,
         completion: @escaping () -> Void
     ) {
-        runOutcomes(plan: plan, reusing: measurements, isCancelled: isCancelled,
+        runOutcomes(plan: plan, reusing: measurements,
+                    isCancelled: isCancelled,
                     schedulingQueue: schedulingQueue, request: { target, done in
                         request(target) { done($0 > 0 ? .measured($0) : .failed) }
                     }, result: { target, outcome in result(target, outcome.delay ?? 0) },
@@ -774,6 +795,8 @@ enum SelectorBenchmarkExecutor {
     static func runOutcomes(
         plan: SelectorBenchmarkPlan,
         reusing measurements: [SelectorBenchmarkMeasurementKey: Int] = [:],
+        executionPolicy: SelectorBenchmarkConcurrencyPolicy? = nil,
+        progress progressCallback: ((BenchmarkProgressSnapshot) -> Void)? = nil,
         isCancelled: @escaping () -> Bool,
         schedulingQueue: DispatchQueue = DispatchQueue(label: "com.clashfx.selectorBenchmarkExecutor"),
         request: @escaping (SelectorBenchmarkPlan.Target, @escaping (ProxyDelayOutcome) -> Void) -> Void,
@@ -781,9 +804,14 @@ enum SelectorBenchmarkExecutor {
         limitChanged: ((Int, Int) -> Void)? = nil,
         completion: @escaping () -> Void
     ) {
+        let progressReporter = SelectorBenchmarkProgressReporter(
+            total: plan.targets.count,
+            callback: progressCallback
+        )
         let pending = plan.interleavedTargets.filter { target in
             guard !isCancelled() else { return false }
             guard let delay = measurements[target.key], delay > 0 else { return true }
+            progressReporter.record(.measured(delay), reused: true)
             result(target, .measured(delay))
             return false
         }
@@ -791,19 +819,28 @@ enum SelectorBenchmarkExecutor {
             return { done in
                 guard !isCancelled() else { done(false); return }
                 let settlement = ManagedOperationSettlement<ProxyDelayOutcome> { outcome in
-                    if !isCancelled(), outcome != .cancelled { result(target, outcome) }
+                    if !isCancelled(), outcome != .cancelled {
+                        progressReporter.record(outcome)
+                        result(target, outcome)
+                    }
                     done((outcome.delay ?? 0) > 0)
                 }
                 request(target) { settlement.finish($0) }
             }
         }
         Logger.log("[Proxy Delay] Selector requests: \(tasks.count), reused: \(plan.targets.count - pending.count)")
+        let selectedPolicy = SelectorBenchmarkConcurrencyPolicy(
+            targetCount: tasks.count,
+            strategy: executionPolicy?.strategy ?? .ten
+        )
         AdaptiveAsyncTaskRunner(
             tasks: tasks,
-            policy: SelectorBenchmarkConcurrencyPolicy(targetCount: tasks.count),
+            policy: selectedPolicy,
             stateQueue: schedulingQueue,
             limitChanged: limitChanged
-        ).start(completion: completion)
+        ).start {
+            progressReporter.finish(completion)
+        }
     }
 }
 
@@ -817,6 +854,35 @@ struct SelectorBenchmarkPlan {
     let orderedRows: [SelectorBenchmarkRow]
     let targets: [Target]
     let selectedAutomaticRetest: SelectorBenchmarkAutomaticRetestTarget?
+
+    /// Matches against the current topology, ignoring only the timeout value.
+    /// Successful nodes and targets with changed conditions are not retried.
+    func retryingFailures(
+        from previous: [SelectorBenchmarkMeasurementKey: ProxyDelayOutcome]
+    ) -> SelectorBenchmarkPlan? {
+        var retryTargets = [Target]()
+        var retryKeys = Set<SelectorBenchmarkMeasurementKey>()
+
+        for target in targets {
+            guard let priorResult = previous.first(where: {
+                target.key.matchesRetryConditions(of: $0.key)
+            })?.value,
+                priorResult == .failed || priorResult == .timedOut else { continue }
+            retryTargets.append(target)
+            retryKeys.insert(target.key)
+        }
+        guard !retryTargets.isEmpty else { return nil }
+
+        let retryRows = orderedRows.filter { row in
+            guard let key = row.measurementKey else { return false }
+            return retryKeys.contains(key)
+        }
+        return SelectorBenchmarkPlan(
+            orderedRows: retryRows,
+            targets: retryTargets,
+            selectedAutomaticRetest: nil
+        )
+    }
 
     /// Reuse only successful direct-leaf measurements made during this same
     /// action, with exactly the Selector's URL, timeout and status semantics.
@@ -835,6 +901,7 @@ struct SelectorBenchmarkPlan {
         for target in targets {
             let key = target.key
             guard key.benchmarkURL == retest.benchmarkURL,
+                  key.expectedStatus == retest.expectedStatus,
                   key.timeout == timeout,
                   members.contains(key.proxyName),
                   let leaf = snapshot.proxiesMap[key.proxyName],
@@ -878,8 +945,7 @@ struct SelectorBenchmarkPlan {
         return SelectorBenchmarkConcurrencyPolicy(targetCount: targets.count)
     }
 
-    /// The initial limit remains available to diagnostics and regression tests;
-    /// Selector execution can raise or lower it using current-session results.
+    /// The fixed per-run request limit selected for this plan.
     var maxConcurrentRequests: Int {
         return concurrencyPolicy.currentLimit
     }
@@ -987,7 +1053,8 @@ struct SelectorBenchmarkPlan {
                     proxyName: proxy.name,
                     benchmarkURL: benchmarkURL,
                     timeout: timeout,
-                    coreID: proxy.id
+                    coreID: proxy.id,
+                    expectedStatus: nil
                 ),
                 schedulingBucket: SelectorBenchmarkSchedulingBucket(
                     endpoint: endpoint,

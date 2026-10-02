@@ -2,8 +2,9 @@
 """Opt-in local-only Mihomo/AppKit integration. Never opens the user's config.
 
 Builds the pinned core with the shipping overlay, runs HTTP proxy nodes and a
-probe origin on 127.0.0.1, then runs the unhosted menu test. All owned processes
-and listeners are stopped in finally. Artifacts are retained in a temp folder.
+probe origin on 127.0.0.1, then runs the unhosted menu test. The core's config
+and state use a temporary -d directory. All owned processes and listeners are
+stopped in finally; artifacts are retained in a temp folder.
 """
 import hashlib
 import http.server
@@ -18,6 +19,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+from urllib.parse import parse_qs, urlsplit
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,18 +45,21 @@ def main():
     before = system_snapshot()
     (directory / "before.json").write_text(json.dumps(before, indent=2))
     binary = directory / "clashfx-validation-core"
-    env = dict(os.environ, CGO_ENABLED="0", GOMAXPROCS="2")
+    build_env = dict(os.environ, CGO_ENABLED="0", GOMAXPROCS="2")
+    fixture_env = dict(build_env)
     with core_modfile() as modfile, (directory / "build.log").open("w") as log:
         subprocess.run(["go", "build", f"-modfile={modfile}", "-trimpath", "-tags", "with_gvisor",
                         "-ldflags", "-X github.com/metacubex/mihomo/constant.Version=1.19.24",
                         "-o", str(binary), "./mihomo-bin/"],
-                       cwd=ROOT / "ClashFX/goClash", env=env, stdout=log, stderr=subprocess.STDOUT,
+                       cwd=ROOT / "ClashFX/goClash", env=build_env, stdout=log, stderr=subprocess.STDOUT,
                        check=True, timeout=300)
     print("Pinned Mihomo + production overlay built", flush=True)
 
     token = secrets.token_hex(24)
-    state = {"Local-A": 0.04, "Local-B": 0.18}
+    state = {"Local-A": 0.04, "Local-B": 1.177}
     lock = threading.Lock()
+    capture_lock = threading.Lock()
+    captured_responses = []
     servers = []
     core = None
     success = False
@@ -61,6 +67,7 @@ def main():
 
     class Server(http.server.ThreadingHTTPServer):
         daemon_threads = True
+        request_queue_size = 128
 
     class Origin(http.server.BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -80,7 +87,7 @@ def main():
                 self.send_error(403)
                 return
             values = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
-            if set(values) != {"Local-A", "Local-B"} or any(not 0.01 <= float(v) <= 0.5 for v in values.values()):
+            if set(values) != {"Local-A", "Local-B"} or any(not 0.01 <= float(v) <= 2.6 for v in values.values()):
                 self.send_error(400)
                 return
             with lock:
@@ -94,6 +101,79 @@ def main():
         servers.append(server)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         return server.server_port
+
+    class ControllerRelay(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def send_payload(self, status, body, content_type="application/json"):
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def authorized(self):
+            return self.headers.get("Authorization") == "Bearer " + token
+
+        def do_POST(self):
+            if not self.authorized() or self.path != "/__fixture/clear-captures":
+                self.send_error(403)
+                return
+            with capture_lock:
+                captured_responses.clear()
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def do_GET(self):
+            if not self.authorized():
+                self.send_error(403)
+                return
+            parsed = urlsplit(self.path)
+            if parsed.path == "/__fixture/captures":
+                with capture_lock:
+                    payload = json.dumps({"captures": list(captured_responses)}).encode("utf-8")
+                self.send_payload(200, payload)
+                return
+
+            fixed_paths = {"/version", "/configs", "/proxies", "/providers/proxies"}
+            benchmark_path = (
+                parsed.path.startswith("/proxies/") and parsed.path.endswith("/delay")
+            ) or (
+                parsed.path.startswith("/group/") and parsed.path.endswith("/delay")
+            )
+            if parsed.path not in fixed_paths and not benchmark_path:
+                self.send_error(404)
+                return
+
+            request = urllib.request.Request(
+                core_endpoint + self.path,
+                headers={"Authorization": "Bearer " + token},
+                method="GET",
+            )
+            try:
+                response = opener.open(request, timeout=15)
+            except urllib.error.HTTPError as error:
+                response = error
+            except OSError:
+                self.send_error(502)
+                return
+            with response:
+                body = response.read()
+                status = response.status
+                content_type = response.headers.get("Content-Type", "application/json")
+
+            if benchmark_path:
+                capture = {
+                    "path": parsed.path,
+                    "query": {key: values[-1] for key, values in parse_qs(parsed.query).items()},
+                    "status": status,
+                    "body": body.decode("utf-8", errors="replace"),
+                }
+                with capture_lock:
+                    captured_responses.append(capture)
+            self.send_payload(status, body, content_type)
 
     try:
         origin_port = start(Origin)
@@ -137,20 +217,27 @@ def main():
         ports = {name: start(proxy_handler(name)) for name in ("Local-A", "Local-B", "Local-Broken")}
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
-            controller_port = reservation.getsockname()[1]
+            core_controller_port = reservation.getsockname()[1]
+        core_endpoint = f"http://127.0.0.1:{core_controller_port}"
+        controller_port = start(ControllerRelay)
         endpoint = f"http://127.0.0.1:{controller_port}"
         config = {
             "port": 0, "socks-port": 0, "mixed-port": 0, "redir-port": 0, "tproxy-port": 0,
             "allow-lan": False, "bind-address": "127.0.0.1", "ipv6": False,
-            "external-controller": f"127.0.0.1:{controller_port}", "secret": token,
+            "external-controller": f"127.0.0.1:{core_controller_port}", "secret": token,
             "tun": {"enable": False}, "dns": {"enable": False}, "ntp": {"enable": False},
             "sniffer": {"enable": False}, "find-process-mode": "off", "mode": "rule",
             "log-level": "warning", "geo-auto-update": False,
             "geox-url": {key: origin + "/disabled" for key in ("mmdb", "geoip", "geosite", "asn")},
             "profile": {"store-selected": False, "store-fake-ip": False},
             "proxies": [{"name": name, "type": "http", "server": "127.0.0.1", "port": port}
-                        for name, port in ports.items()],
+                        for name, port in ports.items()] + [
+                {"name": f"Schedule-{index:02d}", "type": "http", "server": "127.0.0.1",
+                 "port": ports["Local-A" if index < 32 else "Local-B"]}
+                for index in range(40)
+            ],
             "proxy-groups": [
+                {"name": "Scheduling", "type": "select", "proxies": [f"Schedule-{index:02d}" for index in range(40)]},
                 {"name": "Selector", "type": "select", "proxies": ["Local-A", "Local-B", "Local-Broken", "Automatic", "Empty-SG", "Empty-TW", "Nested-Empty", "DIRECT"]},
                 {"name": "Automatic", "type": "url-test", "proxies": ["Local-A", "Local-B", "Local-Broken"], "url": origin + "/probe-a", "interval": 86400, "lazy": True, "tolerance": 0},
                 {"name": "Empty-SG", "type": "url-test", "include-all": True, "filter": "^__no_sg_nodes__$", "url": origin + "/probe-a", "interval": 86400, "lazy": True},
@@ -167,7 +254,7 @@ def main():
         core_home.mkdir()
         with (directory / "core.log").open("w") as log:
             core = subprocess.Popen([str(binary), "-d", str(core_home), "-f", str(config_path)],
-                                    stdout=log, stderr=subprocess.STDOUT, env=env)
+                                    stdout=log, stderr=subprocess.STDOUT, env=fixture_env)
         deadline = time.monotonic() + 15
         while True:
             if core.poll() is not None:
@@ -188,6 +275,7 @@ def main():
         test_env = dict(os.environ, CLASHFX_REAL_CORE_MANIFEST=str(manifest),
                         TEST_RUNNER_CLASHFX_REAL_CORE_MANIFEST=str(manifest))
         command = ["xcodebuild", "-workspace", "ClashFX.xcworkspace", "-scheme", "ClashFX",
+                   "-derivedDataPath", str(directory / "derived-data"),
                    "-destination", "platform=macOS,arch=arm64",
                    "-only-testing:ClashFXTests/RealCoreMenuIntegrationTests", "test",
                    "CODE_SIGNING_ALLOWED=NO", "MACOSX_DEPLOYMENT_TARGET=12.0"]

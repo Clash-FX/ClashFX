@@ -6,6 +6,9 @@ import XCTest
 /// proxy. An explicitly provided manifest can opt into a separate fixture core.
 enum Settings {
     static var benchMarkUrl = "https://test-a.invalid/204"
+    static var benchmarkMode: BenchmarkMode = .complete
+    static var benchmarkSortOrder: BenchmarkSortOrder = .configuration
+    static var benchmarkMeasurementMethod: BenchmarkMeasurementMethod = .followConfiguration
     static var menuBarSpeedAlignment: MenuBarSpeedAlignment = .right
     static var selectedMenuIconID = "default"
 }
@@ -26,6 +29,7 @@ final class AppDelegate {
     func beginSpeedTest(showNotifications: Bool) -> ApiRequest.BenchmarkSession? {
         dispatchPrecondition(condition: .onQueue(.main))
         guard active == nil else { return nil }
+        ProxyGroupSpeedTestMenuItem.clearBenchmarkCancellationFeedback()
         let session = ApiRequest.BenchmarkSession()
         active = session
         return session
@@ -42,8 +46,11 @@ final class AppDelegate {
         onFinish?()
     }
 
-    func cancel() {
+    func cancel(reason: String? = nil) {
         guard let session = active else { return }
+        if let reason {
+            ProxyGroupSpeedTestMenuItem.showBenchmarkCancellation(session: session, reason: reason)
+        }
         session.cancel()
         active = nil
     }
@@ -176,6 +183,7 @@ enum ApiRequest {
         config.urlCredentialStorage = nil
         config.httpCookieStorage = nil
         config.timeoutIntervalForRequest = 10
+        config.httpMaximumConnectionsPerHost = 100
         return URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
     }()
 
@@ -275,9 +283,11 @@ enum ApiRequest {
     static func benchmarkSelectorPlan(_ plan: SelectorBenchmarkPlan,
                                       reusing measurements: [SelectorBenchmarkMeasurementKey: Int],
                                       session: BenchmarkSession,
+                                      progress: ((BenchmarkProgressSnapshot) -> Void)? = nil,
                                       result: @escaping (SelectorBenchmarkPlan.Target, ProxyDelayOutcome) -> Void,
                                       completion: @escaping () -> Void) {
         SelectorBenchmarkExecutor.runOutcomes(plan: plan, reusing: measurements,
+                                              progress: progress,
                                               isCancelled: { session.isCancelled }, request: { target, done in
                                                   let path = target.key.providerName.map {
                                                       "/providers/proxies/\($0)/\(target.key.proxyName)/healthcheck"

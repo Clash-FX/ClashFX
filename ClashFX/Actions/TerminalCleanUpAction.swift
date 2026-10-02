@@ -17,7 +17,7 @@ enum TerminalConfirmAction {
             return .terminateCancel
         }
         let policy = TerminationCleanupPolicy.make(observation: TerminationCleanupObservation(
-            enhancedModeActive: ConfigManager.shared.isEnhancedModeActive,
+            enhancedModeActive: AppDelegate.shared.isEnhancedModeCleanupRequired,
             proxyPortAutoSet: ConfigManager.shared.proxyPortAutoSet,
             isProxySetByOther: ConfigManager.shared.isProxySetByOtherVariable.value,
             currentSystemSetToClash: NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true),
@@ -27,11 +27,16 @@ enum TerminalConfirmAction {
         AppDelegate.shared.prepareForTerminationCleanup()
         let group = DispatchGroup()
         var proxyCleanupSucceeded = !policy.cleanSystemProxy
+        var enhancedCleanupSucceeded = !policy.cleanEnhancedMode
 
         if policy.cleanEnhancedMode {
             Logger.log("ClashFX quit need clean Enhanced Mode")
             group.enter()
-            AppDelegate.shared.cleanupEnhancedModeForTermination {
+            AppDelegate.shared.cleanupEnhancedModeForTermination { error in
+                enhancedCleanupSucceeded = error == nil
+                if let error {
+                    Logger.log("ClashFX quit could not confirm core cleanup: \(error)", level: .error)
+                }
                 group.leave()
             }
         }
@@ -83,8 +88,8 @@ enum TerminalConfirmAction {
         // These XPC stages each have their own eight-second deadline.
         terminationSettlement.scheduleTimeout(after: 40, queue: .main, outcome: { false })
         group.notify(queue: .main) {
-            Logger.log("ClashFX quit cleanup completed: proxy success=\(proxyCleanupSucceeded)")
-            _ = terminationSettlement.finish(proxyCleanupSucceeded)
+            Logger.log("ClashFX quit cleanup completed: proxy success=\(proxyCleanupSucceeded), core success=\(enhancedCleanupSucceeded)")
+            _ = terminationSettlement.finish(proxyCleanupSucceeded && enhancedCleanupSucceeded)
         }
 
         Logger.log("ClashFX quit wait for clean up")

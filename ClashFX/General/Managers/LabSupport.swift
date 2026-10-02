@@ -5,6 +5,7 @@
 
 import AppKit
 import Foundation
+import Yams
 
 enum LabSupport {
     static let issueTrackerURL = "https://github.com/Clash-FX/ClashFX/issues/new"
@@ -32,6 +33,35 @@ enum LabSupport {
         lines.append("- Proxy Paused by SSID: \(ConfigManager.shared.proxyShouldPaused.value)")
         lines.append("- Proxy Marked Changed by Other App: \(ConfigManager.shared.isProxySetByOtherVariable.value)")
         lines.append("- Enhanced Mode Active Runtime: \(ConfigManager.shared.isEnhancedModeActive)")
+        let sourceUnifiedDelay = benchmarkSourceUnifiedDelay()
+        let measurementMethod = Settings.benchmarkMeasurementMethod
+        let selectedSourceConflict = RuntimeBenchmarkSettingsPolicy.sourceFieldConflict(
+            sourceUnifiedDelay: sourceUnifiedDelay,
+            method: measurementMethod
+        )
+        let confirmedRuntimeMethod = Settings.lastConfirmedRuntimeBenchmarkMeasurementMethod
+        let confirmedRuntimeSourceConflict = confirmedRuntimeMethod.flatMap {
+            RuntimeBenchmarkSettingsPolicy.sourceFieldConflict(
+                sourceUnifiedDelay: sourceUnifiedDelay,
+                method: $0
+            )
+        }
+        let sourceUnifiedDelayValue = sourceUnifiedDelay.map { String($0) } ?? "unknown"
+        let selectedSourceConflictValue = selectedSourceConflict.map { $0 ? "yes" : "no" } ?? "unknown"
+        let confirmedRuntimeSourceConflictValue = confirmedRuntimeSourceConflict.map {
+            $0 ? "yes" : "no"
+        } ?? "unknown"
+        let confirmedRuntimeMethodValue = confirmedRuntimeMethod?.rawValue ?? "unknown"
+        lines.append("")
+        lines.append("### Benchmark settings")
+        lines.append("- Mode: \(Settings.benchmarkMode.rawValue) (timeout \(Settings.benchmarkMode.timeoutMilliseconds) ms)")
+        lines.append("- Sort order: \(Settings.benchmarkSortOrder.rawValue)")
+        lines.append("- Selected measurement method preference: \(measurementMethod.rawValue)")
+        lines.append("- Last confirmed runtime measurement method: \(confirmedRuntimeMethodValue)")
+        lines.append("- Benchmark URL: \(diagnosticBenchmarkURL(Settings.benchMarkUrl))")
+        lines.append("- Selected source config unified-delay: \(sourceUnifiedDelayValue)")
+        lines.append("- Source field conflicts with selected preference: \(selectedSourceConflictValue)")
+        lines.append("- Source field conflicts with last confirmed runtime method: \(confirmedRuntimeSourceConflictValue)")
         lines.append("")
         lines.append("### Network state")
         lines.append("- Primary Interface: \(NetworkChangeNotifier.getPrimaryInterface() ?? "none")")
@@ -56,6 +86,23 @@ enum LabSupport {
         lines.append(fileTailLines(path: kConfigFolderPath + ".mihomo_core.log", count: 30))
         lines.append("```")
         return redact(lines.joined(separator: "\n"))
+    }
+
+    private static func benchmarkSourceUnifiedDelay() -> Bool? {
+        guard !ICloudManager.shared.useiCloud.value else { return nil }
+        let path = Paths.localConfigPath(for: ConfigManager.selectConfigName)
+        guard let yaml = try? String(contentsOfFile: path, encoding: .utf8),
+              let root = try? Yams.load(yaml: yaml) as? [String: Any] else { return nil }
+        return root["unified-delay"] as? Bool
+    }
+
+    private static func diagnosticBenchmarkURL(_ rawURL: String) -> String {
+        guard var components = URLComponents(string: rawURL) else { return "configured URL" }
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? "configured URL"
     }
 
     static func hardwareArchitecture() -> String {

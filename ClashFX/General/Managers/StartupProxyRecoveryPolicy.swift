@@ -51,7 +51,7 @@ enum RuntimeDataPlaneProbeOutcome {
     case baselineUnavailable
 }
 
-enum EnhancedModeRuntimeFailureKind {
+enum EnhancedModeRuntimeFailureKind: Equatable {
     case apiUnavailable
     case tunDisabled
     case tunInterfaceUnavailable
@@ -98,6 +98,14 @@ final class EnhancedModeLifecycleCoordinator {
     func finishLaunch(generation expectedGeneration: UInt64) {
         guard generation == expectedGeneration else { return }
         isLaunchPending = false
+    }
+
+    func finishFailedLaunch(generation expectedGeneration: UInt64, launchID expectedLaunchID: UUID) {
+        guard generation == expectedGeneration else { return }
+        isLaunchPending = false
+        if launchID == expectedLaunchID {
+            launchID = nil
+        }
     }
 
     @discardableResult
@@ -297,6 +305,32 @@ enum EnhancedModeDNSReadinessPolicy {
         let helperConfigPath: String?
         let tcpListenPorts: [Int]
         let udpListenPorts: [Int]
+        let tcpListenPortsState: HelperListenerPortsState
+        let udpListenPortsState: HelperListenerPortsState
+
+        init(
+            helperIsRunning: Bool,
+            processID: Int,
+            helperConfigPath: String?,
+            tcpListenPorts: [Int],
+            udpListenPorts: [Int],
+            tcpListenPortsState: HelperListenerPortsState = .known,
+            udpListenPortsState: HelperListenerPortsState = .known
+        ) {
+            self.helperIsRunning = helperIsRunning
+            self.processID = processID
+            self.helperConfigPath = helperConfigPath
+            self.tcpListenPorts = tcpListenPorts
+            self.udpListenPorts = udpListenPorts
+            self.tcpListenPortsState = tcpListenPortsState
+            self.udpListenPortsState = udpListenPortsState
+        }
+    }
+
+    enum HelperListenerPortsState: String, Equatable {
+        case known
+        case unknown
+        case notRunning
     }
 
     struct ExpectedListeners {
@@ -312,6 +346,8 @@ enum EnhancedModeDNSReadinessPolicy {
     ) -> Bool {
         guard observed.helperIsRunning, observed.processID > 0,
               observed.helperConfigPath == expected.expectedConfigPath,
+              observed.tcpListenPortsState == .known,
+              observed.udpListenPortsState == .known,
               expected.apiPort > 0, expected.port > 0 else { return false }
         // Listener ownership is runtime evidence. INFO-level bind messages may
         // be suppressed by the profile's log level, or the log may be unreadable.
@@ -399,16 +435,79 @@ enum EnhancedModeDNSReadinessPolicy {
 enum EnhancedModeRuntimeRecoveryPolicy {
     static func shouldRecover(
         from failure: EnhancedModeRuntimeFailureKind,
-        trafficIsFlowing: Bool
+        trafficIsFlowing: Bool,
+        sustainedAPIFailureCount: Int = 0,
+        sustainedAPIFailureDuration: TimeInterval = 0,
+        apiFailureAttemptLimit: Int = 6,
+        apiFailureDeadline: TimeInterval = 90
     ) -> Bool {
         switch failure {
         case .tunDisabled, .tunInterfaceUnavailable:
             return true
         case .apiUnavailable:
-            return !trafficIsFlowing
+            return !trafficIsFlowing ||
+                sustainedAPIFailureCount >= apiFailureAttemptLimit ||
+                sustainedAPIFailureDuration >= apiFailureDeadline
         case .physicalNetworkUnavailable:
             return false
         }
+    }
+}
+
+enum StartupCoreCleanupEvidence: Equatable {
+    case confirmedAbsent
+    case confirmedStopped
+    case unknown
+    case failed(String)
+}
+
+enum StartupCoreHandoffPolicy {
+    static func mayStartBuiltInCore(after evidence: StartupCoreCleanupEvidence) -> Bool {
+        switch evidence {
+        case .confirmedAbsent, .confirmedStopped:
+            return true
+        case .unknown, .failed:
+            return false
+        }
+    }
+}
+
+enum EnhancedModeMenuAvailabilityPolicy {
+    static func shouldEnableToggle(
+        isTransitioning: Bool,
+        isTerminating: Bool,
+        isRestarting: Bool,
+        coreIsRunning: Bool,
+        ownershipRetryAvailable: Bool,
+        startupCleanupRetryAvailable: Bool,
+        builtInResumeRetryAvailable: Bool
+    ) -> Bool {
+        !isTransitioning && !isTerminating && !isRestarting &&
+            (coreIsRunning || ownershipRetryAvailable || startupCleanupRetryAvailable ||
+                builtInResumeRetryAvailable)
+    }
+}
+
+enum EnhancedModeOwnershipPolicy {
+    static func matchesExpectedLaunch(
+        running: Bool,
+        observedConfigPath: String?,
+        observedLaunchID: String?,
+        expectedConfigPath: String,
+        expectedLaunchID: String?
+    ) -> Bool {
+        guard running,
+              observedConfigPath == expectedConfigPath,
+              let observedLaunchID,
+              !observedLaunchID.isEmpty else { return false }
+        guard let expectedLaunchID else { return true }
+        return observedLaunchID == expectedLaunchID
+    }
+}
+
+enum EnhancedModeCleanupPolicy {
+    static func isRequired(enhancedModeActive: Bool, ownershipBlocked: Bool) -> Bool {
+        enhancedModeActive || ownershipBlocked
     }
 }
 

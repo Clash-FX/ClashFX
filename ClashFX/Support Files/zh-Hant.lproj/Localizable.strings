@@ -648,3 +648,81 @@
 "Proxy group is no longer available. Refresh and try again." = "代理群組目前無法使用，請重新整理後重試。";
 "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "新核心未能建立配置的代理監聽連接埠：%@。請查看核心診斷日誌了解詳情。";
 "Direct fallback (no proxy nodes)" = "直連後備（無代理節點）";
+
+"Benchmark result with historical marker" = "%@（歷史）";
+
+"Benchmark cancelled: core changed" = "測速已取消：核心切換";
+
+"Benchmark cancelled: configuration changed" = "測速已取消：設定變更";
+
+"The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch." = "核心正在切換，尚未完成的測速請求已取消。已完成的結果會保留，切換結束後可重新測速。";
+
+"The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload." = "設定已變更，尚未完成的測速請求已取消。已完成的結果會保留，重新載入結束後可重新測速。";
+
+"Display Order" = "顯示順序";
+
+"Configuration Order" = "設定順序";
+
+"Latency First" = "延遲優先";
+
+"Benchmark options" = "測速選項";
+
+"Quick (2.5 s)" = "快速測速（2.5 秒）";
+
+"Complete (5 s)" = "完整測速（5 秒）";
+
+"Retry failed nodes" = "重測失敗節點";
+
+"Benchmarking %d/%d" = "測速中 %d/%d";
+
+"Testing automatic group" = "策略組複測中…";
+
+"Testing selected automatic group" = "所選策略組複測中…";
+
+"Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "快速：成功%d 逾時%d 失敗%d 無法使用%d 重用%d";
+
+"Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "完成：成功%d 逾時%d 失敗%d 無法使用%d 重用%d";
+
+"Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time." = "快速測速等待上限為 %d 毫秒。成功%d、逾時%d、失敗%d、無法使用%d，其中重用%d。需要更多時間的節點可選完整測速。";
+
+"Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "測速彙總：成功%d、逾時%d、失敗%d、無法使用%d，其中重用%d";
+
+"No failed nodes to retry" = "沒有可重測的失敗節點";
+
+"Only failed or timed-out nodes from the latest benchmark can be retried." = "只重測上一批測速中失敗或逾時的節點。";
+
+"Group %d succeeded · %d failed" = "策略組：成功%d · 失敗%d";
+
+"Group timed out" = "策略組複測逾時";
+
+"Group unavailable" = "策略組複測無法使用";
+
+"Selected automatic group response: %d succeeded, %d failed" = "所選策略組結果：成功%d、失敗%d";
+
+"Selected automatic group request timed out" = "所選策略組請求逾時";
+
+"Selected automatic group returned no results" = "所選策略組未傳回結果";
+
+"Selected automatic group was unavailable" = "所選策略組無法使用";
+
+"Quick" = "快速";
+
+"Complete" = "完整";
+
+"Cloudflare HTTPS" = "Cloudflare HTTPS";
+
+"Google HTTPS" = "Google HTTPS";
+
+"Custom" = "自訂";
+
+"Follow Configuration" = "遵循設定";
+
+"Unified" = "統一延遲";
+
+"Connection" = "完整連線（含交握）";
+
+"Benchmark Mode:" = "測速模式：";
+
+"Benchmark Target:" = "測速目標：";
+
+"Measurement Method:" = "測量方式：";
