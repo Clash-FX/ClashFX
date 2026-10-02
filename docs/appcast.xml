@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.9 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.9 (Lab)</h2><ul><li><strong>Predictable benchmark modes</strong> — Quick testing uses 2.5 seconds and Complete testing uses 5 seconds. Menus show progress and a visible completion summary; core timeouts remain distinct from failed nodes.</li><li><strong>Retry failed Selector nodes</strong> — Retry only matching failed or core-timeout targets from the latest run, keeping successful measurements. Switching to Complete gives slow nodes more time. Automatic groups still use core-controlled whole-group tests and fresh selection.</li><li><strong>Stable latency display</strong> — Choose configuration order or latency order; sorting applies when the menu reopens. Green, yellow and orange represent successful delays below 300 ms, 300–799 ms and 800 ms or more. Sorting does not change routing or configured fallback order.</li><li><strong>Consistent benchmark scheduling and settings</strong> — Equivalent targets are deduplicated with fixed 10-request concurrency. Settings expose HTTPS URL presets and measurement-method choices applied to runtime configuration without rewriting subscriptions. Existing saved URLs and inherited measurement behavior are preserved; new installs default to Cloudflare HTTPS and unified delay.</li><li><strong>Reliable core recovery</strong> — Helper tasks, launch/stop operations and listener checks are bounded and respect launch identity. Startup will not take over ports while old-core cleanup is unconfirmed; sustained API failures can recover even while traffic still flows.</li><li><strong>Safe cache and delay-history access</strong> — Embedded-core suspend/resume safely closes and reopens the cache database. Fixes upstream cache lifecycle and delay-history queue races during concurrent testing and selection.</li></ul>
+  ]]></description>
+  <pubDate>Fri, 02 Oct 2026 14:49:51 +0000</pubDate>
+  <sparkle:version>1001011009</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.9</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.9/ClashFX.dmg"
+    sparkle:version="1001011009"
+    sparkle:shortVersionString="1.1.11.9"
+    sparkle:edSignature="jTTsly8qGJlE62Okr99MEeigCavhPPEuwhA90dKghh4oavBRER5wHYkABzINIlx9JPZw3aQj5zae/VGTMXfaBw=="
+    length="95640534"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.8 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.8 (Lab)</h2><ul><li><strong>Enhanced Mode Starts Reliably at Every Log Level</strong> — Startup now checks the current core's actual listeners and valid DNS replies over UDP and TCP, so quiet core logs no longer cause a healthy launch to be reported as failed.</li><li><strong>Rapid Mode Changes Keep the Current Setting</strong> — A late startup or shutdown callback can no longer interfere with a newer change. Switching the core also cancels an in-progress benchmark.</li><li><strong>Benchmark Problems Are Easier to Understand</strong> — When a benchmark cannot start, the menu explains why and keeps earlier results. It no longer reports a false successful finish or invents failed measurements when proxy data is unavailable.</li></ul>
