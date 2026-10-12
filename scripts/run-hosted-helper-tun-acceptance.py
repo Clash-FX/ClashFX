@@ -124,6 +124,29 @@ def hosted_runner_gate():
     return failures, effective_uid
 
 
+def route_targets_restored(before, after):
+    """Persistent routes remain exact; expired WASCLONED host-cache entries may fall back.
+
+    Never tolerate changed next hop/interface, reject/blackhole or a missing UP flag.
+    Keep raw observations in report.json rather than rewriting the evidence.
+    """
+    if set(before) != set(after):
+        return False
+    for address, expected in before.items():
+        actual = after[address]
+        if expected == actual:
+            continue
+        old_flags = set(expected.get("flags", "").strip("<>").split(","))
+        new_flags = set(actual.get("flags", "").strip("<>").split(","))
+        if "WASCLONED" not in old_flags:
+            return False
+        if any(expected.get(key) != actual.get(key) for key in ("gateway", "interface")):
+            return False
+        if "UP" not in new_flags or new_flags.intersection({"REJECT", "BLACKHOLE"}):
+            return False
+    return True
+
+
 def command_result(command, timeout=8):
     return subprocess.run(command, check=False, capture_output=True, text=True, timeout=timeout)
 
@@ -984,6 +1007,14 @@ class AcceptanceHarness:
         self.exercise_dns_override()
 
         if self.transaction_client_available:
+            status = self.rpc("coreStatus")
+            self.assertion("phase handoff stops only the owned basic-lifecycle core",
+                           status.get("launchID") == self.owned_launch_id and status.get("pid") == self.owned_core_pid)
+            self.rpc("stopCore")
+            stopped = self.rpc("coreStatus")
+            self.assertion("transaction phase begins with no active Helper-managed core", stopped.get("running") is False)
+            self.owned_launch_id = None
+            self.owned_core_pid = None
             self.invoke_transaction_client(endpoint, token, config_path, alternate_path, invalid_path,
                                            core_home, mixed_port, mixed_port, dns_port)
         else:
@@ -1262,7 +1293,7 @@ class AcceptanceHarness:
                                 "routesViaTestUtuns": remaining_routes}
                         route_restored = current_utuns == baseline["utunInterfaces"] and not remaining_routes
                         default_restored = current_default == baseline["defaultRoute"]
-                        targets_restored = current_targets == baseline["routeTargets"]
+                        targets_restored = route_targets_restored(baseline["routeTargets"], current_targets)
                         if route_restored and default_restored and targets_restored:
                             break
                     except (OSError, RuntimeError, subprocess.SubprocessError) as error:

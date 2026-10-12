@@ -1407,6 +1407,7 @@ private final class AcceptanceRun {
     }
 
     var processExitCode: Int32 { exitCode }
+    var isFinished: Bool { didFinish }
 
     private static func redactedCoreStatus(_ status: [String: Any]) -> [String: Any] {
         var result: [String: Any] = [:]
@@ -1470,7 +1471,9 @@ private enum ClientEntry {
             ])
             let run = try AcceptanceRun(manifest: validated, evidence: evidence)
             run.begin()
-            RunLoop.main.run()
+            while !run.isFinished {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
             exit(run.processExitCode)
         } catch {
             var output: [String: Any] = ["status": "failed", "reason": error.localizedDescription]
