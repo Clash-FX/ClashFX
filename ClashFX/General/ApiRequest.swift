@@ -83,11 +83,24 @@ class ApiRequest {
         private var cancelled = false
         private var terminated = false
         private var terminationObservers = [() -> Void]()
+        fileprivate let probeCoreScope: BenchmarkProbeCoreScope
+
+        init(probeCoreScope: BenchmarkProbeCoreScope? = nil) {
+            self.probeCoreScope = probeCoreScope ?? ApiRequest.currentBenchmarkProbeCoreScope()
+        }
 
         var isCancelled: Bool {
             lock.lock()
             defer { lock.unlock() }
             return cancelled
+        }
+
+        fileprivate func performIfActive(_ work: () -> Void) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !cancelled, !terminated else { return false }
+            work()
+            return true
         }
 
         fileprivate func track(_ request: DataRequest) -> UUID {
@@ -165,9 +178,7 @@ class ApiRequest {
     }
 
     static let shared = ApiRequest()
-    static let benchmarkMaxConcurrent = 8
-    private static let benchmarkRequestTimeoutMargin: TimeInterval = 5
-    private static let benchmarkMinimumRequestTimeout: TimeInterval = 10
+    static let benchmarkMaxConcurrent = 10
 
     private var proxyRespCacheData: Data?
     private var rulesCache: [ClashRule] = []
@@ -493,7 +504,8 @@ class ApiRequest {
         req("/proxies/\(group.encoded)",
             method: .put,
             parameters: ["name": selectProxy],
-            encoding: JSONEncoding.default)
+            encoding: JSONEncoding.default,
+            timeoutInterval: 10)
             .responseData { response in
                 let statusCode = response.response?.statusCode ?? -1
                 let success = statusCode == 204
@@ -502,6 +514,21 @@ class ApiRequest {
                 } else {
                     let body = response.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
                     Logger.log("[Proxy Select] Failed selecting '\(selectProxy)' for group '\(group)', status: \(statusCode), error: \(response.error?.localizedDescription ?? "unknown error"), body: \(body)", level: .warning)
+                }
+                callback(success)
+            }
+    }
+
+    static func resetProxyGroup(group: String, callback: @escaping ((Bool) -> Void)) {
+        req("/proxies/\(group.encoded)", method: .delete, timeoutInterval: 10)
+            .responseData { response in
+                let statusCode = response.response?.statusCode ?? -1
+                let success = statusCode == 204
+                if success {
+                    Logger.log("[Proxy Select] Restored automatic selection for group '\(group)'")
+                } else {
+                    let body = response.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
+                    Logger.log("[Proxy Select] Failed restoring automatic selection for group '\(group)', status: \(statusCode), error: \(response.error?.localizedDescription ?? "unknown error"), body: \(body)", level: .warning)
                 }
                 callback(success)
             }
@@ -691,13 +718,18 @@ class ApiRequest {
                                      benchmarkURL: String,
                                      timeout: Int,
                                      session: BenchmarkSession?,
+                                     identity: LeafProxyBenchmarkIdentity? = nil,
+                                     expectedStatus: String? = nil,
                                      callback: @escaping (ProxyDelayOutcome) -> Void) {
         requestProxyDelay(
             path: "/proxies/\(proxyName.encoded)/delay",
-            description: "proxy '\(proxyName)'",
+            nodeName: proxyName,
+            providerName: nil,
             benchmarkURL: benchmarkURL,
             timeout: timeout,
             session: session,
+            identity: identity,
+            expectedStatus: expectedStatus,
             callback: callback
         )
     }
@@ -718,13 +750,18 @@ class ApiRequest {
                                              benchmarkURL: String,
                                              timeout: Int,
                                              session: BenchmarkSession?,
+                                             identity: LeafProxyBenchmarkIdentity? = nil,
+                                             expectedStatus: String? = nil,
                                              callback: @escaping (ProxyDelayOutcome) -> Void) {
         requestProxyDelay(
             path: "/providers/proxies/\(providerName.encoded)/\(proxyName.encoded)/healthcheck",
-            description: "provider '\(providerName)' proxy '\(proxyName)'",
+            nodeName: proxyName,
+            providerName: providerName,
             benchmarkURL: benchmarkURL,
             timeout: timeout,
             session: session,
+            identity: identity,
+            expectedStatus: expectedStatus,
             callback: callback
         )
     }
@@ -748,7 +785,9 @@ class ApiRequest {
             "/group/\(groupName.encoded)/delay",
             method: .get,
             parameters: parameters,
-            timeoutInterval: benchmarkRequestTimeout(for: timeout)
+            timeoutInterval: BenchmarkRequestPolicy.timeoutInterval(
+                coreTimeoutMilliseconds: timeout
+            )
         )
         let requestID = session?.track(request)
         request
@@ -778,7 +817,9 @@ class ApiRequest {
         }
         let request = req(
             "/proxies",
-            timeoutInterval: benchmarkRequestTimeout(for: 5000)
+            timeoutInterval: BenchmarkRequestPolicy.timeoutInterval(
+                coreTimeoutMilliseconds: 5000
+            )
         )
         let requestID = session.track(request)
         request.responseData { response in
@@ -815,6 +856,10 @@ class ApiRequest {
             completion()
             return
         }
+        guard prepareBenchmarkProbeDiagnostics(using: response, session: session) else {
+            completion()
+            return
+        }
         typealias DelayTask = LimitedAsyncTaskRunner.Task
         var tasks = [DelayTask]()
 
@@ -838,6 +883,12 @@ class ApiRequest {
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
         for proxy in inlineProxies where inlineProxyNames.insert(proxy.name).inserted {
+            let identity = LeafProxyBenchmarkIdentity(
+                endpoint: .inline,
+                providerName: nil,
+                proxyName: proxy.name,
+                coreID: proxy.id
+            )
             tasks.append { done in
                 guard session?.isCancelled != true else {
                     done()
@@ -847,10 +898,11 @@ class ApiRequest {
                     proxyName: proxy.name,
                     benchmarkURL: benchmarkURL,
                     timeout: timeout,
-                    session: session
+                    session: session,
+                    identity: identity
                 ) { outcome in
                     result(LeafProxyBenchmarkResult(
-                        identity: LeafProxyBenchmarkIdentity(proxy: proxy),
+                        identity: identity,
                         benchmarkURL: benchmarkURL,
                         outcome: outcome
                     ))
@@ -871,6 +923,12 @@ class ApiRequest {
                 guard !ClashProxyType.isCompatibilityFallback(proxy) else { continue }
                 let key = provider.name + "\u{0}" + proxy.name
                 guard providerProxyKeys.insert(key).inserted else { continue }
+                let identity = LeafProxyBenchmarkIdentity(
+                    endpoint: .provider,
+                    providerName: provider.name,
+                    proxyName: proxy.name,
+                    coreID: proxy.id
+                )
                 tasks.append { done in
                     guard session?.isCancelled != true else {
                         done()
@@ -881,10 +939,11 @@ class ApiRequest {
                         proxyName: proxy.name,
                         benchmarkURL: benchmarkURL,
                         timeout: timeout,
-                        session: session
+                        session: session,
+                        identity: identity
                     ) { outcome in
                         result(LeafProxyBenchmarkResult(
-                            identity: LeafProxyBenchmarkIdentity(proxy: proxy),
+                            identity: identity,
                             benchmarkURL: benchmarkURL,
                             outcome: outcome
                         ))
@@ -979,10 +1038,13 @@ class ApiRequest {
             .start(completion: completion)
     }
 
+    /// Progress is delivered on main and counts the plan's deduplicated targets,
+    /// including successful measurements reused without another request.
     static func benchmarkSelectorPlan(
         _ plan: SelectorBenchmarkPlan,
         reusing measurements: [SelectorBenchmarkMeasurementKey: Int] = [:],
         session: BenchmarkSession,
+        progress: ((BenchmarkProgressSnapshot) -> Void)? = nil,
         result: @escaping (SelectorBenchmarkPlan.Target, ProxyDelayOutcome) -> Void,
         completion: @escaping () -> Void
     ) {
@@ -1007,6 +1069,13 @@ class ApiRequest {
                     benchmarkURL: target.key.benchmarkURL,
                     timeout: target.key.timeout,
                     session: session,
+                    identity: LeafProxyBenchmarkIdentity(
+                        endpoint: target.key.endpoint,
+                        providerName: target.key.providerName,
+                        proxyName: target.key.proxyName,
+                        coreID: target.key.coreID
+                    ),
+                    expectedStatus: target.key.expectedStatus,
                     callback: done
                 )
             case .provider:
@@ -1024,6 +1093,13 @@ class ApiRequest {
                     benchmarkURL: target.key.benchmarkURL,
                     timeout: target.key.timeout,
                     session: session,
+                    identity: LeafProxyBenchmarkIdentity(
+                        endpoint: target.key.endpoint,
+                        providerName: providerName,
+                        proxyName: target.key.proxyName,
+                        coreID: target.key.coreID
+                    ),
+                    expectedStatus: target.key.expectedStatus,
                     callback: done
                 )
             }
@@ -1032,6 +1108,7 @@ class ApiRequest {
         SelectorBenchmarkExecutor.runOutcomes(
             plan: plan,
             reusing: measurements,
+            progress: progress,
             isCancelled: { session.isCancelled },
             request: runTarget,
             result: { target, delay in
@@ -1045,12 +1122,6 @@ class ApiRequest {
                     }
                 }
                 result(target, delay)
-            },
-            limitChanged: { previousLimit, currentLimit in
-                Logger.log(
-                    "[Proxy Delay] Adaptive Selector concurrency changed "
-                        + "from \(previousLimit) to \(currentLimit)"
-                )
             },
             completion: {
                 guard !session.isCancelled else {
@@ -1068,29 +1139,93 @@ class ApiRequest {
         )
     }
 
-    private static func benchmarkRequestTimeout(for coreTimeoutMilliseconds: Int) -> TimeInterval {
-        max(
-            benchmarkMinimumRequestTimeout,
-            Double(coreTimeoutMilliseconds) / 1000 + benchmarkRequestTimeoutMargin
+    static func recentBenchmarkProbeDiagnostics(limit: Int = 5) -> [BenchmarkProbeDiagnostic] {
+        dispatchPrecondition(condition: .onQueue(.main))
+        return BenchmarkProbeDiagnosticsStore.recent(limit: limit, scope: currentBenchmarkProbeCoreScope())
+    }
+
+    static func latestBenchmarkProbeDiagnostic(
+        for proxy: ClashProxy,
+        conditions: BenchmarkConditions
+    ) -> BenchmarkProbeDiagnostic? {
+        dispatchPrecondition(condition: .onQueue(.main))
+        return BenchmarkProbeDiagnosticsStore.latest(
+            for: proxy,
+            conditions: conditions,
+            currentScope: currentBenchmarkProbeCoreScope()
         )
     }
 
+    static func prepareBenchmarkProbeDiagnostics(
+        using snapshot: ClashProxyResp,
+        session: BenchmarkSession?
+    ) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let currentScope = currentBenchmarkProbeCoreScope()
+        let scope = session?.probeCoreScope ?? currentScope
+        guard session?.isCancelled != true, scope == currentScope else {
+            session?.cancel()
+            return false
+        }
+        BenchmarkProbeDiagnosticsStore.prepare(using: snapshot, scope: scope)
+        return true
+    }
+
+    // Request identity and probe semantics are explicit to prevent cross-node reuse.
+    // swiftlint:disable:next function_parameter_count
     private static func requestProxyDelay(path: String,
-                                          description: String,
+                                          nodeName: String,
+                                          providerName: String?,
                                           benchmarkURL: String,
                                           timeout: Int,
                                           session: BenchmarkSession?,
+                                          identity: LeafProxyBenchmarkIdentity?,
+                                          expectedStatus: String?,
                                           callback: @escaping (ProxyDelayOutcome) -> Void) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                requestProxyDelay(path: path, nodeName: nodeName, providerName: providerName,
+                                  benchmarkURL: benchmarkURL, timeout: timeout, session: session,
+                                  identity: identity, expectedStatus: expectedStatus, callback: callback)
+            }
+            return
+        }
         guard session?.isCancelled != true else {
             callback(.cancelled)
             return
         }
-        Logger.log("[Proxy Delay] Testing \(description) with url: \(benchmarkURL)")
+        let startedAt = Date()
+        let currentScope = currentBenchmarkProbeCoreScope()
+        let scope = session?.probeCoreScope ?? currentScope
+        guard scope == currentScope else {
+            session?.cancel()
+            callback(.cancelled)
+            return
+        }
+        let conditions = BenchmarkConditions(url: benchmarkURL, expectedStatus: expectedStatus)
+        let token = BenchmarkProbeDiagnosticsStore.begin(
+            nodeName: nodeName,
+            providerName: providerName,
+            identity: identity,
+            conditions: conditions,
+            scope: scope
+        )
+        let requestTimeoutInterval = BenchmarkRequestPolicy.timeoutInterval(
+            coreTimeoutMilliseconds: timeout
+        )
+        let requestTimeoutMilliseconds = Int((requestTimeoutInterval * 1000).rounded())
+        let safeURL = BenchmarkProbeDiagnostic.sanitizedURL(benchmarkURL)
+        Logger.log(
+            "[Proxy Delay] Probe start node='\(BenchmarkProbeDiagnostic.safeNodeLabel(nodeName))' "
+                + "provider='\(BenchmarkProbeDiagnostic.safeNodeLabel(providerName ?? "inline"))' "
+                + "url=\(safeURL) coreTimeout=\(timeout)ms "
+                + "requestTimeout=\(requestTimeoutMilliseconds)ms"
+        )
         let request = req(
             path,
             method: .get,
             parameters: ["timeout": timeout, "url": benchmarkURL],
-            timeoutInterval: benchmarkRequestTimeout(for: timeout)
+            timeoutInterval: requestTimeoutInterval
         )
         let requestID = session?.track(request)
         request
@@ -1099,17 +1234,97 @@ class ApiRequest {
                     session?.finish(requestID)
                 }
                 guard session?.isCancelled != true else {
-                    Logger.log("[Proxy Delay] Cancelled \(description)", level: .debug)
+                    Logger.log("[Proxy Delay] Probe cancelled", level: .debug)
                     callback(.cancelled)
                     return
                 }
-                let statusCode = res.response?.statusCode ?? -1
+                let completedAt = Date()
+                let statusCode = res.response?.statusCode
                 let outcome = ProxyDelayOutcome.decode(
-                    statusCode: statusCode, data: res.data, transportFailed: res.error != nil
+                    statusCode: statusCode ?? -1,
+                    data: res.data,
+                    transportFailed: res.error != nil
                 )
-                Logger.log("[Proxy Delay] \(description): \(outcome), status: \(statusCode)")
+                guard let diagnostic = BenchmarkProbeDiagnostic.make(
+                    nodeName: nodeName,
+                    providerName: providerName,
+                    benchmarkURL: benchmarkURL,
+                    timeoutMilliseconds: timeout,
+                    requestTimeoutMilliseconds: requestTimeoutMilliseconds,
+                    startedAt: startedAt,
+                    completedAt: completedAt,
+                    statusCode: statusCode,
+                    outcome: outcome,
+                    data: res.data,
+                    transportError: res.error,
+                    identity: token.identity,
+                    scopeProvenance: token.scopeProvenance
+                ) else {
+                    callback(.cancelled)
+                    return
+                }
+
+                var isCurrent = false
+                if let session {
+                    let wasActive = session.performIfActive {
+                        let currentScope = currentBenchmarkProbeCoreScope()
+                        let tokenIsCurrent = BenchmarkProbeDiagnosticsStore.isCurrent(
+                            token,
+                            currentScope: currentScope
+                        )
+                        if tokenIsCurrent {
+                            _ = BenchmarkProbeDiagnosticsStore.publish(
+                                diagnostic,
+                                token: token,
+                                currentScope: currentScope
+                            )
+                        }
+                        isCurrent = tokenIsCurrent && BenchmarkProbeDiagnosticsStore.isCurrent(
+                            token,
+                            currentScope: currentBenchmarkProbeCoreScope()
+                        )
+                    }
+                    guard wasActive else {
+                        callback(.cancelled)
+                        return
+                    }
+                    guard isCurrent else {
+                        session.cancel()
+                        callback(.cancelled)
+                        return
+                    }
+                } else {
+                    let currentScope = currentBenchmarkProbeCoreScope()
+                    guard BenchmarkProbeDiagnosticsStore.isCurrent(token, currentScope: currentScope) else {
+                        callback(.cancelled)
+                        return
+                    }
+                    _ = BenchmarkProbeDiagnosticsStore.publish(
+                        diagnostic,
+                        token: token,
+                        currentScope: currentScope
+                    )
+                    guard BenchmarkProbeDiagnosticsStore.isCurrent(
+                        token,
+                        currentScope: currentBenchmarkProbeCoreScope()
+                    ) else {
+                        callback(.cancelled)
+                        return
+                    }
+                }
+
+                Logger.log(diagnostic.safeLogSummary)
                 callback(outcome)
             }
+    }
+
+    fileprivate static func currentBenchmarkProbeCoreScope() -> BenchmarkProbeCoreScope {
+        BenchmarkProbeCoreScope(
+            configName: ConfigManager.selectConfigName,
+            remoteUUID: RemoteControlManager.selectConfig?.uuid,
+            apiURI: ConfigManager.apiUrl,
+            proxySelectionGeneration: AppDelegate.shared.proxySelectionGeneration
+        )
     }
 
     static func getRules(completeHandler: @escaping ([ClashRule]) -> Void) {

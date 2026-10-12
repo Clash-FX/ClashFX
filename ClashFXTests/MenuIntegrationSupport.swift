@@ -6,6 +6,9 @@ import XCTest
 /// proxy. An explicitly provided manifest can opt into a separate fixture core.
 enum Settings {
     static var benchMarkUrl = "https://test-a.invalid/204"
+    static var benchmarkMode: BenchmarkMode = .complete
+    static var benchmarkSortOrder: BenchmarkSortOrder = .configuration
+    static var benchmarkMeasurementMethod: BenchmarkMeasurementMethod = .followConfiguration
     static var menuBarSpeedAlignment: MenuBarSpeedAlignment = .right
     static var selectedMenuIconID = "default"
 }
@@ -18,13 +21,15 @@ final class AppDelegate {
     static let shared = AppDelegate()
     private(set) var active: ApiRequest.BenchmarkSession?
     var onFinish: (() -> Void)?
+    var isEnhancedModeTransitionInProgress = false
     var isSpeedTesting: Bool {
         active != nil
     }
 
     func beginSpeedTest(showNotifications: Bool) -> ApiRequest.BenchmarkSession? {
         dispatchPrecondition(condition: .onQueue(.main))
-        guard active == nil else { return nil }
+        guard active == nil, !ProxyGroupSelectionController.isAnyOperationInProgress else { return nil }
+        ProxyGroupSpeedTestMenuItem.clearBenchmarkCancellationFeedback()
         let session = ApiRequest.BenchmarkSession()
         active = session
         return session
@@ -41,8 +46,11 @@ final class AppDelegate {
         onFinish?()
     }
 
-    func cancel() {
+    func cancel(reason: String? = nil) {
         guard let session = active else { return }
+        if let reason {
+            ProxyGroupSpeedTestMenuItem.showBenchmarkCancellation(session: session, reason: reason)
+        }
         session.cancel()
         active = nil
     }
@@ -61,6 +69,7 @@ final class MihomoMenuURLProtocol: URLProtocol {
     static var groupReply = Reply(body: [:])
     static var groupDidRespond: (() -> Void)?
     static var requests = [URLRequest]()
+    static var proxyDataResponseStatuses = [Int]()
     static var hold = false
     static var held = [() -> Void]()
     static var delivered = 0
@@ -75,6 +84,7 @@ final class MihomoMenuURLProtocol: URLProtocol {
         groupReply = Reply(body: [:])
         groupDidRespond = nil
         requests = []
+        proxyDataResponseStatuses = []
         hold = false
         held = []
         delivered = 0
@@ -108,7 +118,9 @@ final class MihomoMenuURLProtocol: URLProtocol {
             let testURL = query.first { $0.name == "url" }?.value ?? ""
             let reply: Reply
             if path == "/proxies" {
-                reply = Reply(body: ["proxies": Self.topology])
+                let status = Self.proxyDataResponseStatuses.isEmpty
+                    ? 200 : Self.proxyDataResponseStatuses.removeFirst()
+                reply = Reply(status: status, body: ["proxies": Self.topology])
             } else if path == "/providers/proxies" {
                 reply = Reply(body: ["providers": [:]])
             } else if path.hasPrefix("/group/") && path.hasSuffix("/delay") {
@@ -171,8 +183,24 @@ enum ApiRequest {
         config.urlCredentialStorage = nil
         config.httpCookieStorage = nil
         config.timeoutIntervalForRequest = 10
+        config.httpMaximumConnectionsPerHost = 100
         return URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
     }()
+
+    static var benchmarkProbeScope = BenchmarkProbeCoreScope(
+        configName: "isolated", remoteUUID: nil,
+        apiURI: "http://mihomo-menu-fixture.invalid", proxySelectionGeneration: 0
+    )
+
+    static func latestBenchmarkProbeDiagnostic(
+        for proxy: ClashProxy, conditions: BenchmarkConditions
+    ) -> BenchmarkProbeDiagnostic? {
+        let scope = loopbackFixture.map { fixture in
+            BenchmarkProbeCoreScope(configName: "isolated", remoteUUID: nil,
+                                    apiURI: fixture.endpoint.absoluteString, proxySelectionGeneration: 0)
+        } ?? benchmarkProbeScope
+        return BenchmarkProbeDiagnosticsStore.latest(for: proxy, conditions: conditions, currentScope: scope)
+    }
 
     final class BenchmarkSession {
         private let lock = NSLock()
@@ -270,9 +298,11 @@ enum ApiRequest {
     static func benchmarkSelectorPlan(_ plan: SelectorBenchmarkPlan,
                                       reusing measurements: [SelectorBenchmarkMeasurementKey: Int],
                                       session: BenchmarkSession,
+                                      progress: ((BenchmarkProgressSnapshot) -> Void)? = nil,
                                       result: @escaping (SelectorBenchmarkPlan.Target, ProxyDelayOutcome) -> Void,
                                       completion: @escaping () -> Void) {
         SelectorBenchmarkExecutor.runOutcomes(plan: plan, reusing: measurements,
+                                              progress: progress,
                                               isCancelled: { session.isCancelled }, request: { target, done in
                                                   let path = target.key.providerName.map {
                                                       "/providers/proxies/\($0)/\(target.key.proxyName)/healthcheck"

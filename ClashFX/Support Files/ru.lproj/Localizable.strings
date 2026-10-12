@@ -642,4 +642,256 @@
 "Not tested" = "Не измерено";
 
 "No testable proxy nodes" = "Нет узлов прокси для проверки";
+"Core switching…" = "Переключение core…";
+"Proxy core unavailable. Please try again shortly." = "Прокси-ядро временно недоступно. Повторите попытку позже.";
+"Proxy core is changing. Please try again shortly." = "Прокси-ядро переключается. Повторите попытку позже.";
+"Proxy group is no longer available. Refresh and try again." = "Группа прокси больше недоступна. Обновите список и повторите попытку.";
+"The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "Новый core не смог открыть настроенные прокси-порты прослушивания: %@. Подробности см. в диагностическом журнале core.";
 "Direct fallback (no proxy nodes)" = "Прямое соединение (нет узлов прокси)";
+
+"Benchmark result with historical marker" = "%@ (предыдущее)";
+
+"Benchmark cancelled: core changed" = "Тест отменён: смена ядра";
+
+"Benchmark cancelled: configuration changed" = "Тест отменён: настройки";
+
+"The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch." = "Ядро переключается, поэтому незавершённые проверки отменены. Готовые результаты сохранены. Повторите тест после переключения.";
+
+"The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload." = "Настройки изменены, поэтому незавершённые проверки отменены. Готовые результаты сохранены. Повторите тест после перезагрузки настроек.";
+
+"Display Order" = "Порядок отображения";
+
+"Configuration Order" = "Порядок в конфигурации";
+
+"Latency First" = "Сначала узлы с низкой задержкой";
+
+"Benchmark options" = "Параметры проверки";
+
+"Quick (2.5 s)" = "Быстрая (2,5 с)";
+
+"Complete (5 s)" = "Полная (5 с)";
+
+"Retry failed nodes" = "Повторно проверить узлы с ошибкой";
+
+"Benchmarking %d/%d" = "Проверка: %d/%d";
+
+"Testing automatic group" = "Проверка автоматической группы";
+
+"Testing selected automatic group" = "Проверка выбранной автоматической группы";
+
+"Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Быстрая проверка: успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d";
+
+"Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Готово: успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d";
+
+"Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time." = "Время быстрой проверки истекло через %d мс. Успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d. Для узлов, которым нужно больше времени, выберите полную проверку.";
+
+"Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Итоги проверки: успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d";
+
+"No failed nodes to retry" = "Нет узлов с ошибками для повторной проверки";
+
+"Only failed or timed-out nodes from the latest benchmark can be retried." = "Повторно проверить можно только узлы, завершившиеся ошибкой или по тайм-ауту при последней проверке.";
+
+"Group %d succeeded · %d failed" = "Группа: успешно %d · ошибок %d";
+
+"Group timed out" = "Истекло время ожидания ответа группы";
+
+"Group unavailable" = "Группа недоступна";
+
+"Selected automatic group response: %d succeeded, %d failed" = "Ответ выбранной автоматической группы: успешно %d, ошибок %d";
+
+"Selected automatic group request timed out" = "Истекло время ожидания ответа выбранной автоматической группы";
+
+"Selected automatic group returned no results" = "Выбранная автоматическая группа не вернула результатов";
+
+"Selected automatic group was unavailable" = "Выбранная автоматическая группа недоступна";
+
+"Quick" = "Быстрая";
+
+"Complete" = "Полная";
+
+"Cloudflare HTTPS" = "Cloudflare HTTPS";
+
+"Google HTTPS" = "Google HTTPS";
+
+"Custom" = "Пользовательский";
+
+"Follow Configuration" = "Как в конфигурации";
+
+"Unified" = "Единый способ";
+
+"Connection" = "Для каждого подключения";
+
+"Benchmark Mode:" = "Режим проверки:";
+
+"Benchmark Target:" = "Адрес проверки:";
+
+"Measurement Method:" = "Метод измерения:";
+
+"Display Order:" = "Порядок отображения:";
+
+"The previous proxy state was restored." = "Предыдущее состояние прокси восстановлено.";
+
+"Restoring the previous proxy state also failed: %@" = "Также не удалось восстановить предыдущее состояние прокси: %@";
+
+"Manual Selection" = "Вручную";
+
+"Automatic Selection" = "Авто";
+
+"Manual Priority" = "Приоритет";
+
+"Core-managed Selection" = "Выбор ядра";
+
+"Actual route: %@" = "Фактический маршрут: %@";
+
+"Preferred node: %@" = "Предпочтительный узел: %@";
+
+"Actual route could not be fully resolved" = "Не удалось определить текущий маршрут.";
+
+"Restore Automatic Selection" = "Вернуть авто";
+
+"Selected path unavailable" = "Не удалось подтвердить текущий выбор.";
+
+"This core did not report fixed state." = "Ядро не сообщает состояние приоритета; выбор недоступен.";
+
+"Preferred node" = "Предпочтительный узел";
+
+"Click to prefer this node; the core may choose a fallback." = "Нажмите для приоритета; при недоступности ядро выберет запасной узел.";
+
+"A proxy selection is already in progress." = "Выбор уже меняется. Подождите.";
+
+"Proxy core is changing." = "Ядро прокси меняется. Повторите позже.";
+
+"Selection is unavailable during a benchmark." = "Дождитесь завершения измерения перед выбором узла.";
+
+"Proxy selection timed out." = "Время выбора истекло; состояние ядра не подтверждено.";
+
+"Proxy selection failed." = "Не удалось изменить выбор.";
+
+"The core did not retain the requested selection." = "Ядро не сохранило предпочтение. Показан фактический маршрут.";
+
+"Proxy Selection Failed" = "Выбор не изменён";
+
+"Wait for the proxy selection to finish." = "Дождитесь завершения выбора.";
+
+"Benchmark timed out" = "Время истекло";
+
+"Attempted at: %@" = "Время попытки: %@";
+
+"Previous successful measurement: %@ (%@)" = "Предыдущее успешное измерение: %@ (%@)";
+
+"Latest recorded probe: %@" = "Последняя запись: %@";
+
+"Probe timeout: %d ms; elapsed: %d ms" = "Срок ядра: %d мс; прошло: %d мс";
+
+"Core API response: %d" = "Ответ API ядра: %d";
+
+"Single-node Benchmark Diagnostic…" = "Диагностика одного узла…";
+
+"Single-node Benchmark Diagnostic" = "Диагностика одного узла";
+
+"Test one node without setting manual priority. Automatic groups still follow the core." = "Проверяется один узел без назначения приоритета. Автовыбор остаётся за ядром.";
+
+"Run Diagnostic" = "Запустить диагностику";
+
+"Copy Diagnostic Report" = "Копировать отчёт";
+
+"Node:" = "Узел:";
+
+"Benchmark URL:" = "URL теста:";
+
+"Probe timeout:" = "Срок проверки:";
+
+"Could not load nodes for a diagnostic probe." = "Не удалось получить узлы. Проверьте API ядра.";
+
+"Enter a valid HTTP or HTTPS benchmark URL." = "Введите корректный URL HTTP или HTTPS.";
+
+"The probe completed, but its diagnostic record could not be confirmed." = "Проверка завершена, но её запись не подтверждена.";
+
+"benchmark_probe_detail_node" = "Узел";
+
+"benchmark_probe_detail_identity" = "Область идентификации";
+
+"benchmark_probe_detail_provider" = "Поставщик";
+
+"benchmark_probe_detail_url" = "URL теста";
+
+"benchmark_probe_detail_timeout" = "Срок ядра";
+
+"benchmark_probe_detail_request_deadline" = "срок запроса";
+
+"benchmark_probe_detail_started" = "Начало";
+
+"benchmark_probe_detail_completed" = "Завершение";
+
+"benchmark_probe_detail_elapsed" = "Прошло";
+
+"benchmark_probe_detail_status" = "Ответ API ядра";
+
+"benchmark_probe_detail_result" = "Текущий результат";
+
+"benchmark_probe_detail_failure_kind" = "Категория ошибки";
+
+"benchmark_probe_detail_failure_code" = "Код диагностики";
+
+"benchmark_probe_detail_cause" = "Причина";
+
+"benchmark_probe_result_success" = "Успешно (%d мс)";
+
+"benchmark_probe_result_failed" = "Ошибка";
+
+"benchmark_probe_result_timed_out" = "Время истекло";
+
+"benchmark_probe_result_unavailable" = "Результат не подтверждён";
+
+"benchmark_probe_result_cancelled" = "Отменено";
+
+"benchmark_probe_status_unknown" = "Неизвестно";
+
+"benchmark_probe_invalid_url" = "Некорректный URL";
+
+"benchmark_probe_identity_leaf" = "Идентификатор узла";
+
+"benchmark_probe_identity_name_only" = "Только имя узла";
+
+"benchmark_probe_failure_none" = "Ошибка не сообщена.";
+
+"benchmark_probe_failure_authentication_failed" = "Аутентификация прокси отклонена.";
+
+"benchmark_probe_failure_dial_failed" = "Не удалось установить соединение с прокси.";
+
+"benchmark_probe_failure_controller_unavailable" = "Сеть или API ядра не подтвердили результат.";
+
+"benchmark_probe_failure_dns_resolution_failed" = "Ошибка разрешения DNS.";
+
+"benchmark_probe_failure_dns_timeout" = "Время разрешения DNS истекло.";
+
+"benchmark_probe_failure_http_request_failed" = "HTTP-запрос проверки завершился ошибкой.";
+
+"benchmark_probe_failure_invalid_result" = "API ядра вернул некорректные данные.";
+
+"benchmark_probe_failure_unspecified_core_failure" = "Проверка ядра не удалась; причина не предоставлена.";
+
+"benchmark_probe_failure_node_reported_failure" = "Проверка не удалась; причина не предоставлена.";
+
+"benchmark_probe_failure_probe_failed" = "Проверка не удалась; точная причина не определена.";
+
+"benchmark_probe_failure_probe_timeout" = "Превышен срок проверки ядра.";
+
+"benchmark_probe_failure_quic_handshake_failed" = "Ошибка установления QUIC-соединения.";
+
+"benchmark_probe_failure_tls_expired" = "Срок TLS-сертификата истёк.";
+
+"benchmark_probe_failure_tls_failure" = "Ошибка TLS-соединения.";
+
+"benchmark_probe_failure_tls_name_mismatch" = "Имя TLS-сертификата не совпадает.";
+
+"benchmark_probe_failure_tls_unknown_authority" = "TLS-сертификат не является доверенным.";
+
+"benchmark_probe_failure_unexpected_response" = "API ядра не подтвердил результат проверки.";
+
+"benchmark_probe_failure_zero_delay" = "Ядро не вернуло положительную задержку.";
+
+/* Runtime ownership and bounded System Proxy recovery */
+"ClashFX is already running. This copy will close to protect the active proxy." = "ClashFX уже запущен. Эта копия закроется, чтобы защитить действующий прокси.";
+"ClashFX could not obtain exclusive runtime control." = "ClashFX не удалось получить исключительное управление средой выполнения.";
+"System Proxy recovery paused after repeated conflicts. Click to retry." = "Восстановление системного прокси приостановлено из-за повторяющихся конфликтов. Нажмите, чтобы повторить.";

@@ -30,6 +30,14 @@ class GeneralSettingViewController: NSViewController {
     @IBOutlet var ipv6Button: NSButton!
     @IBOutlet var speedTestUrlField: NSTextField!
     @IBOutlet var benchmarkURLSaveButton: NSButton!
+    @IBOutlet var benchmarkModePopUp: NSPopUpButton!
+    @IBOutlet var benchmarkSortOrderPopUp: NSPopUpButton!
+    @IBOutlet var benchmarkURLPresetPopUp: NSPopUpButton!
+    @IBOutlet var benchmarkMeasurementMethodPopUp: NSPopUpButton!
+    @IBOutlet var benchmarkModeLabel: NSTextField!
+    @IBOutlet var benchmarkSortOrderLabel: NSTextField!
+    @IBOutlet var benchmarkURLPresetLabel: NSTextField!
+    @IBOutlet var benchmarkMeasurementMethodLabel: NSTextField!
 
     var disposeBag = DisposeBag()
     override func viewDidLoad() {
@@ -38,6 +46,7 @@ class GeneralSettingViewController: NSViewController {
         speedTestUrlField.stringValue = Settings.benchMarkUrl
         speedTestUrlField.placeholderString = Settings.defaultBenchmarkUrl
         benchmarkURLSaveButton.title = NSLocalizedString("Save", comment: "")
+        configureBenchmarkSettingsControls()
         speedTestUrlField.rx.text
             .compactMap { $0 }
             .distinctUntilChanged()
@@ -238,6 +247,77 @@ class GeneralSettingViewController: NSViewController {
         applicationSettingsStack.addArrangedSubview(container)
     }
 
+    private func configureBenchmarkSettingsControls() {
+        benchmarkModeLabel.stringValue = NSLocalizedString("Benchmark Mode:", comment: "")
+        benchmarkSortOrderLabel.stringValue = NSLocalizedString("Display Order:", comment: "")
+        benchmarkURLPresetLabel.stringValue = NSLocalizedString("Benchmark Target:", comment: "")
+        benchmarkMeasurementMethodLabel.stringValue = NSLocalizedString("Measurement Method:", comment: "")
+        let benchmarkLabels: [NSTextField] = [
+            benchmarkModeLabel,
+            benchmarkSortOrderLabel,
+            benchmarkURLPresetLabel,
+            benchmarkMeasurementMethodLabel
+        ]
+        let labelColumnWidth = max(
+            82,
+            benchmarkLabels.map { $0.intrinsicContentSize.width + 4 }.max() ?? 82
+        )
+        benchmarkLabels.forEach {
+            $0.widthAnchor.constraint(equalToConstant: labelColumnWidth).isActive = true
+        }
+
+        benchmarkModePopUp.removeAllItems()
+        for mode in [BenchmarkMode.quick, .complete] {
+            let title = mode == .quick
+                ? NSLocalizedString("Quick", comment: "")
+                : NSLocalizedString("Complete", comment: "")
+            benchmarkModePopUp.addItem(withTitle: title)
+            benchmarkModePopUp.item(at: benchmarkModePopUp.numberOfItems - 1)?.representedObject = mode.rawValue
+        }
+        benchmarkModePopUp.selectItem(at: Settings.benchmarkMode == .quick ? 0 : 1)
+
+        benchmarkSortOrderPopUp.removeAllItems()
+        for order in [BenchmarkSortOrder.configuration, .latency] {
+            let title = order == .configuration
+                ? NSLocalizedString("Configuration Order", comment: "")
+                : NSLocalizedString("Latency First", comment: "")
+            benchmarkSortOrderPopUp.addItem(withTitle: title)
+            benchmarkSortOrderPopUp.item(at: benchmarkSortOrderPopUp.numberOfItems - 1)?.representedObject = order.rawValue
+        }
+        benchmarkSortOrderPopUp.selectItem(
+            at: Settings.benchmarkSortOrder == .configuration ? 0 : 1
+        )
+
+        benchmarkURLPresetPopUp.removeAllItems()
+        for title in [
+            NSLocalizedString("Cloudflare HTTPS", comment: ""),
+            NSLocalizedString("Google HTTPS", comment: ""),
+            NSLocalizedString("Custom", comment: "")
+        ] {
+            benchmarkURLPresetPopUp.addItem(withTitle: title)
+        }
+        benchmarkURLPresetPopUp.selectItem(
+            at: BenchmarkURLSettings.presetIndex(for: Settings.benchMarkUrl)
+        )
+
+        benchmarkMeasurementMethodPopUp.removeAllItems()
+        let measurementMethods: [(BenchmarkMeasurementMethod, String)] = [
+            (.followConfiguration, NSLocalizedString("Follow Configuration", comment: "")),
+            (.unified, NSLocalizedString("Unified", comment: "")),
+            (.connection, NSLocalizedString("Connection", comment: ""))
+        ]
+        for (method, title) in measurementMethods {
+            benchmarkMeasurementMethodPopUp.addItem(withTitle: title)
+            benchmarkMeasurementMethodPopUp.item(
+                at: benchmarkMeasurementMethodPopUp.numberOfItems - 1
+            )?.representedObject = method.rawValue
+        }
+        let selectedMethodIndex = measurementMethods.firstIndex {
+            $0.0 == Settings.benchmarkMeasurementMethod
+        } ?? 0
+        benchmarkMeasurementMethodPopUp.selectItem(at: selectedMethodIndex)
+    }
+
     @objc private func toggleDockIconVisibility(_ sender: Any) {
         let isEnabled: Bool
         if #available(macOS 10.15, *), let dockSwitch = sender as? NSSwitch {
@@ -273,6 +353,74 @@ class GeneralSettingViewController: NSViewController {
         view.window?.makeFirstResponder(nil)
     }
 
+    @IBAction func actionBenchmarkModeChanged(_ sender: NSPopUpButton) {
+        guard let rawValue = sender.selectedItem?.representedObject as? String,
+              let mode = BenchmarkMode(rawValue: rawValue) else { return }
+        Settings.benchmarkMode = mode
+    }
+
+    @IBAction func actionBenchmarkSortOrderChanged(_ sender: NSPopUpButton) {
+        guard let rawValue = sender.selectedItem?.representedObject as? String,
+              let order = BenchmarkSortOrder(rawValue: rawValue) else { return }
+        Settings.benchmarkSortOrder = order
+    }
+
+    @IBAction func actionBenchmarkURLPresetChanged(_ sender: NSPopUpButton) {
+        guard let url = BenchmarkURLSettings.url(forPresetIndex: sender.indexOfSelectedItem) else {
+            return
+        }
+        speedTestUrlField.stringValue = url
+        guard persistBenchmarkURL() else { return }
+        MenuItemFactory.refreshExistingMenuItems()
+    }
+
+    @IBAction func actionBenchmarkMeasurementMethodChanged(_ sender: NSPopUpButton) {
+        guard let rawValue = sender.selectedItem?.representedObject as? String,
+              let method = BenchmarkMeasurementMethod(rawValue: rawValue),
+              method != Settings.benchmarkMeasurementMethod else { return }
+        let previousMethod = Settings.benchmarkMeasurementMethod
+        AppDelegate.shared.cancelActiveSpeedTest(
+            reason: "benchmark measurement method changed",
+            refreshMenu: false
+        )
+        Settings.benchmarkMeasurementMethod = method
+        BenchmarkMeasurementEpoch.invalidate()
+        Self.clearBenchmarkMeasurementPresentations()
+        sender.isEnabled = false
+        AppDelegate.shared.updateConfig(showNotification: false) { [weak self] error in
+            dispatchPrecondition(condition: .onQueue(.main))
+            if error == nil {
+                BenchmarkMeasurementEpoch.invalidate()
+                Self.clearBenchmarkMeasurementPresentations()
+                if Settings.benchmarkMeasurementMethod == method {
+                    Settings.confirmRuntimeBenchmarkMeasurementMethod(method)
+                }
+                self?.benchmarkMeasurementMethodPopUp.isEnabled = true
+                return
+            }
+
+            if Settings.benchmarkMeasurementMethod == method {
+                Settings.benchmarkMeasurementMethod = previousMethod
+            }
+            guard let self = self else { return }
+            self.benchmarkMeasurementMethodPopUp.isEnabled = true
+            let methods: [BenchmarkMeasurementMethod] = [
+                .followConfiguration, .unified, .connection
+            ]
+            self.benchmarkMeasurementMethodPopUp.selectItem(
+                at: methods.firstIndex(of: Settings.benchmarkMeasurementMethod) ?? 0
+            )
+        }
+    }
+
+    private static func clearBenchmarkMeasurementPresentations() {
+        GlobalLeafBenchmarkPresentationStore.clearAll()
+        SelectorBenchmarkPresentationStore.clearAll()
+        AutomaticChildBenchmarkStore.clearAll()
+        AutomaticGroupBenchmarkPresentationStore.clearAll()
+        ProxyGroupSpeedTestMenuItem.clearBenchmarkRetryHistory()
+    }
+
     @discardableResult
     private func persistBenchmarkURL() -> Bool {
         guard let url = BenchmarkURLSettings.normalizedURL(
@@ -286,6 +434,7 @@ class GeneralSettingViewController: NSViewController {
         Settings.benchMarkUrl = url
         speedTestUrlField.textColor = .controlTextColor
         benchmarkURLSaveButton.isEnabled = true
+        benchmarkURLPresetPopUp.selectItem(at: BenchmarkURLSettings.presetIndex(for: url))
         return true
     }
 

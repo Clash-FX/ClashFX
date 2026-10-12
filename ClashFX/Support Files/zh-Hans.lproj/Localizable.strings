@@ -683,4 +683,256 @@
 "Not tested" = "未测速";
 
 "No testable proxy nodes" = "无可测速代理节点";
+"Core switching…" = "核心切换中…";
+"Proxy core unavailable. Please try again shortly." = "代理核心暂不可用，请稍后重试。";
+"Proxy core is changing. Please try again shortly." = "代理核心正在切换，请稍后重试。";
+"Proxy group is no longer available. Refresh and try again." = "代理组当前不可用，请刷新后重试。";
+"The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "新核心未能建立配置的代理监听端口：%@。请查看核心诊断日志了解详情。";
 "Direct fallback (no proxy nodes)" = "直连兜底（无代理节点）";
+
+"Benchmark result with historical marker" = "%@（历史）";
+
+"Benchmark cancelled: core changed" = "测速已取消：核心切换";
+
+"Benchmark cancelled: configuration changed" = "测速已取消：配置变更";
+
+"The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch." = "核心正在切换，未完成的测速请求已取消。已完成的结果会保留，切换结束后可重新测速。";
+
+"The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload." = "配置已变更，未完成的测速请求已取消。已完成的结果会保留，重载结束后可重新测速。";
+
+"Display Order" = "显示顺序";
+
+"Configuration Order" = "配置顺序";
+
+"Latency First" = "延迟优先";
+
+"Benchmark options" = "测速选项";
+
+"Quick (2.5 s)" = "快速测速（2.5 秒）";
+
+"Complete (5 s)" = "完整测速（5 秒）";
+
+"Retry failed nodes" = "重测失败节点";
+
+"Benchmarking %d/%d" = "测速中 %d/%d";
+
+"Testing automatic group" = "策略组复测中…";
+
+"Testing selected automatic group" = "所选策略组复测中…";
+
+"Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "快速：成功%d 超时%d 失败%d 不可用%d 复用%d";
+
+"Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "完成：成功%d 超时%d 失败%d 不可用%d 复用%d";
+
+"Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time." = "快速测速等待上限为 %d 毫秒。成功%d、超时%d、失败%d、不可用%d，其中复用%d。需要更多时间的节点可选完整测速。";
+
+"Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "测速汇总：成功%d、超时%d、失败%d、不可用%d，其中复用%d";
+
+"No failed nodes to retry" = "没有可重测的失败节点";
+
+"Only failed or timed-out nodes from the latest benchmark can be retried." = "只重测上一批测速中失败或超时的节点。";
+
+"Group %d succeeded · %d failed" = "策略组：成功%d · 失败%d";
+
+"Group timed out" = "策略组复测超时";
+
+"Group unavailable" = "策略组复测不可用";
+
+"Selected automatic group response: %d succeeded, %d failed" = "所选策略组结果：成功%d、失败%d";
+
+"Selected automatic group request timed out" = "所选策略组请求超时";
+
+"Selected automatic group returned no results" = "所选策略组未返回结果";
+
+"Selected automatic group was unavailable" = "所选策略组不可用";
+
+"Quick" = "快速";
+
+"Complete" = "完整";
+
+"Cloudflare HTTPS" = "Cloudflare HTTPS";
+
+"Google HTTPS" = "Google HTTPS";
+
+"Custom" = "自定义";
+
+"Follow Configuration" = "遵循配置";
+
+"Unified" = "统一延迟";
+
+"Connection" = "完整连接（含握手）";
+
+"Benchmark Mode:" = "测速模式：";
+
+"Benchmark Target:" = "测速目标：";
+
+"Measurement Method:" = "测量方式：";
+
+"Display Order:" = "显示顺序：";
+
+"The previous proxy state was restored." = "已恢复之前的代理状态。";
+
+"Restoring the previous proxy state also failed: %@" = "恢复之前的代理状态也失败了：%@";
+
+"Manual Selection" = "手动";
+
+"Automatic Selection" = "自动";
+
+"Manual Priority" = "优先";
+
+"Core-managed Selection" = "自动组";
+
+"Actual route: %@" = "实际选路：%@";
+
+"Preferred node: %@" = "优先节点：%@";
+
+"Actual route could not be fully resolved" = "暂时无法确认完整选路。";
+
+"Restore Automatic Selection" = "恢复自动";
+
+"Selected path unavailable" = "无法确认当前选择。";
+
+"This core did not report fixed state." = "此核心未报告手动优先状态，暂不可修改。";
+
+"Preferred node" = "手动优先节点";
+
+"Click to prefer this node; the core may choose a fallback." = "点击设为手动优先；不可用时由核心回退。";
+
+"A proxy selection is already in progress." = "正在切换节点，请稍候。";
+
+"Proxy core is changing." = "核心正在切换，请稍后重试。";
+
+"Selection is unavailable during a benchmark." = "请等待测速完成后再切换节点。";
+
+"Proxy selection timed out." = "切换超时，无法确认核心当前状态。";
+
+"Proxy selection failed." = "无法切换节点。";
+
+"The core did not retain the requested selection." = "核心未保留该优先选择，已显示当前实际选路。";
+
+"Proxy Selection Failed" = "切换节点未完成";
+
+"Wait for the proxy selection to finish." = "请等待节点切换完成。";
+
+"Benchmark timed out" = "超时";
+
+"Attempted at: %@" = "探测时间：%@";
+
+"Previous successful measurement: %@ (%@)" = "上次成功测量：%@（%@）";
+
+"Latest recorded probe: %@" = "最近探测记录：%@";
+
+"Probe timeout: %d ms; elapsed: %d ms" = "核心超时：%d ms；耗时：%d ms";
+
+"Core API response: %d" = "核心接口响应：%d";
+
+"Single-node Benchmark Diagnostic…" = "单节点测速诊断…";
+
+"Single-node Benchmark Diagnostic" = "单节点测速诊断";
+
+"Test one node without setting manual priority. Automatic groups still follow the core." = "只探测该节点，不设置手动优先；自动组选路仍由核心决定。";
+
+"Run Diagnostic" = "开始诊断";
+
+"Copy Diagnostic Report" = "复制诊断报告";
+
+"Node:" = "节点：";
+
+"Benchmark URL:" = "测试地址：";
+
+"Probe timeout:" = "探测超时：";
+
+"Could not load nodes for a diagnostic probe." = "无法读取节点列表，请确认核心接口可用。";
+
+"Enter a valid HTTP or HTTPS benchmark URL." = "请输入有效的 HTTP 或 HTTPS 测试地址。";
+
+"The probe completed, but its diagnostic record could not be confirmed." = "探测已完成，但无法确认本次诊断记录。";
+
+"benchmark_probe_detail_node" = "节点";
+
+"benchmark_probe_detail_identity" = "身份范围";
+
+"benchmark_probe_detail_provider" = "节点提供者";
+
+"benchmark_probe_detail_url" = "测试地址";
+
+"benchmark_probe_detail_timeout" = "核心超时";
+
+"benchmark_probe_detail_request_deadline" = "请求期限";
+
+"benchmark_probe_detail_started" = "开始时间";
+
+"benchmark_probe_detail_completed" = "完成时间";
+
+"benchmark_probe_detail_elapsed" = "实际耗时";
+
+"benchmark_probe_detail_status" = "核心接口响应";
+
+"benchmark_probe_detail_result" = "本次结果";
+
+"benchmark_probe_detail_failure_kind" = "失败类别";
+
+"benchmark_probe_detail_failure_code" = "诊断代码";
+
+"benchmark_probe_detail_cause" = "原因";
+
+"benchmark_probe_result_success" = "成功（%d ms）";
+
+"benchmark_probe_result_failed" = "失败";
+
+"benchmark_probe_result_timed_out" = "超时";
+
+"benchmark_probe_result_unavailable" = "无法确认结果";
+
+"benchmark_probe_result_cancelled" = "已取消";
+
+"benchmark_probe_status_unknown" = "未知";
+
+"benchmark_probe_invalid_url" = "无效测试地址";
+
+"benchmark_probe_identity_leaf" = "节点身份";
+
+"benchmark_probe_identity_name_only" = "仅节点名称";
+
+"benchmark_probe_failure_none" = "未报告失败。";
+
+"benchmark_probe_failure_authentication_failed" = "代理认证被拒绝，请核对节点认证参数。";
+
+"benchmark_probe_failure_dial_failed" = "无法建立代理连接。";
+
+"benchmark_probe_failure_controller_unavailable" = "网络或核心接口无法确认结果，不能据此判定节点失效。";
+
+"benchmark_probe_failure_dns_resolution_failed" = "DNS 解析失败。";
+
+"benchmark_probe_failure_dns_timeout" = "DNS 解析超时。";
+
+"benchmark_probe_failure_http_request_failed" = "HTTP 探测请求未完成。";
+
+"benchmark_probe_failure_invalid_result" = "核心接口返回了无效测速数据。";
+
+"benchmark_probe_failure_unspecified_core_failure" = "核心探测失败，但未提供具体原因。";
+
+"benchmark_probe_failure_node_reported_failure" = "核心探测失败，但未提供具体原因。";
+
+"benchmark_probe_failure_probe_failed" = "探测失败，暂未识别出更具体的原因。";
+
+"benchmark_probe_failure_probe_timeout" = "探测超过了核心的等待期限。";
+
+"benchmark_probe_failure_quic_handshake_failed" = "QUIC 握手未完成；不能仅据此断定 UDP 被封锁。";
+
+"benchmark_probe_failure_tls_expired" = "TLS 证书已过期。";
+
+"benchmark_probe_failure_tls_failure" = "TLS 连接失败。";
+
+"benchmark_probe_failure_tls_name_mismatch" = "TLS 证书名称与配置不匹配，请检查 SNI。";
+
+"benchmark_probe_failure_tls_unknown_authority" = "TLS 证书签发者不受信任。";
+
+"benchmark_probe_failure_unexpected_response" = "核心接口无法确认探测结果。";
+
+"benchmark_probe_failure_zero_delay" = "核心未得到正数延迟，无法确认本次测量。";
+
+/* Runtime ownership and bounded System Proxy recovery */
+"ClashFX is already running. This copy will close to protect the active proxy." = "ClashFX 已在运行。此副本将关闭，以保护当前代理。";
+"ClashFX could not obtain exclusive runtime control." = "ClashFX 无法取得独占运行控制权。";
+"System Proxy recovery paused after repeated conflicts. Click to retry." = "系统代理恢复因持续冲突已暂停。点击可重试。";

@@ -8,6 +8,7 @@
 
 #import "ProxyConfigHelper.h"
 #import "CoreSocketOwnership.h"
+#import "HelperTaskRunner.h"
 #import <AppKit/AppKit.h>
 #import <Security/Security.h>
 #import <fcntl.h>
@@ -40,13 +41,26 @@ ProxyConfigRemoteProcessProtocol
 @property (nonatomic, copy) NSString *mihomoBinaryPath;
 @property (nonatomic, strong) NSMutableArray *mihomoLifecycleOperations;
 @property (nonatomic, assign) BOOL mihomoLifecycleOperationInFlight;
+@property (nonatomic, copy) NSString *mihomoSocketSnapshotLaunchID;
+@property (nonatomic, assign) pid_t mihomoSocketSnapshotPID;
+@property (nonatomic, copy) NSArray<NSNumber *> *mihomoSocketSnapshotTCPPorts;
+@property (nonatomic, copy) NSArray<NSNumber *> *mihomoSocketSnapshotUDPPorts;
+@property (nonatomic, assign) NSTimeInterval mihomoSocketSnapshotUptime;
+@property (nonatomic, copy) NSString *mihomoSocketQueryID;
+@property (nonatomic, assign) BOOL mihomoSocketQueryInFlight;
 
 - (void)enqueueMihomoLifecycleOperation:(dispatch_block_t)operation;
 - (void)runNextMihomoLifecycleOperation;
 - (void)finishMihomoLifecycleOperation;
 - (void)terminateMihomoTask:(NSTask *)task
                    launchID:(NSString *)launchID
-                 completion:(dispatch_block_t)completion;
+                 completion:(stringReplyBlock)completion;
+- (BOOL)isMihomoTaskExitConfirmed:(NSTask *)task;
+- (instancetype)initForTesting;
+- (instancetype)initWithListenerEnabled:(BOOL)listenerEnabled;
+- (NSArray<NSNumber *> *)listeningPortsForPID:(pid_t)pid
+                                     protocol:(NSString *)protocol
+                                     deadline:(NSTimeInterval)deadline;
 - (void)launchMihomoCoreWithBinaryPath:(NSString *)binaryPath
                             configPath:(NSString *)configPath
                                homeDir:(NSString *)homeDir
@@ -57,6 +71,10 @@ ProxyConfigRemoteProcessProtocol
 @implementation ProxyConfigHelper
 
 static const NSTimeInterval kMihomoGracefulStopTimeout = 2.0;
+static const NSTimeInterval kMihomoSocketQueryTimeout = 0.30;
+static const NSTimeInterval kMihomoSocketKnownCacheLifetime = 30.0;
+static const NSTimeInterval kMihomoSocketUnknownCacheLifetime = 0.35;
+static const NSUInteger kMihomoSocketOutputLimit = 1024 * 1024;
 static const unsigned long long kMihomoCoreLogMaximumBytes = 4 * 1024 * 1024;
 static const NSUInteger kMihomoDiagnosticFileLimit = 24;
 static const NSTimeInterval kDNSCacheCommandTimeout = 2.0;
@@ -93,48 +111,40 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:executablePath];
     task.arguments = arguments;
-
-    NSError *launchError = nil;
-    if (![task launchAndReturnError:&launchError]) {
-        NSLog(@"Command failed to launch (%@): %@",
+    NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + timeout;
+    NSString *failure = nil;
+    BOOL succeeded = ClashFXRunTaskUntilDeadline(task, deadline, NO, 0, NULL, &failure);
+    if (!succeeded) {
+        NSLog(@"Command failed or timed out (%@): %@",
               executablePath.lastPathComponent,
-              launchError.localizedDescription);
-        return NO;
+              failure ?: @"unknown error");
     }
-
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
-    while (task.isRunning && deadline.timeIntervalSinceNow > 0) {
-        usleep(50 * 1000);
-    }
-    if (!task.isRunning) {
-        return task.terminationStatus == 0;
-    }
-
-    NSLog(@"Command timed out after %.1fs: %@",
-          timeout,
-          executablePath.lastPathComponent);
-    [task terminate];
-
-    NSDate *terminationDeadline = [NSDate dateWithTimeIntervalSinceNow:0.5];
-    while (task.isRunning && terminationDeadline.timeIntervalSinceNow > 0) {
-        usleep(50 * 1000);
-    }
-    if (task.isRunning) {
-        kill(task.processIdentifier, SIGKILL);
-    }
-    return NO;
+    return succeeded;
 }
 
 - (instancetype)init {
-    
+    return [self initWithListenerEnabled:YES];
+}
+
+- (instancetype)initForTesting {
+    return [self initWithListenerEnabled:NO];
+}
+
+- (instancetype)initWithListenerEnabled:(BOOL)listenerEnabled {
     if (self = [super init]) {
         self.connections = [NSMutableSet new];
         self.mihomoLifecycleOperations = [NSMutableArray array];
         self.shouldQuit = NO;
-        self.listener = [[NSXPCListener alloc] initWithMachServiceName:@"com.clashfx.app.Helper"];
-        self.listener.delegate = self;
+        if (listenerEnabled) {
+            self.listener = [[NSXPCListener alloc] initWithMachServiceName:@"com.clashfx.app.Helper"];
+            self.listener.delegate = self;
+        }
     }
     return self;
+}
+
+- (BOOL)isMihomoTaskExitConfirmed:(NSTask *)task {
+    return !task.isRunning;
 }
 
 - (NSString *)newMihomoLaunchID {
@@ -244,16 +254,18 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
     task.executableURL = [NSURL fileURLWithPath:@"/bin/ps"];
     task.arguments = @[@"-axww", @"-o", @"pid=,args="];
 
-    NSPipe *pipe = [NSPipe pipe];
-    task.standardOutput = pipe;
-    NSError *error = nil;
-    if (![task launchAndReturnError:&error]) {
-        NSLog(@"mihomo cleanup ps failed: %@", error.localizedDescription);
-        return @[];
+    NSData *data = nil;
+    NSString *failure = nil;
+    NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + 0.50;
+    if (!ClashFXRunTaskUntilDeadline(task,
+                                    deadline,
+                                    YES,
+                                    4 * 1024 * 1024,
+                                    &data,
+                                    &failure)) {
+        NSLog(@"mihomo cleanup ps failed: %@", failure ?: @"unknown error");
+        return nil;
     }
-
-    NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
-    [task waitUntilExit];
     NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
     NSMutableArray<NSNumber *> *pids = [NSMutableArray array];
     NSCharacterSet *whitespace = [NSCharacterSet whitespaceAndNewlineCharacterSet];
@@ -294,12 +306,14 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
 }
 
 - (BOOL)isProcessRunning:(pid_t)pid {
-    return kill(pid, 0) == 0;
+    return kill(pid, 0) == 0 || errno == EPERM;
 }
 
-- (NSArray<NSNumber *> *)listeningPortsForPID:(pid_t)pid protocol:(NSString *)protocol {
+- (NSArray<NSNumber *> *)listeningPortsForPID:(pid_t)pid
+                                     protocol:(NSString *)protocol
+                                     deadline:(NSTimeInterval)deadline {
     if (pid <= 0 || ![@[@"TCP", @"UDP"] containsObject:protocol]) {
-        return @[];
+        return nil;
     }
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:@"/usr/sbin/lsof"];
@@ -311,17 +325,19 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
     }
     [arguments addObjectsFromArray:@[@"-F", @"n"]];
     task.arguments = arguments;
-    NSPipe *pipe = [NSPipe pipe];
-    task.standardOutput = pipe;
-    task.standardError = [NSFileHandle fileHandleWithNullDevice];
-    NSError *launchError = nil;
-    if (![task launchAndReturnError:&launchError]) {
-        return @[];
-    }
-    NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
-    [task waitUntilExit];
-    if (task.terminationStatus != 0) {
-        return @[];
+    NSData *data = nil;
+    NSString *failure = nil;
+    if (!ClashFXRunTaskUntilDeadline(task,
+                                    deadline,
+                                    YES,
+                                    kMihomoSocketOutputLimit,
+                                    &data,
+                                    &failure)) {
+        NSLog(@"[mihomo_core] lsof %@ query for pid %d failed: %@",
+              protocol,
+              pid,
+              failure ?: @"unknown error");
+        return nil;
     }
     NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
     return ClashFXListeningPortsFromLsofOutput(output);
@@ -352,9 +368,9 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
 
 - (void)terminateMihomoTask:(NSTask *)task
                    launchID:(NSString *)launchID
-                 completion:(dispatch_block_t)completion {
-    if (!(task && task.isRunning)) {
-        dispatch_async(dispatch_get_main_queue(), completion);
+                 completion:(stringReplyBlock)completion {
+    if (!task) {
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(nil); });
         return;
     }
 
@@ -362,27 +378,57 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         launchID.length == 0 ||
         ![self.mihomoLaunchID isEqualToString:launchID]) {
         NSLog(@"[mihomo_core] Skipping stale termination for launch %@", launchID ?: @"unknown");
-        dispatch_async(dispatch_get_main_queue(), completion);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion(@"Refusing to stop a Mihomo process whose launch identity is stale");
+        });
+        return;
+    }
+
+    if (!task.isRunning) {
+        self.mihomoTask = nil;
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(nil); });
         return;
     }
 
     pid_t pid = task.processIdentifier;
-    self.mihomoTask = nil;
     [task terminate];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:kMihomoGracefulStopTimeout];
-        while (task.isRunning && [deadline timeIntervalSinceNow] > 0) {
+        NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + kMihomoGracefulStopTimeout;
+        while (task.isRunning && NSProcessInfo.processInfo.systemUptime < deadline) {
             usleep(100 * 1000);
         }
 
         if (task.isRunning) {
             NSLog(@"[mihomo_core] Graceful stop timed out; force killing pid %d", pid);
-            kill(pid, SIGKILL);
+            (void)kill(pid, SIGKILL);
+            ClashFXWaitForTaskExit(task, kClashFXTaskKillReapTimeout);
         }
-        [task waitUntilExit];
 
-        dispatch_async(dispatch_get_main_queue(), completion);
+        BOOL exitConfirmed = [self isMihomoTaskExitConfirmed:task];
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            BOOL launchIDStillMatches = [self.mihomoLaunchID isEqualToString:launchID];
+            BOOL noReplacementLaunch = self.mihomoTask == task || self.mihomoTask == nil;
+            BOOL stillSameLaunch = launchIDStillMatches && noReplacementLaunch;
+            if (exitConfirmed && stillSameLaunch && self.mihomoTask == task) {
+                self.mihomoTask = nil;
+            }
+            if (!exitConfirmed) {
+                NSString *failure = [NSString stringWithFormat:
+                    @"Mihomo launch %@ (pid %d) did not exit after SIGKILL; refusing to start another core",
+                    launchID,
+                    pid];
+                NSLog(@"[mihomo_core] %@", failure);
+                completion(failure);
+                return;
+            }
+            if (!stillSameLaunch) {
+                completion(@"Mihomo launch identity changed before stop completion");
+                return;
+            }
+            completion(nil);
+        });
     });
 }
 
@@ -395,16 +441,29 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         NSArray<NSNumber *> *pids = [self mihomoProcessIDsMatchingBinaryPath:binaryPath
                                                                   configPath:configPrefix
                                                                      homeDir:homeDir];
+        if (!pids) {
+            reply(@"Unable to inspect existing Mihomo processes before cleanup");
+            return;
+        }
+        if (pids.count == 0) {
+            reply(nil);
+            return;
+        }
         for (NSNumber *pidNumber in pids) {
             pid_t pid = pidNumber.intValue;
-            kill(pid, SIGTERM);
+            (void)kill(pid, SIGTERM);
         }
 
         [NSThread sleepForTimeInterval:1.0];
 
-        NSSet<NSNumber *> *stillMatchedPids = [NSSet setWithArray:[self mihomoProcessIDsMatchingBinaryPath:binaryPath
-                                                                                                configPath:configPrefix
-                                                                                                   homeDir:homeDir]];
+        NSArray<NSNumber *> *stillMatchedArray = [self mihomoProcessIDsMatchingBinaryPath:binaryPath
+                                                                                 configPath:configPrefix
+                                                                                    homeDir:homeDir];
+        if (!stillMatchedArray) {
+            reply(@"Unable to verify Mihomo processes after SIGTERM");
+            return;
+        }
+        NSSet<NSNumber *> *stillMatchedPids = [NSSet setWithArray:stillMatchedArray];
 
         for (NSNumber *pidNumber in pids) {
             pid_t pid = pidNumber.intValue;
@@ -413,10 +472,32 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
             }
         }
 
+        NSTimeInterval reapDeadline = NSProcessInfo.processInfo.systemUptime + 0.50;
+        NSMutableArray<NSNumber *> *remainingPids = [NSMutableArray array];
+        do {
+            [remainingPids removeAllObjects];
+            for (NSNumber *pidNumber in stillMatchedPids) {
+                if ([self isProcessRunning:pidNumber.intValue]) {
+                    [remainingPids addObject:pidNumber];
+                }
+            }
+            if (remainingPids.count == 0 ||
+                NSProcessInfo.processInfo.systemUptime >= reapDeadline) {
+                break;
+            }
+            usleep(20 * 1000);
+        } while (YES);
+
         if (pids.count > 0) {
             NSLog(@"Cleaned up %lu ClashFX mihomo_core process(es)", (unsigned long)pids.count);
         }
-        reply(nil);
+        if (remainingPids.count > 0) {
+            reply([NSString stringWithFormat:
+                @"Mihomo cleanup could not confirm exit for process id(s): %@",
+                remainingPids]);
+        } else {
+            reply(nil);
+        }
     });
 }
 
@@ -642,25 +723,23 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
 - (void)getMihomoCoreStatusWithReply:(dictReplyBlock)reply {
     dispatch_async(dispatch_get_main_queue(), ^{
         NSTask *task = self.mihomoTask;
+        NSString *launchID = [self.mihomoLaunchID copy];
+        pid_t pid = self.mihomoProcessID;
         NSMutableDictionary *status = [NSMutableDictionary dictionary];
         BOOL running = task && task.isRunning;
         status[@"running"] = @(running);
-        status[@"pid"] = @(self.mihomoProcessID);
-        if (self.mihomoLaunchID.length > 0) {
-            status[@"launchID"] = self.mihomoLaunchID;
+        status[@"pid"] = @(pid);
+        if (launchID.length > 0) {
+            status[@"launchID"] = launchID;
         }
         if (self.mihomoConfigPath.length > 0) {
-            status[@"configPath"] = self.mihomoConfigPath;
+            status[@"configPath"] = [self.mihomoConfigPath copy];
         }
         if (self.mihomoBinaryPath.length > 0) {
-            status[@"binaryPath"] = self.mihomoBinaryPath;
+            status[@"binaryPath"] = [self.mihomoBinaryPath copy];
         }
         if (self.mihomoLogPath.length > 0) {
-            status[@"logPath"] = self.mihomoLogPath;
-            NSDictionary *attributes = [[NSFileManager defaultManager]
-                attributesOfItemAtPath:self.mihomoLogPath
-                                 error:nil];
-            status[@"logBytes"] = attributes[NSFileSize] ?: @0;
+            status[@"logPath"] = [self.mihomoLogPath copy];
         }
         if (self.mihomoLaunchDate) {
             status[@"startedAt"] = @([self.mihomoLaunchDate timeIntervalSince1970]);
@@ -668,12 +747,10 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         if (self.mihomoLastTerminationSummary.length > 0) {
             status[@"lastTermination"] = self.mihomoLastTerminationSummary;
         }
-        if (running && self.mihomoProcessID > 0) {
-            status[@"tcpListenPorts"] = [self listeningPortsForPID:self.mihomoProcessID protocol:@"TCP"];
-            status[@"udpListenPorts"] = [self listeningPortsForPID:self.mihomoProcessID protocol:@"UDP"];
+        if (running && pid > 0 && launchID.length > 0) {
             struct rusage_info_v2 usage = {0};
             int result = proc_pid_rusage(
-                self.mihomoProcessID,
+                pid,
                 RUSAGE_INFO_V2,
                 (rusage_info_t *)&usage
             );
@@ -685,8 +762,83 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
                 status[@"cpuSampleError"] = [NSString stringWithFormat:
                     @"proc_pid_rusage failed: %s", strerror(errno)];
             }
+        } else {
+            status[@"tcpListenPorts"] = @[];
+            status[@"udpListenPorts"] = @[];
+            status[@"tcpListenPortsState"] = running ? @"unknown" : @"notRunning";
+            status[@"udpListenPortsState"] = running ? @"unknown" : @"notRunning";
+            reply(status);
+            return;
         }
-        reply(status);
+
+        NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+        BOOL cacheMatchesLaunch = [self.mihomoSocketSnapshotLaunchID isEqualToString:launchID] &&
+            self.mihomoSocketSnapshotPID == pid;
+        NSTimeInterval cacheLifetime = self.mihomoSocketSnapshotTCPPorts &&
+            self.mihomoSocketSnapshotUDPPorts
+            ? kMihomoSocketKnownCacheLifetime
+            : kMihomoSocketUnknownCacheLifetime;
+        BOOL cacheIsFresh = cacheMatchesLaunch &&
+            self.mihomoSocketSnapshotUptime > 0 &&
+            now - self.mihomoSocketSnapshotUptime <= cacheLifetime;
+        if (cacheIsFresh) {
+            status[@"tcpListenPorts"] = self.mihomoSocketSnapshotTCPPorts ?: @[];
+            status[@"udpListenPorts"] = self.mihomoSocketSnapshotUDPPorts ?: @[];
+            status[@"tcpListenPortsState"] = self.mihomoSocketSnapshotTCPPorts ? @"known" : @"unknown";
+            status[@"udpListenPortsState"] = self.mihomoSocketSnapshotUDPPorts ? @"known" : @"unknown";
+            reply(status);
+            return;
+        }
+
+        if (self.mihomoSocketQueryInFlight) {
+            status[@"tcpListenPorts"] = @[];
+            status[@"udpListenPorts"] = @[];
+            status[@"tcpListenPortsState"] = @"unknown";
+            status[@"udpListenPortsState"] = @"unknown";
+            reply(status);
+            return;
+        }
+
+        NSString *queryID = NSUUID.UUID.UUIDString;
+        self.mihomoSocketQueryID = queryID;
+        self.mihomoSocketQueryInFlight = YES;
+        NSTimeInterval deadline = now + kMihomoSocketQueryTimeout;
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            NSArray<NSNumber *> *tcpPorts = [self listeningPortsForPID:pid
+                                                              protocol:@"TCP"
+                                                              deadline:deadline];
+            NSArray<NSNumber *> *udpPorts = [self listeningPortsForPID:pid
+                                                              protocol:@"UDP"
+                                                              deadline:deadline];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if ([self.mihomoSocketQueryID isEqualToString:queryID]) {
+                    self.mihomoSocketQueryInFlight = NO;
+                    self.mihomoSocketQueryID = nil;
+                }
+
+                BOOL sameLaunch = self.mihomoTask == task &&
+                    task.isRunning &&
+                    self.mihomoProcessID == pid &&
+                    [self.mihomoLaunchID isEqualToString:launchID];
+                if (sameLaunch) {
+                    self.mihomoSocketSnapshotLaunchID = launchID;
+                    self.mihomoSocketSnapshotPID = pid;
+                    self.mihomoSocketSnapshotTCPPorts = tcpPorts;
+                    self.mihomoSocketSnapshotUDPPorts = udpPorts;
+                    self.mihomoSocketSnapshotUptime = NSProcessInfo.processInfo.systemUptime;
+                    status[@"tcpListenPorts"] = tcpPorts ?: @[];
+                    status[@"udpListenPorts"] = udpPorts ?: @[];
+                    status[@"tcpListenPortsState"] = tcpPorts ? @"known" : @"unknown";
+                    status[@"udpListenPortsState"] = udpPorts ? @"known" : @"unknown";
+                } else {
+                    status[@"tcpListenPorts"] = @[];
+                    status[@"udpListenPorts"] = @[];
+                    status[@"tcpListenPortsState"] = @"unknown";
+                    status[@"udpListenPortsState"] = @"unknown";
+                }
+                reply(status);
+            });
+        });
     });
 }
 
@@ -768,11 +920,16 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
                  ![self.mihomoLaunchID isEqualToString:launchID])) {
                 NSLog(@"[mihomo_core] Skipping stale helper-host restart for launch %@",
                       launchID ?: @"unknown");
-                reply(nil);
+                reply(@"Refusing to restart the helper for a stale Mihomo launch");
                 [self finishMihomoLifecycleOperation];
                 return;
             }
-            [self terminateMihomoTask:task launchID:launchID completion:^{
+            [self terminateMihomoTask:task launchID:launchID completion:^(NSString *error) {
+                if (error) {
+                    reply(error);
+                    [self finishMihomoLifecycleOperation];
+                    return;
+                }
                 NSLog(@"[mihomo_core] Restarting helper host after an external-core startup failure");
                 reply(nil);
                 [self finishMihomoLifecycleOperation];
@@ -850,7 +1007,13 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
                                            reply:finishReply];
         };
         if (staleTask && staleTask.isRunning) {
-            [self terminateMihomoTask:staleTask launchID:staleLaunchID completion:launch];
+            [self terminateMihomoTask:staleTask launchID:staleLaunchID completion:^(NSString *error) {
+                if (error) {
+                    finishReply(error);
+                } else {
+                    launch();
+                }
+            }];
         } else {
             launch();
         }
@@ -881,6 +1044,11 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
     self.mihomoLaunchDate = launchDate;
     self.mihomoProcessID = 0;
     self.mihomoLastTerminationSummary = nil;
+    self.mihomoSocketSnapshotLaunchID = nil;
+    self.mihomoSocketSnapshotPID = 0;
+    self.mihomoSocketSnapshotTCPPorts = nil;
+    self.mihomoSocketSnapshotUDPPorts = nil;
+    self.mihomoSocketSnapshotUptime = 0;
 
     NSPipe *pipe = [NSPipe pipe];
     task.standardOutput = pipe;
@@ -1013,9 +1181,9 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         [self enqueueMihomoLifecycleOperation:^{
             NSTask *task = self.mihomoTask;
             NSString *launchID = [self.mihomoLaunchID copy];
-            [self terminateMihomoTask:task launchID:launchID completion:^{
+            [self terminateMihomoTask:task launchID:launchID completion:^(NSString *error) {
                 [self finishMihomoLifecycleOperation];
-                reply(nil);
+                reply(error);
             }];
         }];
     };

@@ -1,0 +1,85 @@
+name: Isolated Helper and TUN Acceptance
+
+on:
+  push:
+    branches:
+      - 'codex/helper-tun-acceptance-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helper-tun-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  helper-tun:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.22'
+          cache-dependency-path: ClashFX/goClash/go.sum
+      - name: Build candidate Helper and standalone core (no app or release package)
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/clashfx-acceptance-build"
+          clang -fmodules -fobjc-arc -O2 -mmacosx-version-min=12.0 \
+            -I ProxyConfigHelper \
+            ProxyConfigHelper/main.m ProxyConfigHelper/ProxyConfigHelper.m \
+            ProxyConfigHelper/ProxySettingTool.m ProxyConfigHelper/CommonUtils.m \
+            ProxyConfigHelper/ProxySettingRestorationPolicy.m \
+            -framework Foundation -framework AppKit -framework Security \
+            -framework SystemConfiguration -framework ServiceManagement \
+            -Wl,-sectcreate,__TEXT,__info_plist,ProxyConfigHelper/Helper-Info.plist \
+            -Wl,-sectcreate,__TEXT,__launchd_plist,ProxyConfigHelper/Helper-Launchd.plist \
+            -o "$RUNNER_TEMP/clashfx-acceptance-build/com.clashfx.app.Helper"
+          codesign --force --sign - --timestamp=none \
+            --identifier com.clashfx.app.Helper \
+            "$RUNNER_TEMP/clashfx-acceptance-build/com.clashfx.app.Helper"
+          python3 - <<'PY'
+          import os, subprocess, sys
+          from pathlib import Path
+          root = Path.cwd()
+          sys.path.insert(0, str(root / 'ClashFX/goClash'))
+          from core_overlay import core_modfile
+          output = Path(os.environ['RUNNER_TEMP']) / 'clashfx-acceptance-build/mihomo_core'
+          with core_modfile() as modfile:
+              subprocess.run(['go', 'build', f'-modfile={modfile}', '-trimpath', '-tags', 'with_gvisor',
+                              '-ldflags', '-X github.com/metacubex/mihomo/constant.Version=1.19.24',
+                              '-o', str(output), './mihomo-bin/'],
+                             cwd=root / 'ClashFX/goClash',
+                             env=dict(os.environ, CGO_ENABLED='0', GOMAXPROCS='2'), check=True, timeout=600)
+          PY
+      - name: Real Helper, TUN and production rollback acceptance (disposable hosted guest only)
+        shell: bash
+        run: |
+          sudo -E python3 scripts/run-hosted-helper-tun-acceptance.py \
+            --helper "$RUNNER_TEMP/clashfx-acceptance-build/com.clashfx.app.Helper" \
+            --core "$RUNNER_TEMP/clashfx-acceptance-build/mihomo_core" \
+            --artifact-dir "$RUNNER_TEMP/clashfx-helper-tun-evidence"
+      - name: Require complete backend acceptance coverage
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ['RUNNER_TEMP']) / 'clashfx-helper-tun-evidence/report.json').read_text())
+          expected = ['productionHelperXPC', 'helperManagedCore', 'tunInterfaceAndRoutes',
+                      'systemProxyExactRestore', 'systemDNSExactRestore',
+                      'productionSystemProxyManager', 'ClaudeProxyLockTransactionRollback']
+          missing = [name for name in expected if report.get('coverage', {}).get(name) is not True]
+          assert report.get('status') == 'passed' and not missing, (report.get('status'), missing)
+          assert not report.get('failures'), report.get('failures')
+          print('Complete real Helper/TUN backend acceptance passed')
+          PYCODE
+      - name: Preserve acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helper-tun-acceptance-${{ github.sha }}
+          path: ${{ runner.temp }}/clashfx-helper-tun-evidence/
+          if-no-files-found: warn
+          retention-days: 7

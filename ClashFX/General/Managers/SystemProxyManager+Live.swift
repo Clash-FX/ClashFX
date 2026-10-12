@@ -33,6 +33,7 @@ extension SystemProxyManager {
                 httpPort: ConfigManager.shared.currentConfig?.usedHttpPort ?? 0,
                 socksPort: ConfigManager.shared.currentConfig?.usedSocksPort ?? 0
             )
-        }
+        },
+        canControlRuntime: { AppDelegate.shared.ownsRuntimeControl }
     ))
 }

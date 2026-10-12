@@ -24,10 +24,8 @@ import (
 	"time"
 	"unsafe"
 
-	bbolt "github.com/metacubex/bbolt"
 	"github.com/metacubex/mihomo/common/convert"
 	"github.com/metacubex/mihomo/component/mmdb"
-	"github.com/metacubex/mihomo/component/profile/cachefile"
 	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
@@ -707,6 +705,19 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 	return cfg, nil
 }
 
+// startDefaultCoreWithCache holds the cache lifecycle lock through config and
+// core startup so a concurrent suspend cannot close the DB between reopening
+// it and bringing listeners back.
+func startDefaultCoreWithCache(checkPort, allowLan, ipv6 bool, proxyPort uint32, externalController string) (*config.Config, error) {
+	var cfg *config.Config
+	err := currentCacheDBLifecycle().withOpen(func() error {
+		var err error
+		cfg, err = parseDefaultConfigThenStart(checkPort, allowLan, ipv6, proxyPort, externalController)
+		return err
+	})
+	return cfg, err
+}
+
 // applyTunConfig configures TUN and DNS settings on a RawConfig for Enhanced Mode.
 // Must be called while tunMu is held.
 func applyTunConfig(rawCfg *config.RawConfig) {
@@ -828,7 +839,7 @@ func clashConvertShareLinks(content *C.char) *C.char {
 		return C.CString("error:converted subscription did not contain proxy names")
 	}
 	nameserverPolicy := nameserverPolicyForConvertedProxies(filteredProxies)
-	benchmarkURL := "http://YouTube.com/generate_204"
+	benchmarkURL := "https://cp.cloudflare.com/generate_204"
 	dns := map[string]interface{}{
 		"enable":        true,
 		"listen":        "127.0.0.1:1053",
@@ -992,7 +1003,7 @@ func clash_setSecret(secret *C.char) {
 
 //export run
 func run(checkConfig, allowLan, ipv6 bool, portOverride uint32, externalController *C.char) *C.char {
-	cfg, err := parseDefaultConfigThenStart(checkConfig, allowLan, ipv6, portOverride, C.GoString(externalController))
+	cfg, err := startDefaultCoreWithCache(checkConfig, allowLan, ipv6, portOverride, C.GoString(externalController))
 	if err != nil {
 		return C.CString(err.Error())
 	}
@@ -1150,40 +1161,37 @@ func clashGetTunEnabled() bool {
 
 //export clashSuspendCore
 func clashSuspendCore() {
-	// Close all proxy listeners to free ports for external mihomo_core
-	listener.ReCreateHTTP(0, tunnel.Tunnel)
-	listener.ReCreateSocks(0, tunnel.Tunnel)
-	listener.ReCreateMixed(0, tunnel.Tunnel)
-	listener.ReCreateRedir(0, tunnel.Tunnel)
-	listener.ReCreateTProxy(0, tunnel.Tunnel)
-	// Close the RESTful API server so external binary can use the same port
-	route.ReCreateServer(&route.Config{})
-	// Release cache.db file lock so external mihomo_core can open it
-	cache := cachefile.Cache()
-	if cache.DB != nil {
-		cache.DB.Close()
+	err := currentCacheDBLifecycle().suspend(func() {
+		// Close listeners and the REST server before releasing cache.db so the
+		// external mihomo_core can reuse their ports and cache lock.
+		listener.ReCreateHTTP(0, tunnel.Tunnel)
+		listener.ReCreateSocks(0, tunnel.Tunnel)
+		listener.ReCreateMixed(0, tunnel.Tunnel)
+		listener.ReCreateRedir(0, tunnel.Tunnel)
+		listener.ReCreateTProxy(0, tunnel.Tunnel)
+		route.ReCreateServer(&route.Config{})
+	})
+	if err != nil {
+		log.Warnln("close cache database before suspending core failed: %v", err)
 	}
 }
 
 //export clashReopenCacheDB
 func clashReopenCacheDB() {
-	cache := cachefile.Cache()
-	if cache.DB != nil {
-		return
-	}
-	db, err := bbolt.Open(constant.Path.Cache(), 0o666, &bbolt.Options{Timeout: time.Second})
-	if err == nil {
-		cache.DB = db
+	if err := currentCacheDBLifecycle().reopen(); err != nil {
+		log.Warnln("reopen cache database failed: %v", err)
 	}
 }
 
+// clashResumeCore returns exactly "success" after startup. Failures return
+// "error:<reason>"; callers must treat every other value as a failed resume.
+// Cache-open errors are returned before parsing config or publishing listeners.
+//
 //export clashResumeCore
 func clashResumeCore() *C.char {
-	clashReopenCacheDB()
-
-	cfg, err := parseDefaultConfigThenStart(false, false, enableIPV6, 0, "")
+	cfg, err := startDefaultCoreWithCache(false, false, enableIPV6, 0, "")
 	if err != nil {
-		return C.CString(err.Error())
+		return C.CString("error:" + err.Error())
 	}
 	_ = cfg
 	return C.CString("success")

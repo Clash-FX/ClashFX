@@ -56,7 +56,7 @@ class SSIDSuspendTool: NSObject {
                 if pause {
                     SystemProxyManager.shared.disableProxy()
                 } else {
-                    SystemProxyManager.shared.enableProxy()
+                    AppDelegate.shared.requestSystemProxyAutoRecovery(afterWake: true)
                 }
             }.disposed(by: disposeBag)
 
