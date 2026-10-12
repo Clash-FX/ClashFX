@@ -644,7 +644,7 @@ class AcceptanceHarness:
         started = time.monotonic()
         try:
             completed = subprocess.run(
-            [str(self.transaction_executable), "--fixtures", str(self.transaction_manifest)],
+            [str(self.transaction_executable), "--manifest", str(self.transaction_manifest)],
                 cwd=str(self.temp_root), check=False, capture_output=True, text=True, timeout=180,
             )
         except subprocess.TimeoutExpired as error:
@@ -659,7 +659,7 @@ class AcceptanceHarness:
         self.transaction_stdout.write_text(completed.stdout, encoding="utf-8", errors="replace")
         self.transaction_stderr.write_text(completed.stderr, encoding="utf-8", errors="replace")
         if not self.transaction_report_path.is_file():
-            raise RuntimeError("TxDriver did not write the manifest outputJSON report")
+            raise RuntimeError("TxDriver did not write its report; " + completed.stdout[-1200:])
         self.transaction_report_path.chmod(0o644)
         with self.transaction_report_path.open("r", encoding="utf-8") as stream:
             transaction_report = json.load(stream)
