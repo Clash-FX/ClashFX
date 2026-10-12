@@ -744,15 +744,16 @@ class AcceptanceHarness:
                                     (set(self.lifecycle.utun_interfaces()) -
                                      set(self.report["routeBaseline"]["utunInterfaces"])) )
 
-        proxy_after = self.rpc("proxySnapshot")
-        proxy_restored = (isinstance(proxy_after, dict) and
-                          normalized_proxy_state(proxy_after) == normalized_proxy_state(self.proxy_snapshot))
-        self.assertion("production transaction leaves all proxy services at the captured baseline",
-                       proxy_restored,
-                       {"expectedSHA256": canonical_hash(normalized_proxy_state(self.proxy_snapshot)),
-                        "actualSHA256": canonical_hash(normalized_proxy_state(proxy_after))
-                        if isinstance(proxy_after, dict) else None})
-        self.report["coverage"]["systemProxyExactRestore"] = proxy_restored
+        # Success intentionally committed an enabled proxy. Each failed transaction
+        # restored that known-good checkpoint, as verified by the production client.
+        # Restoring the pre-suite disabled state is a separate cleanup assertion.
+        self.validate_system_proxy_enable(self.validate_proxy_snapshot(self.proxy_snapshot), proxy_port)
+        self.report["productionRollbackProxyBaseline"] = {
+            "kind": "committed-successful-transaction",
+            "port": proxy_port,
+            "checkpointRestoresVerifiedByProductionClient": coverage.get("productionSystemProxyCheckpointRestore") is True,
+        }
+        self.restore_proxy_now("after production transaction acceptance")
 
         dns_after = self.rpc("dnsSnapshot")
         dns_restored = dns_after == self.dns_snapshot
