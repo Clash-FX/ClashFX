@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GODEBUG: http2client=0
+
 concurrency:
   group: helper-tun-acceptance-${{ github.ref }}
   cancel-in-progress: false
@@ -40,18 +43,25 @@ jobs:
             --identifier com.clashfx.app.Helper \
             "$RUNNER_TEMP/clashfx-acceptance-build/com.clashfx.app.Helper"
           python3 - <<'PY'
-          import os, subprocess, sys
+          import os, subprocess, sys, time
           from pathlib import Path
           root = Path.cwd()
           sys.path.insert(0, str(root / 'ClashFX/goClash'))
           from core_overlay import core_modfile
           output = Path(os.environ['RUNNER_TEMP']) / 'clashfx-acceptance-build/mihomo_core'
-          with core_modfile() as modfile:
-              subprocess.run(['go', 'build', f'-modfile={modfile}', '-trimpath', '-tags', 'with_gvisor',
-                              '-ldflags', '-X github.com/metacubex/mihomo/constant.Version=1.19.24',
-                              '-o', str(output), './mihomo-bin/'],
-                             cwd=root / 'ClashFX/goClash',
-                             env=dict(os.environ, CGO_ENABLED='0', GOMAXPROCS='2'), check=True, timeout=600)
+          for attempt in range(3):
+              try:
+                  with core_modfile() as modfile:
+                      subprocess.run(['go', 'build', f'-modfile={modfile}', '-trimpath', '-tags', 'with_gvisor',
+                                      '-ldflags', '-X github.com/metacubex/mihomo/constant.Version=1.19.24',
+                                      '-o', str(output), './mihomo-bin/'],
+                                     cwd=root / 'ClashFX/goClash',
+                                     env=dict(os.environ, CGO_ENABLED='0', GOMAXPROCS='2'), check=True, timeout=600)
+                  break
+              except subprocess.CalledProcessError:
+                  if attempt == 2:
+                      raise
+                  time.sleep(5 * (attempt + 1))
           PY
       - name: Real Helper, TUN and production rollback acceptance (disposable hosted guest only)
         shell: bash
