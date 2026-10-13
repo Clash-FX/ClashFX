@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.10 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.10 (Lab)</h2><ul><li><strong>Proxy Lock</strong> — Save lock preferences only after runtime and system proxy changes succeed. Roll back failed changes to the previous runtime and per-service proxy checkpoint; reject recursive dialing dependencies.</li><li><strong>Runtime ownership and recovery</strong> — Prevent a second ClashFX process from competing for the helper, core or system proxy. Coalesce recovery events, verify actual state and limit retries; quarantine unconfirmed helper writes and bound Rule-mode recovery.</li><li><strong>Node selection</strong> — Distinguish manual selection, automatic routing and manual priority. Show the core's actual route; automatic groups support a preferred node and Restore Auto without optimistic checkmarks.</li><li><strong>Latency tests and diagnostics</strong> — Remove duplicate test menus and move test options and display order to Settings. Separate current failures/timeouts from historical measurements; add copyable single-node diagnostics with controlled failure reasons.</li><li><strong>Interaction consistency</strong> — Coordinate selection, memory restoration, reloads, Lock and recovery. Reject stale replies across reloads and controller changes; bind diagnostics to the measured node and core scope.</li><li><strong>App icon</strong> — Use a fixed bitmap representation when saving custom icons and the Lab badge.</li></ul>
+  ]]></description>
+  <pubDate>Tue, 13 Oct 2026 12:12:16 +0000</pubDate>
+  <sparkle:version>1001011010</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.10</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.10/ClashFX.dmg"
+    sparkle:version="1001011010"
+    sparkle:shortVersionString="1.1.11.10"
+    sparkle:edSignature="VXxiVTRIQ2q/L2tBT7M1q8HAxmv/fTOOQrnA+rWNybPCQTJ1XIY+iWsRjsjfX1Kl6K9m/L1jVtJ6It+yWdn1Dw=="
+    length="94188227"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.9 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.9 (Lab)</h2><ul><li><strong>Predictable benchmark modes</strong> — Quick testing uses 2.5 seconds and Complete testing uses 5 seconds. Menus show progress and a visible completion summary; core timeouts remain distinct from failed nodes.</li><li><strong>Retry failed Selector nodes</strong> — Retry only matching failed or core-timeout targets from the latest run, keeping successful measurements. Switching to Complete gives slow nodes more time. Automatic groups still use core-controlled whole-group tests and fresh selection.</li><li><strong>Stable latency display</strong> — Choose configuration order or latency order; sorting applies when the menu reopens. Green, yellow and orange represent successful delays below 300 ms, 300–799 ms and 800 ms or more. Sorting does not change routing or configured fallback order.</li><li><strong>Consistent benchmark scheduling and settings</strong> — Equivalent targets are deduplicated with fixed 10-request concurrency. Settings expose HTTPS URL presets and measurement-method choices applied to runtime configuration without rewriting subscriptions. Existing saved URLs and inherited measurement behavior are preserved; new installs default to Cloudflare HTTPS and unified delay.</li><li><strong>Reliable core recovery</strong> — Helper tasks, launch/stop operations and listener checks are bounded and respect launch identity. Startup will not take over ports while old-core cleanup is unconfirmed; sustained API failures can recover even while traffic still flows.</li><li><strong>Safe cache and delay-history access</strong> — Embedded-core suspend/resume safely closes and reopens the cache database. Fixes upstream cache lifecycle and delay-history queue races during concurrent testing and selection.</li></ul>
