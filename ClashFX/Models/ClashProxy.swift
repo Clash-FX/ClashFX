@@ -210,6 +210,7 @@ enum ProxyMenuSnapshotDelta {
     private struct Presentation: Equatable {
         let coreID: String?
         let now: ClashProxyName?
+        let fixed: ClashProxyName?
         let alive: Bool?
         let history: History?
         let extra: [ExtraState]
@@ -246,7 +247,55 @@ enum ProxyMenuSnapshotDelta {
                 }
             )
         }.sorted { $0.url < $1.url }
-        return Presentation(coreID: proxy.id, now: proxy.now, alive: proxy.alive, history: history, extra: extra)
+        return Presentation(coreID: proxy.id, now: proxy.now, fixed: proxy.fixed,
+                            alive: proxy.alive, history: history, extra: extra)
+    }
+}
+
+/// Selection intent is never used to resolve the route: only fresh core `now`
+/// values determine the leaf, including when an unavailable preferred node loses.
+struct ProxyGroupSelectionPresentation {
+    enum Mode: Equatable {
+        case manual
+        case automatic
+        case manualPriority
+        case unknownAutomatic
+    }
+
+    let mode: Mode
+    let path: [ClashProxyName]
+    let leaf: ClashProxyName?
+    let preferredTarget: ClashProxyName?
+    let isResolved: Bool
+
+    init?(group: ClashProxy, snapshot: ClashProxyResp?) {
+        let snapshot = snapshot ?? group.enclosingResp
+        let observed = snapshot?.proxiesMap[group.name] ?? group
+        if observed.type == .select {
+            mode = .manual
+            preferredTarget = nil
+        } else if observed.supportsManualPriority {
+            preferredTarget = observed.manualPriorityTarget
+            mode = preferredTarget != nil ? .manualPriority : (observed.fixed == nil ? .unknownAutomatic : .automatic)
+        } else {
+            return nil
+        }
+        if let snapshot {
+            switch snapshot.resolveSelectedPath(from: observed.name) {
+            case let .resolved(resolvedPath, resolvedLeaf):
+                path = resolvedPath
+                leaf = resolvedLeaf.name
+                isResolved = true
+            case let .unavailable(partialPath, _):
+                path = partialPath
+                leaf = nil
+                isResolved = false
+            }
+        } else {
+            path = [observed.name]
+            leaf = nil
+            isResolved = false
+        }
     }
 }
 
@@ -254,6 +303,7 @@ enum ProxyBenchmarkRowState {
     case testing(displayName: String)
     case measured(displayName: String, delay: Int)
     case failed(displayName: String)
+    case timedOut(displayName: String)
     case unavailable(displayName: String)
 
     var presentationName: String {
@@ -261,6 +311,7 @@ enum ProxyBenchmarkRowState {
         case let .testing(displayName),
              let .measured(displayName, _),
              let .failed(displayName),
+             let .timedOut(displayName),
              let .unavailable(displayName):
             return displayName
         }
@@ -274,6 +325,8 @@ enum ProxyBenchmarkRowState {
             return "\(delay) ms"
         case .failed:
             return NSLocalizedString("fail", comment: "")
+        case .timedOut:
+            return NSLocalizedString("Benchmark timed out", comment: "")
         case .unavailable:
             return NSLocalizedString("Benchmark unavailable", comment: "")
         }
@@ -285,7 +338,7 @@ enum ProxyBenchmarkRowState {
             return delay
         case .failed:
             return 0
-        case .testing, .unavailable:
+        case .testing, .timedOut, .unavailable:
             return nil
         }
     }
@@ -433,7 +486,7 @@ struct SelectorBenchmarkPresentation {
         switch rowState {
         case .unavailable:
             return self
-        case .testing, .measured, .failed:
+        case .testing, .measured, .failed, .timedOut:
             return SelectorBenchmarkPresentation(
                 selectorName: selectorName,
                 rowName: rowName,
@@ -1119,6 +1172,21 @@ struct ClashProxyTestState: Codable {
     let history: [ClashProxySpeedHistory]
 }
 
+private struct CoreFixedSelection: Codable {
+    let target: ClashProxyName?
+
+    init(from decoder: Decoder) throws {
+        // Older/remote cores may omit this field or expose a different shape.
+        // Keep the group visible, without inventing a manual-priority target.
+        target = try? decoder.singleValueContainer().decode(String.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if let target { try container.encode(target) } else { try container.encodeNil() }
+    }
+}
+
 class ClashProxy: Codable {
     let name: ClashProxyName
     let id: String?
@@ -1126,6 +1194,10 @@ class ClashProxy: Codable {
     let all: [ClashProxyName]?
     let history: [ClashProxySpeedHistory]
     let now: ClashProxyName?
+    /// The core's preferred member, distinct from its currently used `now`.
+    /// Nil means this core did not report priority state; empty means automatic.
+    private let fixedSelection: CoreFixedSelection?
+    var fixed: ClashProxyName? { fixedSelection?.target }
     let alive: Bool?
     let extra: [String: ClashProxyTestState]?
     let hidden: Bool?
@@ -1163,6 +1235,16 @@ class ClashProxy: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case type, all, history, now, name, id, alive, extra, hidden, testUrl, expectedStatus
+        case fixedSelection = "fixed"
+    }
+
+    var supportsManualPriority: Bool {
+        type == .urltest || type == .fallback
+    }
+
+    var manualPriorityTarget: ClashProxyName? {
+        guard supportsManualPriority, let fixed, !fixed.isEmpty else { return nil }
+        return fixed
     }
 
     func testState(for benchmarkURL: String) -> ClashProxyTestState? {

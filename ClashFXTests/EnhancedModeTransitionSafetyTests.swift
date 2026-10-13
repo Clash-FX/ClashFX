@@ -197,3 +197,173 @@ final class EnhancedModeTransitionSafetyTests: XCTestCase {
         XCTAssertNil(lifecycle.launchID)
     }
 }
+
+final class ClaudeProxyLockTransactionTests: XCTestCase {
+    private final class Environment {
+        var current = true
+        var savedLock = false
+        var runtime = "old"
+        var proxy = "old"
+        var events: [String] = []
+        var runtimeError: String?
+        var proxyError: String?
+        var restoreRuntimeError: String?
+        var restoreProxyError: String?
+        var heldProxyReply: ((String?) -> Void)?
+        var heldRuntimeReply: ((String?) -> Void)?
+        var holdProxy = false
+        var holdRuntime = false
+        var duplicateReplies = false
+        var completions = 0
+        var failure: ClaudeProxyLockTransaction.Failure?
+
+        func makeTransaction(finished: @escaping () -> Void) -> ClaudeProxyLockTransaction {
+            ClaudeProxyLockTransaction(dependencies: .init(
+                isCurrent: { self.current },
+                applyRuntime: { reply in
+                    self.events.append("apply runtime")
+                    self.runtime = "new"
+                    if self.holdRuntime { self.heldRuntimeReply = reply; return }
+                    reply(self.runtimeError)
+                    if self.duplicateReplies { reply(nil) }
+                },
+                applySystemProxy: { reply in
+                    self.events.append("apply proxy")
+                    self.proxy = "new"
+                    if self.holdProxy { self.heldProxyReply = reply; return }
+                    reply(self.proxyError)
+                    if self.duplicateReplies { reply(nil) }
+                },
+                prepareRollback: { self.events.append("prepare rollback") },
+                restoreRuntime: { reply in
+                    self.events.append("restore runtime")
+                    if self.restoreRuntimeError == nil { self.runtime = "old" }
+                    reply(self.restoreRuntimeError)
+                    if self.duplicateReplies { reply(nil) }
+                },
+                restoreSystemProxy: { reply in
+                    self.events.append("restore proxy")
+                    if self.restoreProxyError == nil { self.proxy = "old" }
+                    reply(self.restoreProxyError)
+                    if self.duplicateReplies { reply(nil) }
+                },
+                commit: { self.events.append("commit"); self.savedLock = true },
+                finished: { failure in
+                    XCTAssertTrue(Thread.isMainThread)
+                    self.completions += 1
+                    self.failure = failure
+                    finished()
+                }
+            ))
+        }
+    }
+
+    private func execute(_ environment: Environment) {
+        let done = expectation(description: "lock transaction settled")
+        done.assertForOverFulfill = true
+        let transaction = environment.makeTransaction { done.fulfill() }
+        transaction.start()
+        wait(for: [done], timeout: 2)
+        withExtendedLifetime(transaction) {}
+        XCTAssertEqual(environment.completions, 1)
+    }
+
+    func testPreferencesCommitOnlyAfterBothStagesSucceed() {
+        let environment = Environment()
+        environment.holdProxy = true
+        let done = expectation(description: "committed")
+        let transaction = environment.makeTransaction { done.fulfill() }
+        transaction.start()
+        let proxyStarted = expectation(description: "proxy stage started")
+        DispatchQueue.main.async {
+            XCTAssertFalse(environment.savedLock)
+            XCTAssertEqual(environment.runtime, "new")
+            XCTAssertEqual(environment.events, ["apply runtime", "apply proxy"])
+            environment.heldProxyReply?(nil)
+            proxyStarted.fulfill()
+        }
+        wait(for: [proxyStarted, done], timeout: 2)
+        XCTAssertTrue(environment.savedLock)
+        XCTAssertNil(environment.failure)
+        XCTAssertEqual(environment.events.last, "commit")
+        withExtendedLifetime(transaction) {}
+    }
+
+    func testCoreFailureRestoresRuntimeAndProxyWithoutCommitting() {
+        let environment = Environment()
+        environment.runtimeError = "port occupied"
+        execute(environment)
+        XCTAssertFalse(environment.savedLock)
+        XCTAssertEqual(environment.runtime, "old")
+        XCTAssertEqual(environment.proxy, "old")
+        XCTAssertEqual(environment.failure?.primary, "port occupied")
+        XCTAssertEqual(environment.failure?.restorationErrors, [])
+        XCTAssertFalse(environment.events.contains("apply proxy"))
+    }
+
+    func testPartiallyAppliedSystemProxyFailureRestoresBothStages() {
+        let environment = Environment()
+        environment.proxyError = "helper failed after mutation"
+        execute(environment)
+        XCTAssertEqual(environment.events, ["apply runtime", "apply proxy", "prepare rollback", "restore runtime", "restore proxy"])
+        XCTAssertEqual(environment.runtime, "old")
+        XCTAssertEqual(environment.proxy, "old")
+        XCTAssertFalse(environment.savedLock)
+    }
+
+    func testRuntimeRecoveryFailureStillRestoresOriginalSystemProxy() {
+        let environment = Environment()
+        environment.proxyError = "enable failed"
+        environment.restoreRuntimeError = "old core failed"
+        execute(environment)
+        XCTAssertEqual(environment.proxy, "old")
+        XCTAssertEqual(environment.failure?.restorationErrors, ["old core failed"])
+        XCTAssertFalse(environment.savedLock)
+    }
+
+    func testBothRecoveryFailuresAreReportedSeparatelyFromPrimaryFailure() {
+        let environment = Environment()
+        environment.runtimeError = "launch failed"
+        environment.restoreRuntimeError = "restore core failed"
+        environment.restoreProxyError = "restore proxy failed"
+        execute(environment)
+        XCTAssertEqual(environment.failure?.primary, "launch failed")
+        XCTAssertEqual(environment.failure?.restorationErrors, ["restore core failed", "restore proxy failed"])
+    }
+
+    func testDuplicateSuccessAfterFailureCannotCommitOrRecoverTwice() {
+        let environment = Environment()
+        environment.runtimeError = "timed out"
+        environment.duplicateReplies = true
+        execute(environment)
+        XCTAssertFalse(environment.savedLock)
+        XCTAssertEqual(environment.events.filter { $0 == "restore runtime" }.count, 1)
+        XCTAssertEqual(environment.events.filter { $0 == "restore proxy" }.count, 1)
+    }
+
+    func testSupersededCallbackCannotOverwriteNewerRuntime() {
+        let environment = Environment()
+        environment.holdRuntime = true
+        let done = expectation(description: "cancelled")
+        let transaction = environment.makeTransaction { done.fulfill() }
+        transaction.start()
+        environment.current = false
+        environment.runtime = "newer lifecycle"
+        environment.heldRuntimeReply?("late failure")
+        wait(for: [done], timeout: 2)
+        XCTAssertEqual(environment.runtime, "newer lifecycle")
+        XCTAssertEqual(environment.events, ["apply runtime"])
+        XCTAssertTrue(environment.failure?.cancelled == true)
+        XCTAssertFalse(environment.savedLock)
+        withExtendedLifetime(transaction) {}
+    }
+
+    func testAlreadySupersededTransactionDoesNotTouchRuntime() {
+        let environment = Environment()
+        environment.current = false
+        execute(environment)
+        XCTAssertEqual(environment.runtime, "old")
+        XCTAssertTrue(environment.events.isEmpty)
+        XCTAssertTrue(environment.failure?.cancelled == true)
+    }
+}

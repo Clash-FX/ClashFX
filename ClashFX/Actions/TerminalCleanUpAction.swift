@@ -12,6 +12,7 @@ import RxSwift
 
 enum TerminalConfirmAction {
     static func run() -> NSApplication.TerminateReply {
+        guard AppDelegate.shared.ownsRuntimeControl else { return .terminateNow }
         guard !AppDelegate.shared.isTerminating else { return .terminateLater }
         guard confirmAction() else {
             return .terminateCancel

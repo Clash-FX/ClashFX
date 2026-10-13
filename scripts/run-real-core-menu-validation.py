@@ -116,6 +116,50 @@ def main():
         def authorized(self):
             return self.headers.get("Authorization") == "Bearer " + token
 
+        def forward_selection(self):
+            # Expose only the fixture groups, never a production controller.
+            if not self.authorized() or self.path not in {
+                "/proxies/Selector", "/proxies/Automatic", "/proxies/Failover"
+            }:
+                self.send_error(403)
+                return
+            body = None
+            if self.command == "PUT":
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 4096:
+                    self.send_error(400)
+                    return
+                body = self.rfile.read(size)
+                try:
+                    name = json.loads(body).get("name")
+                except (ValueError, AttributeError):
+                    self.send_error(400)
+                    return
+                if name not in {"Local-A", "Local-B", "Local-Broken", "Automatic", "Failover"}:
+                    self.send_error(400)
+                    return
+            request = urllib.request.Request(
+                core_endpoint + self.path, data=body, method=self.command,
+                headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            )
+            try:
+                response = opener.open(request, timeout=15)
+            except urllib.error.HTTPError as error:
+                response = error
+            except OSError:
+                self.send_error(502)
+                return
+            with response:
+                payload = response.read()
+                status = response.status
+            self.send_payload(status, payload)
+
+        def do_PUT(self):
+            self.forward_selection()
+
+        def do_DELETE(self):
+            self.forward_selection()
+
         def do_POST(self):
             if not self.authorized() or self.path != "/__fixture/clear-captures":
                 self.send_error(403)
@@ -187,6 +231,9 @@ def main():
                     pass
 
                 def do_CONNECT(self):
+                    if name == "Local-Auth":
+                        self.send_error(407)
+                        return
                     # A real HTTP tunnel, with a strict local-origin allowlist.
                     if self.path != f"127.0.0.1:{origin_port}" or name == "Local-Broken":
                         self.send_error(502)
@@ -214,7 +261,7 @@ def main():
                         pass
             return Proxy
 
-        ports = {name: start(proxy_handler(name)) for name in ("Local-A", "Local-B", "Local-Broken")}
+        ports = {name: start(proxy_handler(name)) for name in ("Local-A", "Local-B", "Local-Broken", "Local-Auth")}
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
             core_controller_port = reservation.getsockname()[1]
@@ -238,8 +285,10 @@ def main():
             ],
             "proxy-groups": [
                 {"name": "Scheduling", "type": "select", "proxies": [f"Schedule-{index:02d}" for index in range(40)]},
-                {"name": "Selector", "type": "select", "proxies": ["Local-A", "Local-B", "Local-Broken", "Automatic", "Empty-SG", "Empty-TW", "Nested-Empty", "DIRECT"]},
+                {"name": "Diagnostic-Selector", "type": "select", "proxies": ["Local-Auth"]},
+                {"name": "Selector", "type": "select", "proxies": ["Local-A", "Local-B", "Local-Broken", "Automatic", "Failover", "Empty-SG", "Empty-TW", "Nested-Empty", "DIRECT"]},
                 {"name": "Automatic", "type": "url-test", "proxies": ["Local-A", "Local-B", "Local-Broken"], "url": origin + "/probe-a", "interval": 86400, "lazy": True, "tolerance": 0},
+                {"name": "Failover", "type": "fallback", "proxies": ["Local-A", "Local-B", "Local-Broken"], "url": origin + "/probe-a", "interval": 86400, "lazy": True},
                 {"name": "Empty-SG", "type": "url-test", "include-all": True, "filter": "^__no_sg_nodes__$", "url": origin + "/probe-a", "interval": 86400, "lazy": True},
                 {"name": "Empty-TW", "type": "fallback", "include-all": True, "filter": "^__no_tw_nodes__$", "url": origin + "/probe-a", "interval": 86400, "lazy": True},
                 {"name": "Nested-Empty", "type": "select", "proxies": ["Empty-SG"]},

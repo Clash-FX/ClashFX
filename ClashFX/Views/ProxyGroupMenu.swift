@@ -12,13 +12,11 @@ import AppKit
 }
 
 class ProxyGroupMenu: NSMenu {
-    private static let displayOrderMenuMarker = "ClashFX.ProxyGroupMenu.DisplayOrder"
-
     var highlightDelegates = NSHashTable<ProxyGroupMenuHighlightDelegate>.weakObjects()
+    var selectionController: ProxyGroupSelectionController?
     private var preparationState = ProxyMenuPreparationState()
     private var prepareHandler: ((ProxyGroupMenu) -> Void)?
     private var hasCapturedConfigurationOrder = false
-    private weak var displayOrderMenuItem: NSMenuItem?
 
     override init(title: String) {
         super.init(title: title)
@@ -59,7 +57,8 @@ extension ProxyGroupMenu: NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         dispatchPrecondition(condition: .onQueue(.main))
         prepareIfNeeded()
-        prepareDisplayOrderMenuIfNeeded()
+        selectionController?.updateMenuPresentation()
+        captureConfigurationOrderIfNeeded()
         applyConfiguredRowOrder()
     }
 
@@ -71,78 +70,15 @@ extension ProxyGroupMenu: NSMenuDelegate {
         highlightDelegates.allObjects.forEach { $0.highlight(item: item) }
     }
 
-    private func prepareDisplayOrderMenuIfNeeded() {
+    private func captureConfigurationOrderIfNeeded() {
         dispatchPrecondition(condition: .onQueue(.main))
         let sortableRows = items.compactMap { $0 as? ProxyMenuItem }.filter(\.isSortableProxyRow)
         guard !sortableRows.isEmpty else { return }
-
-        if !hasCapturedConfigurationOrder {
-            for (index, row) in sortableRows.enumerated() {
-                row.captureConfigurationSortIndex(index)
-            }
-            hasCapturedConfigurationOrder = true
+        guard !hasCapturedConfigurationOrder else { return }
+        for (index, row) in sortableRows.enumerated() {
+            row.captureConfigurationSortIndex(index)
         }
-
-        if let existingItem = items.first(where: {
-            $0.representedObject as? String == Self.displayOrderMenuMarker
-        }) {
-            displayOrderMenuItem = existingItem
-            updateDisplayOrderSelection()
-            return
-        }
-
-        let menuItem = NSMenuItem(
-            title: NSLocalizedString("Display Order", comment: "Proxy menu row-order submenu"),
-            action: nil,
-            keyEquivalent: ""
-        )
-        menuItem.representedObject = Self.displayOrderMenuMarker
-
-        let submenu = NSMenu(title: menuItem.title)
-        for order in [BenchmarkSortOrder.configuration, .latency] {
-            let option = NSMenuItem(
-                title: localizedTitle(for: order),
-                action: #selector(changeDisplayOrder(_:)),
-                keyEquivalent: ""
-            )
-            option.target = self
-            option.representedObject = order.rawValue
-            submenu.addItem(option)
-        }
-        menuItem.submenu = submenu
-
-        let insertionIndex = items.firstIndex(where: {
-            ($0 as? ProxyMenuItem)?.isSortableProxyRow == true
-        }) ?? numberOfItems
-        insertItem(menuItem, at: insertionIndex)
-        displayOrderMenuItem = menuItem
-        updateDisplayOrderSelection()
-    }
-
-    private func localizedTitle(for order: BenchmarkSortOrder) -> String {
-        switch order {
-        case .configuration:
-            return NSLocalizedString("Configuration Order", comment: "Proxy menu sort option")
-        case .latency:
-            return NSLocalizedString("Latency First", comment: "Proxy menu sort option")
-        }
-    }
-
-    @objc private func changeDisplayOrder(_ sender: NSMenuItem) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard let rawValue = sender.representedObject as? String,
-              let order = BenchmarkSortOrder(rawValue: rawValue) else { return }
-        Settings.benchmarkSortOrder = order
-        updateDisplayOrderSelection()
-    }
-
-    private func updateDisplayOrderSelection() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard let submenu = displayOrderMenuItem?.submenu else { return }
-        let selectedOrder = Settings.benchmarkSortOrder
-        for item in submenu.items {
-            item.state = (item.representedObject as? String) == selectedOrder.rawValue ? .on : .off
-        }
+        hasCapturedConfigurationOrder = true
     }
 
     private func applyConfiguredRowOrder() {
@@ -160,8 +96,8 @@ extension ProxyGroupMenu: NSMenuDelegate {
         }
         guard orderChanged else { return }
 
-        // Keep functional items attached: reattaching the benchmark view can
-        // insert its options sibling while a whole-menu rebuild is in flight.
+        // Keep functional items and separators in place while sorting only
+        // the proxy rows.
         let rowIndices = items.indices.filter { index in
             guard let row = items[index] as? ProxyMenuItem else { return false }
             return row.isSortableProxyRow

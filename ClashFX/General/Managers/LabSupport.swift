@@ -75,6 +75,15 @@ enum LabSupport {
         lines.append("- Enhanced Runtime Health: \(AppDelegate.shared.enhancedModeRuntimeHealthSummary)")
         lines.append("- Core CPU Watchdog: \(AppDelegate.shared.coreCPUWatchdogSummary)")
         lines.append("- Wake Recovery: \(AppDelegate.shared.wakeRecoveryDiagnosticSummary)")
+        let probes = ApiRequest.recentBenchmarkProbeDiagnostics()
+        if !probes.isEmpty {
+            lines.append("")
+            lines.append("### Recent node probes (current core scope)")
+            for probe in probes {
+                lines.append("")
+                lines.append(probe.localizedReport)
+            }
+        }
         lines.append("")
         lines.append("### Recent log (last 50 lines, sensitive data redacted)")
         lines.append("```")

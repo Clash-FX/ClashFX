@@ -67,9 +67,18 @@ class RemoteControlManager {
         }
     }
 
-    private static func recoverSelection() {
+    private static func recoverSelection(deadline: Date = Date().addingTimeInterval(40)) {
+        guard Date() < deadline else {
+            Logger.log("Remote selection recovery deferred beyond its deadline", level: .warning)
+            return
+        }
+        guard AppDelegate.shared.canSwitchProxyControlScope else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { recoverSelection(deadline: deadline) }
+            return
+        }
         if !Recorder.selected.isEmpty {
             if let config = configs.first(where: { $0.uuid == Recorder.selected }) {
+                guard AppDelegate.shared.beginProxyControlScopeChange() else { return }
                 selectConfig = config
                 updateRemoteControl()
                 updateMenuItems()
@@ -102,12 +111,14 @@ class RemoteControlManager {
     }
 
     @objc static func didSelectMenuItem(sender: ExternalControlMenuItem) {
+        guard AppDelegate.shared.beginProxyControlScopeChange() else { return }
         selectConfig = sender.model
         updateRemoteControl()
         updateMenuItems()
     }
 
     static func updateRemoteControl() {
+        guard AppDelegate.shared.canSwitchProxyControlScope else { return }
         AppDelegate.shared.cancelActiveSpeedTest(reason: "controller change", refreshMenu: false)
         if let config = selectConfig, let url = URL(string: config.url) {
             ConfigManager.shared.overrideApiURL = url

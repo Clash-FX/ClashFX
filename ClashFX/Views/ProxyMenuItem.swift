@@ -41,7 +41,7 @@ enum ProxyBenchmarkRowSorting {
                 return leftMetadata.configurationIndex < rightMetadata.configurationIndex
             }
             return left.offset < right.offset
-        }.map { $0.element }
+        }.map(\.element)
     }
 }
 
@@ -309,10 +309,20 @@ class ProxyMenuItem: NSMenuItem {
     }
 
     func didClick() {
+        guard isEnabled else { return }
         if let action = action {
             _ = target?.perform(action, with: self)
         }
         menu?.cancelTracking()
+    }
+
+    /// Keep selection help separate from the measurement tooltip so benchmark
+    /// updates cannot erase the meaning of clicking an automatic-group row.
+    var selectionHelp: String? {
+        didSet {
+            toolTip = selectionHelp
+            view?.toolTip = selectionHelp
+        }
     }
 
     func captureConfigurationSortIndex(_ index: Int) {
@@ -477,17 +487,7 @@ class ProxyMenuItem: NSMenuItem {
         presentationName = proxyName
         var tooltip = [String]()
         if let leaf, leaf.name != proxyName { tooltip.append(leaf.name) }
-        tooltip.append(conditions.url)
-        if let date = presentation.measuredAt {
-            let timestamp = DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)
-            tooltip.append(String(format: NSLocalizedString("Measured at: %@", comment: ""), timestamp))
-        }
-        if presentation.isHistorical {
-            tooltip.append(NSLocalizedString("Historical benchmark result", comment: ""))
-        }
-        if presentation.lastAttemptUnavailable {
-            tooltip.append(NSLocalizedString("Latest benchmark unavailable; showing the last measurement", comment: ""))
-        }
+        tooltip.append(BenchmarkFailurePresentation.details(for: presentation, conditions: conditions, proxy: leaf))
         if case .testing = presentation.state {
             updateBenchmarkToolTip(nil)
         } else {
@@ -518,7 +518,7 @@ class ProxyMenuItem: NSMenuItem {
     private func updateBenchmarkToolTip(_ details: String?) {
         // Native text-only menu items cannot restrict their tooltip to the
         // delay suffix. Do not fall back to a disruptive whole-row tooltip.
-        toolTip = nil
+        toolTip = selectionHelp
         (view as? ProxyItemView)?.delayLabel.toolTip = details
     }
 
