@@ -28,7 +28,7 @@ final class AppDelegate {
 
     func beginSpeedTest(showNotifications: Bool) -> ApiRequest.BenchmarkSession? {
         dispatchPrecondition(condition: .onQueue(.main))
-        guard active == nil else { return nil }
+        guard active == nil, !ProxyGroupSelectionController.isAnyOperationInProgress else { return nil }
         ProxyGroupSpeedTestMenuItem.clearBenchmarkCancellationFeedback()
         let session = ApiRequest.BenchmarkSession()
         active = session
@@ -186,6 +186,21 @@ enum ApiRequest {
         config.httpMaximumConnectionsPerHost = 100
         return URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
     }()
+
+    static var benchmarkProbeScope = BenchmarkProbeCoreScope(
+        configName: "isolated", remoteUUID: nil,
+        apiURI: "http://mihomo-menu-fixture.invalid", proxySelectionGeneration: 0
+    )
+
+    static func latestBenchmarkProbeDiagnostic(
+        for proxy: ClashProxy, conditions: BenchmarkConditions
+    ) -> BenchmarkProbeDiagnostic? {
+        let scope = loopbackFixture.map { fixture in
+            BenchmarkProbeCoreScope(configName: "isolated", remoteUUID: nil,
+                                    apiURI: fixture.endpoint.absoluteString, proxySelectionGeneration: 0)
+        } ?? benchmarkProbeScope
+        return BenchmarkProbeDiagnosticsStore.latest(for: proxy, conditions: conditions, currentScope: scope)
+    }
 
     final class BenchmarkSession {
         private let lock = NSLock()

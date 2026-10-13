@@ -36,6 +36,7 @@ class PrivilegedHelperManager {
     // MARK: - Public
 
     func checkInstall() {
+        guard AppDelegate.shared.ownsRuntimeControl else { return }
         Logger.log("checkInstall", level: .debug)
         getHelperStatus { [weak self] status in
             Logger.log("check result: \(status)", level: .debug)
@@ -159,6 +160,7 @@ class PrivilegedHelperManager {
 
     /// Install new helper daemon
     private func installHelperDaemon() -> DaemonInstallResult {
+        guard AppDelegate.shared.ownsRuntimeControl else { return .authorizationFail }
         Logger.log("installHelperDaemon", level: .info)
 
         defer {
@@ -206,6 +208,7 @@ class PrivilegedHelperManager {
     }
 
     func helper(failture: (() -> Void)? = nil) -> ProxyConfigRemoteProcessProtocol? {
+        guard AppDelegate.shared.ownsRuntimeControl else { failture?(); return nil }
         connectionLock.lock()
         let activeConnection: NSXPCConnection
         if let connection {

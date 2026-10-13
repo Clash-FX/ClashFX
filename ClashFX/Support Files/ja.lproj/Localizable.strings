@@ -726,3 +726,172 @@
 "Benchmark Target:" = "測定先：";
 
 "Measurement Method:" = "測定方法：";
+
+"Display Order:" = "表示順序：";
+
+"The previous proxy state was restored." = "変更前のプロキシ状態を復元しました。";
+
+"Restoring the previous proxy state also failed: %@" = "変更前のプロキシ状態の復元にも失敗しました：%@";
+
+"Manual Selection" = "手動";
+
+"Automatic Selection" = "自動";
+
+"Manual Priority" = "優先";
+
+"Core-managed Selection" = "コア選択";
+
+"Actual route: %@" = "実際の経路：%@";
+
+"Preferred node: %@" = "優先ノード：%@";
+
+"Actual route could not be fully resolved" = "現在の経路を確認できません。";
+
+"Restore Automatic Selection" = "自動に戻す";
+
+"Selected path unavailable" = "現在の選択を確認できません。";
+
+"This core did not report fixed state." = "このコアは優先状態を報告しないため、選択を変更できません。";
+
+"Preferred node" = "優先ノード";
+
+"Click to prefer this node; the core may choose a fallback." = "クリックして優先指定します。利用不可の場合、コアが代替を選びます。";
+
+"A proxy selection is already in progress." = "選択を切り替えています。しばらくお待ちください。";
+
+"Proxy core is changing." = "コアを切り替えています。後で再試行してください。";
+
+"Selection is unavailable during a benchmark." = "測定が完了してからノードを選んでください。";
+
+"Proxy selection timed out." = "選択がタイムアウトしました。コアの状態を確認できません。";
+
+"Proxy selection failed." = "選択を変更できませんでした。";
+
+"The core did not retain the requested selection." = "コアは指定を維持しませんでした。現在の実際の経路を表示します。";
+
+"Proxy Selection Failed" = "選択を変更できません";
+
+"Wait for the proxy selection to finish." = "選択の切り替えが完了するまでお待ちください。";
+
+"Benchmark timed out" = "タイムアウト";
+
+"Attempted at: %@" = "試行日時：%@";
+
+"Previous successful measurement: %@ (%@)" = "前回の成功結果：%@（%@）";
+
+"Latest recorded probe: %@" = "最近の記録：%@";
+
+"Probe timeout: %d ms; elapsed: %d ms" = "コア期限：%d ms、経過：%d ms";
+
+"Core API response: %d" = "コアAPI応答：%d";
+
+"Single-node Benchmark Diagnostic…" = "ノードの測定診断…";
+
+"Single-node Benchmark Diagnostic" = "ノードの測定診断";
+
+"Test one node without setting manual priority. Automatic groups still follow the core." = "優先指定せずに1つのノードを測定します。自動選択はコアが決定します。";
+
+"Run Diagnostic" = "診断を実行";
+
+"Copy Diagnostic Report" = "診断レポートをコピー";
+
+"Node:" = "ノード：";
+
+"Benchmark URL:" = "テストURL：";
+
+"Probe timeout:" = "測定の期限：";
+
+"Could not load nodes for a diagnostic probe." = "ノード一覧を取得できません。コアAPIを確認してください。";
+
+"Enter a valid HTTP or HTTPS benchmark URL." = "有効なHTTPまたはHTTPSのURLを入力してください。";
+
+"The probe completed, but its diagnostic record could not be confirmed." = "測定は完了しましたが、診断記録を確認できません。";
+
+"benchmark_probe_detail_node" = "ノード";
+
+"benchmark_probe_detail_identity" = "識別範囲";
+
+"benchmark_probe_detail_provider" = "プロバイダー";
+
+"benchmark_probe_detail_url" = "テストURL";
+
+"benchmark_probe_detail_timeout" = "コア期限";
+
+"benchmark_probe_detail_request_deadline" = "リクエスト期限";
+
+"benchmark_probe_detail_started" = "開始";
+
+"benchmark_probe_detail_completed" = "完了";
+
+"benchmark_probe_detail_elapsed" = "経過時間";
+
+"benchmark_probe_detail_status" = "コアAPI応答";
+
+"benchmark_probe_detail_result" = "今回の結果";
+
+"benchmark_probe_detail_failure_kind" = "エラー分類";
+
+"benchmark_probe_detail_failure_code" = "診断コード";
+
+"benchmark_probe_detail_cause" = "原因";
+
+"benchmark_probe_result_success" = "成功（%d ms）";
+
+"benchmark_probe_result_failed" = "失敗";
+
+"benchmark_probe_result_timed_out" = "タイムアウト";
+
+"benchmark_probe_result_unavailable" = "結果を確認できません";
+
+"benchmark_probe_result_cancelled" = "キャンセル";
+
+"benchmark_probe_status_unknown" = "不明";
+
+"benchmark_probe_invalid_url" = "無効なURL";
+
+"benchmark_probe_identity_leaf" = "ノード識別";
+
+"benchmark_probe_identity_name_only" = "ノード名のみ";
+
+"benchmark_probe_failure_none" = "エラーは報告されていません。";
+
+"benchmark_probe_failure_authentication_failed" = "プロキシの認証が拒否されました。";
+
+"benchmark_probe_failure_dial_failed" = "プロキシ接続を確立できません。";
+
+"benchmark_probe_failure_controller_unavailable" = "ネットワークまたはコアAPIで結果を確認できません。";
+
+"benchmark_probe_failure_dns_resolution_failed" = "DNS解決に失敗しました。";
+
+"benchmark_probe_failure_dns_timeout" = "DNS解決がタイムアウトしました。";
+
+"benchmark_probe_failure_http_request_failed" = "HTTP測定リクエストに失敗しました。";
+
+"benchmark_probe_failure_invalid_result" = "コアAPIが無効な結果を返しました。";
+
+"benchmark_probe_failure_unspecified_core_failure" = "コアの測定に失敗しましたが、詳細はありません。";
+
+"benchmark_probe_failure_node_reported_failure" = "測定に失敗しましたが、詳細はありません。";
+
+"benchmark_probe_failure_probe_failed" = "測定に失敗しました。原因を特定できません。";
+
+"benchmark_probe_failure_probe_timeout" = "コアの測定期限を超えました。";
+
+"benchmark_probe_failure_quic_handshake_failed" = "QUICハンドシェイクに失敗しました。";
+
+"benchmark_probe_failure_tls_expired" = "TLS証明書の期限が切れています。";
+
+"benchmark_probe_failure_tls_failure" = "TLS接続に失敗しました。";
+
+"benchmark_probe_failure_tls_name_mismatch" = "TLS証明書の名前が一致しません。";
+
+"benchmark_probe_failure_tls_unknown_authority" = "TLS証明書が信頼されていません。";
+
+"benchmark_probe_failure_unexpected_response" = "コアAPIで結果を確認できません。";
+
+"benchmark_probe_failure_zero_delay" = "コアが有効な正の遅延値を返しませんでした。";
+
+/* Runtime ownership and bounded System Proxy recovery */
+"ClashFX is already running. This copy will close to protect the active proxy." = "ClashFX はすでに実行中です。現在のプロキシを保護するため、このコピーを終了します。";
+"ClashFX could not obtain exclusive runtime control." = "ClashFX の排他的な実行制御を取得できませんでした。";
+"System Proxy recovery paused after repeated conflicts. Click to retry." = "競合が続いたためシステムプロキシの復元を停止しました。クリックして再試行できます。";

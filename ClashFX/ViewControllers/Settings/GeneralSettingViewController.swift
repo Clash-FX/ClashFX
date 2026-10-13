@@ -31,9 +31,11 @@ class GeneralSettingViewController: NSViewController {
     @IBOutlet var speedTestUrlField: NSTextField!
     @IBOutlet var benchmarkURLSaveButton: NSButton!
     @IBOutlet var benchmarkModePopUp: NSPopUpButton!
+    @IBOutlet var benchmarkSortOrderPopUp: NSPopUpButton!
     @IBOutlet var benchmarkURLPresetPopUp: NSPopUpButton!
     @IBOutlet var benchmarkMeasurementMethodPopUp: NSPopUpButton!
     @IBOutlet var benchmarkModeLabel: NSTextField!
+    @IBOutlet var benchmarkSortOrderLabel: NSTextField!
     @IBOutlet var benchmarkURLPresetLabel: NSTextField!
     @IBOutlet var benchmarkMeasurementMethodLabel: NSTextField!
 
@@ -247,10 +249,12 @@ class GeneralSettingViewController: NSViewController {
 
     private func configureBenchmarkSettingsControls() {
         benchmarkModeLabel.stringValue = NSLocalizedString("Benchmark Mode:", comment: "")
+        benchmarkSortOrderLabel.stringValue = NSLocalizedString("Display Order:", comment: "")
         benchmarkURLPresetLabel.stringValue = NSLocalizedString("Benchmark Target:", comment: "")
         benchmarkMeasurementMethodLabel.stringValue = NSLocalizedString("Measurement Method:", comment: "")
         let benchmarkLabels: [NSTextField] = [
             benchmarkModeLabel,
+            benchmarkSortOrderLabel,
             benchmarkURLPresetLabel,
             benchmarkMeasurementMethodLabel
         ]
@@ -271,6 +275,18 @@ class GeneralSettingViewController: NSViewController {
             benchmarkModePopUp.item(at: benchmarkModePopUp.numberOfItems - 1)?.representedObject = mode.rawValue
         }
         benchmarkModePopUp.selectItem(at: Settings.benchmarkMode == .quick ? 0 : 1)
+
+        benchmarkSortOrderPopUp.removeAllItems()
+        for order in [BenchmarkSortOrder.configuration, .latency] {
+            let title = order == .configuration
+                ? NSLocalizedString("Configuration Order", comment: "")
+                : NSLocalizedString("Latency First", comment: "")
+            benchmarkSortOrderPopUp.addItem(withTitle: title)
+            benchmarkSortOrderPopUp.item(at: benchmarkSortOrderPopUp.numberOfItems - 1)?.representedObject = order.rawValue
+        }
+        benchmarkSortOrderPopUp.selectItem(
+            at: Settings.benchmarkSortOrder == .configuration ? 0 : 1
+        )
 
         benchmarkURLPresetPopUp.removeAllItems()
         for title in [
@@ -341,6 +357,12 @@ class GeneralSettingViewController: NSViewController {
         guard let rawValue = sender.selectedItem?.representedObject as? String,
               let mode = BenchmarkMode(rawValue: rawValue) else { return }
         Settings.benchmarkMode = mode
+    }
+
+    @IBAction func actionBenchmarkSortOrderChanged(_ sender: NSPopUpButton) {
+        guard let rawValue = sender.selectedItem?.representedObject as? String,
+              let order = BenchmarkSortOrder(rawValue: rawValue) else { return }
+        Settings.benchmarkSortOrder = order
     }
 
     @IBAction func actionBenchmarkURLPresetChanged(_ sender: NSPopUpButton) {

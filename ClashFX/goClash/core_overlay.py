@@ -43,6 +43,315 @@ PATCHED_URL_TEST = """func (u *URLTest) URLTest(ctx context.Context, url string,
 	defer u.fastSingle.Reset()
 	return u.GroupBase.URLTest(ctx, u.testUrl, expectedStatus)
 }"""
+ROUTE_PROXIES_SOURCE_SHA256 = "06226532477195683dce8f8ff6bc5657f322a26521cd7ee52c257e52579ce246"
+PROBE_DIAGNOSTIC_IMPORTS = '''import (
+	"context"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/metacubex/mihomo/adapter/outboundgroup"
+	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/component/profile/cachefile"
+	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/tunnel"
+
+	"github.com/metacubex/chi"
+	"github.com/metacubex/chi/render"
+	"github.com/metacubex/http"
+)'''
+PROBE_DIAGNOSTIC_HELPERS = r'''type clashFXProbeError struct {
+	Kind string `json:"kind"`
+	Code string `json:"code"`
+}
+
+type clashFXProbeFailure struct {
+	Message          string            `json:"message"`
+	ClashFXProbeError clashFXProbeError `json:"clashfx_probe_error"`
+}
+
+func classifyClashFXProbeError(err error) clashFXProbeError {
+	if err == nil {
+		return clashFXProbeError{Kind: "unknown", Code: "probe_failed"}
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		if dnsErr.IsTimeout {
+			return clashFXProbeError{Kind: "dns", Code: "dns_timeout"}
+		}
+		return clashFXProbeError{Kind: "dns", Code: "dns_resolution_failed"}
+	}
+
+	var unknownAuthority x509.UnknownAuthorityError
+	var unknownAuthorityPointer *x509.UnknownAuthorityError
+	if errors.As(err, &unknownAuthority) || errors.As(err, &unknownAuthorityPointer) {
+		return clashFXProbeError{Kind: "tls", Code: "tls_unknown_authority"}
+	}
+	var invalidCertificate x509.CertificateInvalidError
+	var invalidCertificatePointer *x509.CertificateInvalidError
+	if (errors.As(err, &invalidCertificate) && invalidCertificate.Reason == x509.Expired) ||
+		(errors.As(err, &invalidCertificatePointer) && invalidCertificatePointer != nil && invalidCertificatePointer.Reason == x509.Expired) {
+		return clashFXProbeError{Kind: "tls", Code: "tls_expired"}
+	}
+	var hostnameError x509.HostnameError
+	var hostnameErrorPointer *x509.HostnameError
+	if errors.As(err, &hostnameError) || errors.As(err, &hostnameErrorPointer) {
+		return clashFXProbeError{Kind: "tls", Code: "tls_name_mismatch"}
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return clashFXProbeError{Kind: "timeout", Code: "probe_timeout"}
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return clashFXProbeError{Kind: "timeout", Code: "probe_timeout"}
+	}
+
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "http need auth") ||
+		strings.Contains(message, "proxy authentication required") ||
+		strings.Contains(message, "authentication failed") ||
+		strings.Contains(message, "authentication required") ||
+		strings.Contains(message, "invalid credentials") ||
+		strings.Contains(message, "401 unauthorized") ||
+		strings.Contains(message, "407 proxy auth") {
+		return clashFXProbeError{Kind: "authentication", Code: "authentication_failed"}
+	}
+
+	if strings.Contains(message, "quic: handshake") || strings.Contains(message, "quic handshake") {
+		return clashFXProbeError{Kind: "quic", Code: "quic_handshake_failed"}
+	}
+	if strings.Contains(message, "certificate signed by unknown authority") ||
+		strings.Contains(message, "x509: unknown authority") {
+		return clashFXProbeError{Kind: "tls", Code: "tls_unknown_authority"}
+	}
+	if strings.Contains(message, "certificate has expired") ||
+		strings.Contains(message, "certificate expired") {
+		return clashFXProbeError{Kind: "tls", Code: "tls_expired"}
+	}
+	if strings.Contains(message, "certificate is valid for") ||
+		strings.Contains(message, "certificate name mismatch") ||
+		strings.Contains(message, "doesn't contain any ip sans") {
+		return clashFXProbeError{Kind: "tls", Code: "tls_name_mismatch"}
+	}
+	if strings.Contains(message, "tls:") || strings.Contains(message, "tls handshake") ||
+		strings.Contains(message, "x509:") || strings.Contains(message, "certificate verify failed") {
+		return clashFXProbeError{Kind: "tls", Code: "tls_failure"}
+	}
+
+	var operationError *net.OpError
+	if errors.As(err, &operationError) && operationError.Op == "dial" {
+		return clashFXProbeError{Kind: "dial", Code: "dial_failed"}
+	}
+	if strings.Contains(message, "dial tcp ") || strings.Contains(message, "connection refused") ||
+		strings.Contains(message, "no route to host") || strings.Contains(message, "network is unreachable") {
+		return clashFXProbeError{Kind: "dial", Code: "dial_failed"}
+	}
+
+	var requestError *url.Error
+	if errors.As(err, &requestError) || strings.Contains(message, "http: ") ||
+		strings.Contains(message, "http request") {
+		return clashFXProbeError{Kind: "http", Code: "http_request_failed"}
+	}
+
+	return clashFXProbeError{Kind: "unknown", Code: "probe_failed"}
+}
+
+func writeClashFXProbeFailure(w http.ResponseWriter, r *http.Request, status int, message string, diagnostic clashFXProbeError) {
+	render.Status(r, status)
+	render.JSON(w, r, clashFXProbeFailure{
+		Message:          message,
+		ClashFXProbeError: diagnostic,
+	})
+}
+'''
+UPSTREAM_PROBE_DIAGNOSTIC_TEST = r'''package route
+
+import (
+	"context"
+	"crypto/x509"
+	"encoding/json"
+	"errors"
+	"net"
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/metacubex/http"
+	"github.com/metacubex/http/httptest"
+	"github.com/metacubex/mihomo/common/utils"
+	C "github.com/metacubex/mihomo/constant"
+)
+
+type clashFXProbeTestProxy struct {
+	urlTest func(context.Context) (uint16, error)
+}
+
+func (p *clashFXProbeTestProxy) Name() string { return "test-proxy" }
+func (p *clashFXProbeTestProxy) Type() C.AdapterType { return C.Direct }
+func (p *clashFXProbeTestProxy) Addr() string { return "" }
+func (p *clashFXProbeTestProxy) SupportUDP() bool { return false }
+func (p *clashFXProbeTestProxy) ProxyInfo() C.ProxyInfo { return C.ProxyInfo{} }
+func (p *clashFXProbeTestProxy) MarshalJSON() ([]byte, error) { return []byte(`{}`), nil }
+func (p *clashFXProbeTestProxy) DialContext(context.Context, *C.Metadata) (C.Conn, error) { return nil, nil }
+func (p *clashFXProbeTestProxy) ListenPacketContext(context.Context, *C.Metadata) (C.PacketConn, error) { return nil, nil }
+func (p *clashFXProbeTestProxy) SupportUOT() bool { return false }
+func (p *clashFXProbeTestProxy) IsL3Protocol(*C.Metadata) bool { return false }
+func (p *clashFXProbeTestProxy) Unwrap(*C.Metadata, bool) C.Proxy { return nil }
+func (p *clashFXProbeTestProxy) Close() error { return nil }
+func (p *clashFXProbeTestProxy) Adapter() C.ProxyAdapter { return p }
+func (p *clashFXProbeTestProxy) AliveForTestUrl(string) bool { return false }
+func (p *clashFXProbeTestProxy) DelayHistory() []C.DelayHistory { return nil }
+func (p *clashFXProbeTestProxy) ExtraDelayHistories() map[string]C.ProxyState { return nil }
+func (p *clashFXProbeTestProxy) LastDelayForTestUrl(string) uint16 { return 0 }
+func (p *clashFXProbeTestProxy) URLTest(ctx context.Context, _ string, _ utils.IntRanges[uint16]) (uint16, error) {
+	return p.urlTest(ctx)
+}
+
+func clashFXInvokeDelayHandler(proxy C.Proxy, target string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req = req.WithContext(context.WithValue(req.Context(), CtxKeyProxy, proxy))
+	recorder := httptest.NewRecorder()
+	getProxyDelay(recorder, req)
+	return recorder
+}
+
+func clashFXDelayTarget(timeout string) string {
+	query := url.Values{
+		"url":      {"https://alice:node-secret@probe.example.test/check?token=query-secret"},
+		"timeout":  {timeout},
+		"expected": {"200"},
+	}
+	return "/delay?" + query.Encode()
+}
+
+func TestClashFXProbeErrorClassification(t *testing.T) {
+	certificate := &x509.Certificate{}
+	tests := []struct {
+		name string
+		err  error
+		kind string
+		code string
+	}{
+		{"dns", &net.DNSError{Err: "no such host", Name: "secret.example.test"}, "dns", "dns_resolution_failed"},
+		{"dns timeout", &net.DNSError{Err: "i/o timeout", Name: "secret.example.test", IsTimeout: true}, "dns", "dns_timeout"},
+		{"unknown authority", x509.UnknownAuthorityError{Cert: certificate}, "tls", "tls_unknown_authority"},
+		{"unknown authority pointer", &x509.UnknownAuthorityError{Cert: certificate}, "tls", "tls_unknown_authority"},
+		{"expired certificate", x509.CertificateInvalidError{Cert: certificate, Reason: x509.Expired}, "tls", "tls_expired"},
+		{"expired certificate pointer", &x509.CertificateInvalidError{Cert: certificate, Reason: x509.Expired}, "tls", "tls_expired"},
+		{"hostname mismatch", x509.HostnameError{Host: "secret.example.test", Certificate: certificate}, "tls", "tls_name_mismatch"},
+		{"hostname mismatch pointer", &x509.HostnameError{Host: "secret.example.test", Certificate: certificate}, "tls", "tls_name_mismatch"},
+		{"authentication", errors.New("authentication failed for alice:node-secret at 203.0.113.8"), "authentication", "authentication_failed"},
+		{"TLS pattern", errors.New("tls: handshake failure for https://alice:node-secret@203.0.113.8/?token=query-secret"), "tls", "tls_failure"},
+		{"QUIC pattern", errors.New("quic: handshake failed for 203.0.113.8"), "quic", "quic_handshake_failed"},
+		{"dial pattern", errors.New("dial tcp 203.0.113.8:443: connection refused"), "dial", "dial_failed"},
+		{"HTTP request", &url.Error{Op: "Head", URL: "https://alice:node-secret@203.0.113.8/?token=query-secret", Err: errors.New("request failed")}, "http", "http_request_failed"},
+		{"deadline", context.DeadlineExceeded, "timeout", "probe_timeout"},
+		{"unknown", errors.New("opaque failure for 203.0.113.8 with node-secret"), "unknown", "probe_failed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := classifyClashFXProbeError(test.err)
+			if got.Kind != test.kind || got.Code != test.code {
+				t.Fatalf("classification = {%q, %q}, want {%q, %q}", got.Kind, got.Code, test.kind, test.code)
+			}
+		})
+	}
+}
+
+func TestClashFXDelayHandlerPreservesSafeFailureEnvelope(t *testing.T) {
+	proxy := &clashFXProbeTestProxy{urlTest: func(context.Context) (uint16, error) {
+		return 23, &url.Error{Op: "Head", URL: "https://alice:node-secret@203.0.113.8/?token=query-secret", Err: errors.New("request failed")}
+	}}
+	response := clashFXInvokeDelayHandler(proxy, clashFXDelayTarget("1000"))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+	var body clashFXProbeFailure
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode failure envelope: %v", err)
+	}
+	if body.Message != "An error occurred in the delay test" {
+		t.Fatalf("message = %q", body.Message)
+	}
+	if body.ClashFXProbeError.Kind != "http" || body.ClashFXProbeError.Code != "http_request_failed" {
+		t.Fatalf("diagnostic = %+v", body.ClashFXProbeError)
+	}
+	for _, secret := range []string{"node-secret", "203.0.113.8", "query-secret", "probe.example.test"} {
+		if strings.Contains(response.Body.String(), secret) {
+			t.Fatalf("response leaked %q: %s", secret, response.Body.String())
+		}
+	}
+}
+
+func TestClashFXDelayHandlerKeepsUnknownFailureUnknown(t *testing.T) {
+	proxy := &clashFXProbeTestProxy{urlTest: func(context.Context) (uint16, error) {
+		return 0, errors.New("opaque failure for 203.0.113.8 with node-secret and query-secret")
+	}}
+	response := clashFXInvokeDelayHandler(proxy, clashFXDelayTarget("1000"))
+	var body clashFXProbeFailure
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode failure envelope: %v", err)
+	}
+	if body.Message != "An error occurred in the delay test" || body.ClashFXProbeError.Kind != "unknown" ||
+		body.ClashFXProbeError.Code != "probe_failed" {
+		t.Fatalf("unknown failure was misclassified: %+v", body)
+	}
+	for _, secret := range []string{"node-secret", "203.0.113.8", "query-secret"} {
+		if strings.Contains(response.Body.String(), secret) {
+			t.Fatalf("response leaked %q: %s", secret, response.Body.String())
+		}
+	}
+}
+
+func TestClashFXDelayHandlerZeroDelayAndSuccess(t *testing.T) {
+	zero := clashFXInvokeDelayHandler(&clashFXProbeTestProxy{urlTest: func(context.Context) (uint16, error) {
+		return 0, nil
+	}}, clashFXDelayTarget("1000"))
+	if zero.Code != http.StatusServiceUnavailable {
+		t.Fatalf("zero-delay status = %d", zero.Code)
+	}
+	var failure clashFXProbeFailure
+	if err := json.Unmarshal(zero.Body.Bytes(), &failure); err != nil {
+		t.Fatalf("decode zero-delay envelope: %v", err)
+	}
+	if failure.Message != "An error occurred in the delay test" ||
+		failure.ClashFXProbeError.Kind != "measurement" || failure.ClashFXProbeError.Code != "zero_delay" {
+		t.Fatalf("zero-delay envelope = %+v", failure)
+	}
+
+	success := clashFXInvokeDelayHandler(&clashFXProbeTestProxy{urlTest: func(context.Context) (uint16, error) {
+		return 37, nil
+	}}, clashFXDelayTarget("1000"))
+	if success.Code != http.StatusOK || strings.TrimSpace(success.Body.String()) != `{"delay":37}` {
+		t.Fatalf("success = %d %s", success.Code, success.Body.String())
+	}
+}
+
+func TestClashFXDelayHandlerTimeoutEnvelope(t *testing.T) {
+	proxy := &clashFXProbeTestProxy{urlTest: func(ctx context.Context) (uint16, error) {
+		<-ctx.Done()
+		return 0, ctx.Err()
+	}}
+	response := clashFXInvokeDelayHandler(proxy, clashFXDelayTarget("1"))
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusGatewayTimeout)
+	}
+	var body clashFXProbeFailure
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode timeout envelope: %v", err)
+	}
+	if body.Message != "Timeout" || body.ClashFXProbeError.Kind != "timeout" || body.ClashFXProbeError.Code != "probe_timeout" {
+		t.Fatalf("timeout envelope = %+v", body)
+	}
+}
+'''
 QUEUE_SOURCE_SHA256 = "dce56d5c8e57c4a5df35c2960ced52ee19b4441864e9908692c3321be84e71de"
 ORIGINAL_QUEUE_POP = """func (q *Queue[T]) Pop() (head T) {
 	if len(q.items) == 0 {
@@ -316,6 +625,88 @@ def _patch_queue_races(mihomo_root: pathlib.Path) -> None:
     subprocess.check_call(["gofmt", "-w", str(queue_path)])
 
 
+def _patch_probe_diagnostics(mihomo_root: pathlib.Path) -> None:
+    route_path = mihomo_root / "hub" / "route" / "proxies.go"
+    original = route_path.read_text(encoding="utf-8")
+    actual_hash = hashlib.sha256(original.encode("utf-8")).hexdigest()
+    if actual_hash != ROUTE_PROXIES_SOURCE_SHA256:
+        raise RuntimeError(
+            f"Pinned proxy route source changed at {route_path}; "
+            "review the ClashFX probe diagnostics overlay"
+        )
+
+    source = _replace_once(
+        original,
+        '''import (
+	"context"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/metacubex/mihomo/adapter/outboundgroup"
+	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/component/profile/cachefile"
+	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/tunnel"
+
+	"github.com/metacubex/chi"
+	"github.com/metacubex/chi/render"
+	"github.com/metacubex/http"
+)''',
+        PROBE_DIAGNOSTIC_IMPORTS,
+        "pinned proxy route imports",
+    )
+    source = _replace_once(
+        source,
+        "func getProxyDelay(w http.ResponseWriter, r *http.Request) {",
+        PROBE_DIAGNOSTIC_HELPERS + "\nfunc getProxyDelay(w http.ResponseWriter, r *http.Request) {",
+        "getProxyDelay helper insertion point",
+    )
+    source = _replace_once(
+        source,
+        '''if ctx.Err() != nil {
+		render.Status(r, http.StatusGatewayTimeout)
+		render.JSON(w, r, ErrRequestTimeout)
+		return
+	}''',
+        '''if ctx.Err() != nil {
+		writeClashFXProbeFailure(w, r, http.StatusGatewayTimeout, "Timeout", classifyClashFXProbeError(ctx.Err()))
+		return
+	}''',
+        "proxy delay timeout response",
+    )
+    source = _replace_once(
+        source,
+        '''if err != nil || delay == 0 {
+		render.Status(r, http.StatusServiceUnavailable)
+		if err != nil && delay != 0 {
+			render.JSON(w, r, err)
+		} else {
+			render.JSON(w, r, newError("An error occurred in the delay test"))
+		}
+		return
+	}''',
+        '''if err != nil || delay == 0 {
+		diagnostic := clashFXProbeError{Kind: "measurement", Code: "zero_delay"}
+		if err != nil {
+			diagnostic = classifyClashFXProbeError(err)
+		}
+		writeClashFXProbeFailure(w, r, http.StatusServiceUnavailable, "An error occurred in the delay test", diagnostic)
+		return
+	}''',
+        "proxy delay failure response",
+    )
+
+    test_path = route_path.parent / "clashfx_probe_diagnostics_test.go"
+    if test_path.exists():
+        raise RuntimeError(f"Refusing to overwrite unexpected overlay test file {test_path}")
+    os.chmod(route_path.parent, route_path.parent.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
+    os.chmod(route_path, route_path.stat().st_mode | stat.S_IWUSR)
+    route_path.write_text(source, encoding="utf-8")
+    test_path.write_text(UPSTREAM_PROBE_DIAGNOSTIC_TEST, encoding="utf-8")
+    subprocess.check_call(["gofmt", "-w", str(route_path), str(test_path)])
+
+
 def _remove_tree(path: pathlib.Path) -> None:
     if not path.exists():
         return
@@ -404,6 +795,7 @@ def core_modfile() -> Iterator[str]:
         )
         _patch_cachefile_lifecycle(mihomo_replacement_module)
         _patch_queue_races(mihomo_replacement_module)
+        _patch_probe_diagnostics(mihomo_replacement_module)
 
         modfile = temp_dir / "clashfx.mod"
         modfile.write_text(
