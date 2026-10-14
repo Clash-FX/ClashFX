@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.12 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.12 (Lab)</h2><ul><li><strong>Install the Helper After Applying a Lab or Custom Icon</strong> — Finder icon metadata could make strict validation of the staged app fail, blocking the helper update and Enhanced Mode startup in 1.1.11.11. Both installer staging paths now remove only FinderInfo and ResourceFork from the private copy before verification; the original app icon is preserved.</li><li><strong>Keep Signature and Core Trust Checks Intact</strong> — Full app signature verification, client CDHash, helper/core hashes, root ownership and symlink containment checks remain required. Altered executable or signed-resource bytes are still rejected.</li><li><strong>Exercise Installation Before Publishing</strong> — Add metadata-decorated signed-bundle regressions to source and release CI, and verify the production administrator installer plus helper-managed core startup in a disposable hosted guest. Installation gates run before any release tag is published.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 14 Oct 2026 15:34:50 +0000</pubDate>
+  <sparkle:version>1001011012</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.12</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.12/ClashFX.dmg"
+    sparkle:version="1001011012"
+    sparkle:shortVersionString="1.1.11.12"
+    sparkle:edSignature="Q3PSwGLGoVhMcLMnJwYe1S0vlh4zkKm68rgXq2XrB+KZr/p0RT+TK7LaHmPFTUCBoqcLbtKrrakCp6af1EgSAg=="
+    length="94401584"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.11 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.11 (Lab)</h2><ul><li><strong>Reliable Startup and Restart</strong> — Confirm helper-managed core shutdown before handing off listeners, publish a ready enhanced core before runtime requests, and cancel stale startup retries after recovery succeeds.</li><li><strong>Claude Lock Keeps Your Proxy Settings</strong> — Disabling Claude lock preserves Enhanced Mode and System Proxy. Re-enabling and restarting restore the protected runtime without silently disabling the enhanced-mode preference after a failed restore.</li><li><strong>DNS Listener Lifecycle Synchronization</strong> — Serialize DNS listener publication and shutdown, wait for startup acknowledgement, and protect resolver-service updates to prevent races during immediate suspension or reload.</li><li><strong>Safer DNS Recovery and Helper Updates</strong> — Reject expired DNS mutation requests even when the main queue delays timeout delivery. Persist bounded per-service recovery journals, preserve newer external DNS changes, verify UDP/TCP DNS takeover, and restrict privileged execution to an approved root-owned core with validated client identity.</li><li><strong>Cleaner Benchmark Menus</strong> — Choose Quick or Complete testing in Settings, defaulting to Quick. Remove verbose menu summaries and manual prefixes, and use a compact old-result marker with details on hover.</li><li><strong>Current Wi-Fi APIs and Useful Diagnostics</strong> — Remove the obsolete airport fallback, skip SSID reads when auto-suspend is unused, and recheck after location authorization changes. Routine helper refresh and listener warm-up no longer appear as failures; interface warnings target the core's own TUN device.</li></ul>
