@@ -265,12 +265,17 @@ struct ProxyGroupSelectionPresentation {
     let mode: Mode
     let path: [ClashProxyName]
     let leaf: ClashProxyName?
+    let selectedTarget: ClashProxyName?
     let preferredTarget: ClashProxyName?
     let isResolved: Bool
 
     init?(group: ClashProxy, snapshot: ClashProxyResp?) {
         let snapshot = snapshot ?? group.enclosingResp
         let observed = snapshot?.proxiesMap[group.name] ?? group
+        selectedTarget = observed.now.flatMap { name in
+            guard let snapshot else { return name }
+            return snapshot.proxiesMap[name] != nil ? name : nil
+        }
         if observed.type == .select {
             mode = .manual
             preferredTarget = nil

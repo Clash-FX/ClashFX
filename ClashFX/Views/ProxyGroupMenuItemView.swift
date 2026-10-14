@@ -250,6 +250,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         selectProxyLabel.textColor = NSColor.secondaryLabelColor
         delayLabel.textColor = NSColor.secondaryLabelColor
 
+        NotificationCenter.default.addObserver(self, selector: #selector(selectionDisplayDidChange), name: Settings.proxyMenuSelectionDisplayDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(proxyInfoDidUpdate(note:)), name: .proxyUpdate(for: proxyGroup.name), object: nil)
         if !showMissingCandidates(proxyGroup) {
             if let selection = selectionPresentation(for: proxyGroup) {
@@ -302,6 +303,17 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
             renderSelection(selection)
         } else {
             renderLegacySelection(info.now ?? "")
+        }
+    }
+
+    @objc private func selectionDisplayDidChange() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.selectionDisplayDidChange() }
+            return
+        }
+        if showMissingCandidates(latestGroup) { return }
+        if let presentation = selectionPresentation(for: latestGroup) {
+            renderSelection(presentation)
         }
     }
 
@@ -394,7 +406,8 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         case .unknownAutomatic:
             modeTitle = NSLocalizedString("Core-managed Selection", value: "Core choice", comment: "Short menu label when selection mode is unknown")
         }
-        let label = presentation.leaf.map { modeTitle.isEmpty ? $0 : "\(modeTitle) · \($0)" } ?? modeTitle
+        let target = Settings.showFinalProxyNodeInMenu ? presentation.leaf : presentation.selectedTarget
+        let label = target.map { modeTitle.isEmpty ? $0 : "\(modeTitle) · \($0)" } ?? modeTitle
         selectProxyLabel.stringValue = label
         selectProxyLabel.setAccessibilityLabel(label)
 

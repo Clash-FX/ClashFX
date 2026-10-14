@@ -894,3 +894,7 @@
 "ClashFX is already running. This copy will close to protect the active proxy." = "ClashFX is already running. This copy will close to protect the active proxy.";
 "ClashFX could not obtain exclusive runtime control." = "ClashFX could not obtain exclusive runtime control.";
 "System Proxy recovery paused after repeated conflicts. Click to retry." = "System Proxy recovery paused after repeated conflicts. Click to retry.";
+
+/* Proxy menu selection display */
+"Show Final Node in Proxy Menu" = "Show Final Node in Proxy Menu";
+"By default, shows the selected node or group (such as Proxies). Enable to show the final node." = "By default, shows the selected node or group (such as Proxies). Enable to show the final node.";

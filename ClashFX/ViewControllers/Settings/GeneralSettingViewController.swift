@@ -43,6 +43,7 @@ class GeneralSettingViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         installDockIconToggle()
+        installProxyMenuDisplayToggle()
         speedTestUrlField.stringValue = Settings.benchMarkUrl
         speedTestUrlField.placeholderString = Settings.defaultBenchmarkUrl
         benchmarkURLSaveButton.title = NSLocalizedString("Save", comment: "")
@@ -246,6 +247,33 @@ class GeneralSettingViewController: NSViewController {
         container.alignment = .leading
         container.spacing = 4
         applicationSettingsStack.addArrangedSubview(container)
+    }
+
+    private func installProxyMenuDisplayToggle() {
+        let button = NSButton(
+            checkboxWithTitle: NSLocalizedString("Show Final Node in Proxy Menu", comment: ""),
+            target: self,
+            action: #selector(toggleProxyMenuDisplay(_:))
+        )
+        button.state = Settings.showFinalProxyNodeInMenu ? .on : .off
+        let hint = NSTextField(wrappingLabelWithString: NSLocalizedString(
+            "By default, shows the selected node or group (such as Proxies). Enable to show the final node.",
+            comment: ""
+        ))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        button.setAccessibilityHelp(hint.stringValue)
+        let container = NSStackView(views: [button, hint])
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 4
+        applicationSettingsStack.addArrangedSubview(container)
+        container.widthAnchor.constraint(equalTo: applicationSettingsStack.widthAnchor).isActive = true
+        hint.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
+    }
+
+    @objc private func toggleProxyMenuDisplay(_ sender: NSButton) {
+        Settings.showFinalProxyNodeInMenu = sender.state == .on
     }
 
     private func configureBenchmarkSettingsControls() {

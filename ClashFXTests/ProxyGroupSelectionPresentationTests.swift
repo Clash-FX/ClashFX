@@ -4,9 +4,12 @@ import XCTest
 final class ProxyGroupSelectionPresentationTests: XCTestCase {
     private let benchmarkURL = "https://benchmark.example.test"
     private var previousMeasurementEpoch: Date?
+    private var previousDisplayPreference = false
 
     override func setUp() {
         super.setUp()
+        previousDisplayPreference = Settings.showFinalProxyNodeInMenu
+        Settings.showFinalProxyNodeInMenu = false
         previousMeasurementEpoch = BenchmarkMeasurementEpoch.invalidate(at: .distantPast)
         AutomaticGroupBenchmarkPresentationStore.clearAll()
         GlobalLeafBenchmarkPresentationStore.clearAll()
@@ -16,18 +19,65 @@ final class ProxyGroupSelectionPresentationTests: XCTestCase {
         if let previousMeasurementEpoch {
             _ = BenchmarkMeasurementEpoch.invalidate(at: previousMeasurementEpoch)
         }
+        Settings.showFinalProxyNodeInMenu = previousDisplayPreference
         super.tearDown()
     }
 
-    func testManualSelectorShowsSelectedLeafWithoutModeLabel() throws {
+    func testManualSelectorShowsSelectedGroupByDefaultWithoutModeLabel() throws {
         let snapshot = try makeSnapshot()
         let view = try makeView(snapshot: snapshot, groupName: "Selector")
         let label = try selectionLabel(in: view)
 
-        XCTAssertEqual(label.stringValue, "Hong Kong")
+        XCTAssertEqual(label.stringValue, "Automatic")
         XCTAssertEqual(label.toolTip, formatted("Actual route: %@", "Selector → Automatic → Hong Kong"))
         XCTAssertEqual(accessibilityHelp(of: label), label.toolTip)
         XCTAssertNil(view.toolTip)
+    }
+
+    func testDisplayPreferenceUpdatesExistingMenuAndKeepsRouteHelp() throws {
+        let snapshot = try makeSnapshot()
+        let view = try makeView(snapshot: snapshot, groupName: "Selector")
+        let label = try selectionLabel(in: view)
+        let route = formatted("Actual route: %@", "Selector → Automatic → Hong Kong")
+
+        Settings.showFinalProxyNodeInMenu = true
+        XCTAssertEqual(label.stringValue, "Hong Kong")
+        XCTAssertEqual(label.accessibilityLabel(), "Hong Kong")
+        XCTAssertEqual(label.toolTip, route)
+
+        let after = try makeSnapshot(automaticCurrent: "Japan")
+        NotificationCenter.default.post(name: .proxyUpdate(for: "Selector"), object: after.proxiesMap["Selector"])
+        XCTAssertEqual(label.stringValue, "Japan")
+
+        Settings.showFinalProxyNodeInMenu = false
+        XCTAssertEqual(label.stringValue, "Automatic")
+        XCTAssertEqual(label.toolTip, formatted("Actual route: %@", "Selector → Automatic → Japan"))
+    }
+
+    func testKnownSelectedGroupRemainsVisibleWhenFinalRouteIsUnavailable() throws {
+        let snapshot = try makeSnapshot(automaticCurrent: "Missing")
+        let view = try makeView(snapshot: snapshot, groupName: "Selector")
+        let label = try selectionLabel(in: view)
+        XCTAssertEqual(label.stringValue, "Automatic")
+        XCTAssertTrue(label.toolTip?.contains(localized("Actual route could not be fully resolved")) == true)
+
+        Settings.showFinalProxyNodeInMenu = true
+        XCTAssertEqual(label.stringValue, "")
+        XCTAssertEqual(view.delayLabel.stringValue, "")
+    }
+
+    func testNestedAutomaticGroupUsesCoreNowInBothDisplayModes() throws {
+        let snapshot = try decode([
+            "Parent": ["name": "Parent", "type": "URLTest", "all": ["Child", "Japan"], "now": "Child", "fixed": "Japan", "history": []],
+            "Child": ["name": "Child", "type": "Selector", "all": ["Japan"], "now": "Japan", "history": []],
+            "Japan": ["name": "Japan", "type": "Trojan", "history": []]
+        ])
+        let view = try makeView(snapshot: snapshot, groupName: "Parent")
+        let label = try selectionLabel(in: view)
+        XCTAssertEqual(label.stringValue, selectionTitle("Manual Priority", leaf: "Child"))
+        Settings.showFinalProxyNodeInMenu = true
+        XCTAssertEqual(label.stringValue, selectionTitle("Manual Priority", leaf: "Japan"))
+        XCTAssertTrue(label.toolTip?.contains(formatted("Actual route: %@", "Parent → Child → Japan")) == true)
     }
 
     func testManualSelectorCandidateDoesNotShowManualSelectionTooltip() throws {
@@ -112,7 +162,7 @@ final class ProxyGroupSelectionPresentationTests: XCTestCase {
         let originalParent = try XCTUnwrap(before.proxiesMap["Selector"])
         let originalLabel = try selectionLabel(in: view)
         XCTAssertEqual(originalParent.now, "Automatic")
-        XCTAssertEqual(originalLabel.stringValue, "Hong Kong")
+        XCTAssertEqual(originalLabel.stringValue, "Automatic")
         XCTAssertEqual(originalLabel.toolTip, formatted("Actual route: %@", "Selector → Automatic → Hong Kong"))
 
         let after = try makeSnapshot(automaticCurrent: "Japan")
@@ -120,7 +170,7 @@ final class ProxyGroupSelectionPresentationTests: XCTestCase {
         XCTAssertEqual(updatedParent.now, originalParent.now)
         NotificationCenter.default.post(name: .proxyUpdate(for: "Selector"), object: updatedParent)
 
-        XCTAssertEqual(originalLabel.stringValue, "Japan")
+        XCTAssertEqual(originalLabel.stringValue, "Automatic")
         XCTAssertEqual(originalLabel.toolTip, formatted("Actual route: %@", "Selector → Automatic → Japan"))
         XCTAssertEqual(accessibilityHelp(of: originalLabel), originalLabel.toolTip)
     }

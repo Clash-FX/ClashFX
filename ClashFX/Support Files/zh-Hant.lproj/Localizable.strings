@@ -891,3 +891,7 @@
 "Enhanced Mode config preparation timed out" = "增強模式設定準備逾時";
 
 "Helper installation failed. Please try again or check the logs." = "輔助程式安裝失敗，請重試。詳細原因請查看日誌。";
+
+/* Proxy menu selection display */
+"Show Final Node in Proxy Menu" = "代理選單顯示最終節點";
+"By default, shows the selected node or group (such as Proxies). Enable to show the final node." = "預設顯示所選節點或策略群組（如 Proxies），開啟後顯示最終節點。";

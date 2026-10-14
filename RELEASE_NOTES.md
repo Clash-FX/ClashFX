@@ -1,19 +1,19 @@
-## ClashFX 1.1.11.12 (Lab)
+## ClashFX 1.1.11.13 (Lab)
 
 ### Improvements
 
-- **Install the Helper After Applying a Lab or Custom Icon** — Finder icon metadata could make strict validation of the staged app fail, blocking the helper update and Enhanced Mode startup in 1.1.11.11. Both installer staging paths now remove only FinderInfo and ResourceFork from the private copy before verification; the original app icon is preserved.
-- **Keep Signature and Core Trust Checks Intact** — Full app signature verification, client CDHash, helper/core hashes, root ownership and symlink containment checks remain required. Altered executable or signed-resource bytes are still rejected.
-- **Exercise Installation Before Publishing** — Add metadata-decorated signed-bundle regressions to source and release CI, and verify the production administrator installer plus helper-managed core startup in a disposable hosted guest. Installation gates run before any release tag is published.
+- **Show the Selected Proxy Group by Default** — If Netflix selects Proxies and Proxies selects Japan 27, the outer menu now shows Proxies, matching the submenu checkmark. Directly selected nodes still show their own names.
+- **Choose Final-Node Display in Settings** — Enable “Show Final Node in Proxy Menu” in General settings to display the resolved final node. The preference is saved and existing menu rows update immediately.
+- **Keep Route Details Available** — Route tooltips and accessibility help retain the full selection path. Automatic-selection and manual-priority labels remain visible; benchmark evidence continues to follow the core-resolved route.
 
-Validation: source CI, metadata cleanup/tamper regressions and hosted installation/startup acceptance must pass before tagging. The GitHub Actions release pipeline rebuilds the app and universal cores, checks the packaged architectures/minimum versions, signs the DMG with Sparkle and produces the Lab update feed. Full GUI authorization-dialog interaction and macOS 10.14 runtime testing are outside demonstrated coverage. Subscription YAML handling is unchanged.
+Validation: 45 focused AppKit/menu tests passed and the app built locally. Source CI runs the isolated regression suite, universal package compatibility checks and existing Helper/core/TUN gates before tagging. Local checks used Xcode 27 with a command-line macOS 12 deployment override; the source still targets macOS 10.14. Runtime testing on macOS 10.14 is outside demonstrated coverage.
 
 ---
 
 ### 改进
 
-- **设置 Lab／自定义图标后仍可安装辅助程序** — Finder 图标元数据会导致暂存 App 的严格签名检查失败，从而阻止 1.1.11.11 的 helper 更新和增强模式启动。两个安装暂存路径现在仅清除副本中的 FinderInfo 与 ResourceFork，再执行验证；原 App 图标保留。
-- **保留完整签名与核心信任校验** — App 完整签名、客户端 CDHash、helper／核心哈希、root 归属与链接范围仍必须通过检查；被修改的可执行文件或签名资源仍会被拒绝。
-- **发布前验证安装流程** — 源码与发布 CI 增加带图标元数据的签名 App 回归检查，并在一次性托管环境验证生产管理员安装脚本和 helper 管理的核心启动；通过安装门槛后才打发布标签。
+- **默认显示实际选择的策略组** — 例如 Netflix 选择 Proxies、Proxies 再选择 Japan 27 时，外层菜单显示 Proxies，与子菜单勾选一致；直接选择节点时仍显示节点名。
+- **在设置中选择显示最终节点** — 通用设置新增“代理菜单显示最终节点”，默认关闭。偏好会保存，切换后现有菜单行即时更新。
+- **保留完整路径说明** — 悬停与辅助功能说明仍展示完整选择路径；自动选择／手动优先标记保留，测速证据仍跟随核心解析出的实际路径。
 
-验证：源码 CI、元数据清理／篡改拒绝测试和托管环境安装／启动验收通过后才发布。GitHub Actions 重新构建 App 与通用核心，检查最终包架构及最低系统版本，执行 Sparkle 签名并生成 Lab 更新订阅。未覆盖 GUI 授权弹窗交互和 macOS 10.14 实机运行。订阅 YAML 处理未改动。
+验证：45 项 AppKit／菜单专项测试及本地 App 构建通过。打标签前，源码 CI 运行完整隔离回归、通用包兼容性检查及既有 Helper／核心／TUN 验收。本地使用 Xcode 27，并仅在命令行将部署目标覆盖为 macOS 12；源项目仍支持 macOS 10.14。未覆盖 macOS 10.14 实机运行。
