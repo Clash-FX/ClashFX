@@ -26,7 +26,13 @@ CLIENT_BUNDLE_ID = "com.clashfx.app"
 HELPER_BUNDLE_ID = "com.clashfx.app.Helper"
 APPROVED_CORE_PATH = Path("/Library/PrivilegedHelperTools/com.clashfx.app.Helper.mihomo_core")
 TRUST_RECEIPT_PATH = Path("/Library/PrivilegedHelperTools/com.clashfx.app.Helper.trust.plist")
+INSTALLED_HELPER_PATH = Path("/Library/PrivilegedHelperTools") / SERVICE_LABEL
+LAUNCH_DAEMON_PATH = Path("/Library/LaunchDaemons") / f"{SERVICE_LABEL}.plist"
 TRUST_RECEIPT_SCHEMA_VERSION = 1
+UNRELATED_TEST_XATTR = "com.clashfx.acceptance"
+UNRELATED_TEST_XATTR_VALUE = b"clashfx-unrelated-xattr-v1"
+FINDER_INFO_VALUE = bytes(range(32))
+RESOURCE_FORK_VALUE = b"clashfx-resource-fork-acceptance-v1"
 TEST_DNS_SERVER = "198.18.0.2"
 CORE_READY_TIMEOUT = 45
 CORE_EXIT_TIMEOUT = 15
@@ -246,6 +252,11 @@ def verify_clean_guest_before_mutation():
         TRUST_RECEIPT_PATH,
     ]
     present = [str(path) for path in existing_paths if os.path.lexists(path)]
+    trust_directory = APPROVED_CORE_PATH.parent
+    if trust_directory.is_dir() and not trust_directory.is_symlink():
+        partial_installs = list(trust_directory.glob(TRUST_RECEIPT_PATH.name + ".tmp.*"))
+        partial_installs.extend(trust_directory.glob(".clashfx-install.*"))
+        present.extend(str(path) for path in partial_installs if os.path.lexists(path))
     if present:
         raise RuntimeError("refusing to replace an existing Helper or approved-core installation: " +
                            ", ".join(present))
@@ -310,6 +321,23 @@ def root_trust_file_is_safe(path, executable, expected_sha256=None):
     return True
 
 
+def file_sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def file_identity(path):
+    info = path.lstat()
+    return info.st_dev, info.st_ino
+
+
+def decode_install_plist(path):
+    with path.open("rb") as stream:
+        value = plistlib.load(stream)
+    if not isinstance(value, dict):
+        raise RuntimeError(f"installed plist is not a dictionary: {path}")
+    return value
+
+
 def process_text_paths(pid):
     output = require_command_success([
         "/usr/sbin/lsof", "-a", "-p", str(pid), "-d", "txt", "-Fn"
@@ -343,9 +371,8 @@ class AcceptanceHarness:
     def __init__(self, build_metadata, helper_path, core_path, launchd_template,
                  artifact_dir, temp_root, lifecycle):
         self.helper_source_path = helper_path
-        self.helper_path = temp_root / "production-helper" / SERVICE_LABEL
+        self.helper_path = INSTALLED_HELPER_PATH
         self.core_path = core_path
-        self.launchd_template = launchd_template
         self.artifact_dir = artifact_dir
         self.temp_root = temp_root
         self.lifecycle = lifecycle
@@ -361,9 +388,23 @@ class AcceptanceHarness:
         self.transaction_manifest = temp_root / "production-transaction-manifest.json"
         self.transaction_report_path = artifact_dir / "production-transaction.json"
         self.transaction_client_available = False
-        self.launchd_plist = temp_root / "com.clashfx.app.Helper.acceptance.plist"
-        self.helper_stdout = temp_root / "helper.stdout.log"
-        self.helper_stderr = temp_root / "helper.stderr.log"
+        self.launchd_plist = LAUNCH_DAEMON_PATH
+        self.install_generator_source = temp_root / "legacy-install-generator.swift"
+        self.install_generator = temp_root / "legacy-install-generator"
+        self.install_fixture_path = temp_root / "legacy-install-fixture.json"
+        self.production_install_script = temp_root / "legacy-install.production.sh"
+        self.instrumented_install_script = temp_root / "legacy-install.acceptance.sh"
+        self.metadata_stage_report = temp_root / "metadata-stage-report.json"
+        self.decorated_metadata = {}
+        self.installed_paths_created = {}
+        self.temporary_trust_paths_created = {}
+        self.unexpected_install_leftovers = []
+        self.trust_parent_existed_before_install = APPROVED_CORE_PATH.parent.exists()
+        self.generated_install_script_sha256 = None
+        self.instrumented_install_script_sha256 = None
+        self.expected_embedded_helper_sha256 = None
+        self.production_install_attempt = 0
+        self.helper_pid_before_reinstall = None
         self.bootstrapped = False
         self.bootstrap_attempted = False
         self.proxy_snapshot = None
@@ -382,7 +423,6 @@ class AcceptanceHarness:
         self.core_log_paths = []
         self.created_utuns = []
         self.approved_client_cdhashes = {}
-        self.trust_paths_created = {}
         self.trust_directory_created = None
         self.unapproved_client_cdhash = None
         self.exit_code = 0
@@ -391,6 +431,9 @@ class AcceptanceHarness:
             "status": "running",
             "scope": "real production Helper XPC + Helper-managed Mihomo TUN acceptance on a disposable GitHub-hosted macOS runner",
             "coverage": {
+                "productionLegacyHelperInstallation": False,
+                "legacyHelperReinstallation": False,
+                "metadataDecoratedAppInstallation": False,
                 "productionHelperXPC": False,
                 "adHocSignedClientBundleIdentity": False,
                 "approvedClientCoreTrust": False,
@@ -417,6 +460,10 @@ class AcceptanceHarness:
             "failures": [],
             "scopeNotes": [
                 "The full ClashFX GUI and AppDelegate are never launched.",
+                "The production Legacy getInstallScript body is generated from the production Swift extension and run directly as root on the disposable hosted guest; SMAuthorization and the AppleScript authorization dialog are not exercised.",
+                "The production installer receipt is verified with ProtoProbe first. TxDriver approval is added afterward by the controlled root acceptance fixture and is not attributed to the production installer.",
+                "FinderInfo and ResourceFork are injected into the probe app and core resource. An acceptance-only read assertion confirms the staged copy strips those two attributes while retaining an unrelated xattr; the source bundle metadata remains intact.",
+                "The actual installer-created launchd job starts the Helper. Its stdout and stderr are not redirected by the production launchd plist.",
                 "When the companion source is present and its checks pass, the production SystemProxyManager.swift and ClaudeProxyLockTransaction.swift sources run in the separate TxDriver.app client against the real Helper XPC service.",
                 "A separate ProtoProbe XPC pass verifies Helper DNS override and exact restoration; transaction-level DNS coverage is reported separately.",
                 "Helper disable-error and transaction caller-cancellation injection are not claimed as covered.",
@@ -475,15 +522,17 @@ class AcceptanceHarness:
             contents = app / "Contents"
             (contents / "MacOS").mkdir(parents=True, mode=0o755)
             (contents / "Resources").mkdir(mode=0o755)
+        launch_services = self.probe_app / "Contents" / "Library" / "LaunchServices"
+        launch_services.mkdir(parents=True, mode=0o755)
         source = ROOT / "scripts" / "helper-tun-acceptance-client.m"
         compile_output = require_command_success([
             "/usr/bin/clang", "-fmodules", "-fobjc-arc", "-O2", "-I", str(ROOT / "ProxyConfigHelper"),
             str(source), "-framework", "Foundation", "-o", str(self.probe_executable),
         ], 90)
         del compile_output
-        self.helper_path.parent.mkdir(mode=0o700)
-        shutil.copy2(self.helper_source_path, self.helper_path)
-        self.helper_path.chmod(0o755)
+        bundled_helper = launch_services / SERVICE_LABEL
+        shutil.copy2(self.helper_source_path, bundled_helper)
+        bundled_helper.chmod(0o755)
         for client_core in (self.probe_core, self.test_core):
             shutil.copy2(self.core_path, client_core)
             client_core.chmod(0o755)
@@ -502,10 +551,30 @@ class AcceptanceHarness:
             with (app / "Contents" / "Info.plist").open("wb") as stream:
                 plistlib.dump(info, stream, fmt=plistlib.FMT_XML, sort_keys=True)
         self.approved_client_cdhashes[str(self.probe_app)] = self._sign_and_verify_client(self.probe_app)
+        self._verify_signed_probe_helper(bundled_helper)
         self.report["build"]["probeClientPath"] = str(self.probe_executable)
         self.report["build"]["probeClientCorePath"] = str(self.probe_core)
+        self.report["build"]["probeBundledHelperPath"] = str(bundled_helper)
         self.report["build"]["transactionClientBundlePath"] = str(self.transaction_app)
         self.report["build"]["transactionClientPath"] = str(self.transaction_executable)
+
+    def _verify_signed_probe_helper(self, bundled_helper):
+        source_sha256 = self.report["build"]["helperSHA256"]
+        embedded_sha256 = file_sha256(bundled_helper)
+        require_command_success(["/usr/bin/codesign", "--verify", "--strict", str(bundled_helper)], 15)
+        details = command_result(["/usr/bin/codesign", "-dv", "--verbose=4", str(bundled_helper)], 15)
+        signed_text = details.stdout + details.stderr
+        identifier = re.search(r"^Identifier=(.+)$", signed_text, re.MULTILINE)
+        valid = (details.returncode == 0 and identifier is not None and
+                 identifier.group(1).strip() == HELPER_BUNDLE_ID)
+        self.assertion("signed probe retains a valid embedded production Helper identity", valid,
+                       {"helperPath": str(bundled_helper), "bundleIdentifier":
+                        identifier.group(1).strip() if identifier else None,
+                        "sourceHelperSHA256": source_sha256,
+                        "embeddedHelperSHA256AfterProbeSigning": embedded_sha256,
+                        "helperBytesChangedDuringProbeSigning": source_sha256 != embedded_sha256})
+        self.expected_embedded_helper_sha256 = embedded_sha256
+        self.report["build"]["embeddedHelperSHA256"] = embedded_sha256
 
     def _sign_and_verify_client(self, app):
         executable = app / "Contents" / "MacOS" / "ClashFX"
@@ -572,94 +641,632 @@ class AcceptanceHarness:
                         "approvedClientCDHashes": sorted(approved_hashes)})
         self.unapproved_client_cdhash = fake_cdhash
 
-    def install_root_core_and_receipt(self):
-        if not self.transaction_client_available or len(self.approved_client_cdhashes) != 2:
-            raise RuntimeError("both approved ad-hoc clients must be built and signed before trust staging")
-        for directory in (Path("/"), Path("/Library"), APPROVED_CORE_PATH.parent):
-            try:
-                info = directory.lstat()
-            except FileNotFoundError:
-                if directory != APPROVED_CORE_PATH.parent:
-                    raise
-                # Only after the hosted-guest and clean-install gates, with the
-                # existing root-owned ancestors already checked. Never chmod
-                # or replace a directory created by somebody else.
-                directory.mkdir(mode=0o755, exist_ok=False)
-                info = directory.lstat()
-                self.trust_directory_created = (info.st_dev, info.st_ino)
-            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or
-                    info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
-                raise RuntimeError(f"trusted-core parent directory became unsafe: {directory}")
-        existing = [path for path in (APPROVED_CORE_PATH, TRUST_RECEIPT_PATH)
-                    if os.path.lexists(path)]
-        if existing:
-            raise RuntimeError("refusing to replace preexisting approved-core trust paths: " +
-                               ", ".join(map(str, existing)))
+    def decorate_probe_app_metadata(self):
+        decorations = {
+            self.probe_app: {"com.apple.FinderInfo": FINDER_INFO_VALUE},
+            self.probe_core: {
+                "com.apple.FinderInfo": FINDER_INFO_VALUE,
+                "com.apple.ResourceFork": RESOURCE_FORK_VALUE,
+                UNRELATED_TEST_XATTR: UNRELATED_TEST_XATTR_VALUE,
+            },
+        }
+        for path, attributes in decorations.items():
+            if path.is_symlink() or not path.exists():
+                raise RuntimeError(f"metadata test target is missing or is a symlink: {path}")
+            existing = set(os.listxattr(path, follow_symlinks=False))
+            collisions = sorted(existing.intersection(attributes))
+            if collisions:
+                raise RuntimeError(f"refusing to overwrite preexisting test xattrs on {path}: {collisions}")
+            for name, value in attributes.items():
+                os.setxattr(path, name, value, follow_symlinks=False)
+            observed = {name: os.getxattr(path, name, follow_symlinks=False)
+                        for name in attributes}
+            if observed != attributes:
+                raise RuntimeError(f"metadata decorations did not round-trip on {path}")
+            self.decorated_metadata[str(path)] = {name: value.hex()
+                                                  for name, value in attributes.items()}
 
-        core_bytes = self.core_path.read_bytes()
-        core_sha256 = hashlib.sha256(core_bytes).hexdigest()
-        if not re.fullmatch(r"[0-9a-f]{64}", core_sha256):
-            raise RuntimeError("core SHA256 is not a lowercase 64-character digest")
-        self.assertion("both client bundles contain the exact executable production core resource",
-                       all(path.is_file() and os.access(path, os.X_OK) and
-                           hashlib.sha256(path.read_bytes()).hexdigest() == core_sha256
-                           for path in (self.probe_core, self.test_core)),
-                       {"coreSHA256": core_sha256,
-                        "clientCorePaths": [str(self.probe_core), str(self.test_core)]})
+        details = command_result(["/usr/bin/codesign", "-dv", "--verbose=4", str(self.probe_app)], 15)
+        signed_text = details.stdout + details.stderr
+        cdhash = re.search(r"^CDHash=(.+)$", signed_text, re.MULTILINE)
+        observed_cdhash = cdhash.group(1).strip().lower() if cdhash else None
+        expected_cdhash = self.approved_client_cdhashes[str(self.probe_app)]
+        self.assertion("display metadata decoration preserves the signed probe CDHash",
+                       details.returncode == 0 and observed_cdhash == expected_cdhash,
+                       {"expectedCDHash": expected_cdhash, "observedCDHash": observed_cdhash,
+                        "decoratedPaths": self.decorated_metadata})
 
+    def _production_install_constants(self):
+        source = ROOT / "ClashFX" / "General" / "Managers" / "PrivilegedHelperManager.swift"
+        source_text = source.read_text(encoding="utf-8")
+
+        def string_constant(name):
+            match = re.search(rf"^\s*static let {re.escape(name)}\s*=\s*\"([^\"]+)\"",
+                              source_text, re.MULTILINE)
+            if not match:
+                raise RuntimeError(f"cannot extract production {name} constant from {source}")
+            return match.group(1)
+
+        constants = {
+            "machServiceName": string_constant("machServiceName"),
+            "approvedCorePath": string_constant("approvedCorePath"),
+            "trustReceiptPath": string_constant("trustReceiptPath"),
+        }
+        if (constants["machServiceName"] != SERVICE_LABEL or
+                Path(constants["approvedCorePath"]) != APPROVED_CORE_PATH or
+                Path(constants["trustReceiptPath"]) != TRUST_RECEIPT_PATH):
+            raise RuntimeError("production Helper trust constants no longer match the hosted acceptance paths")
+        return constants
+
+    def _generate_production_install_script(self):
+        legacy_source = ROOT / "ClashFX" / "General" / "Managers" / "PrivilegedHelperManager+Legacy.swift"
+        source_text = legacy_source.read_text(encoding="utf-8")
+        method_start = source_text.find("    func getInstallScript(")
+        method_end = source_text.find("    @discardableResult\n    func runScriptWithRootPermission(", method_start)
+        if method_start < 0 or method_end <= method_start:
+            raise RuntimeError(f"cannot extract production getInstallScript extension from {legacy_source}")
+        production_methods = source_text[method_start:method_end]
+        fixture = {
+            **self._production_install_constants(),
+            "appBundlePath": str(self.probe_app.resolve(strict=True)),
+            "appExecutablePath": str(self.probe_executable.resolve(strict=True)),
+            "clientCDHash": self.approved_client_cdhashes[str(self.probe_app)],
+            "approvedSourcePath": str(self.probe_core.resolve(strict=True)),
+            "coreSHA256": file_sha256(self.probe_core),
+            "helperSHA256": self.expected_embedded_helper_sha256,
+        }
+        with self.install_fixture_path.open("w", encoding="utf-8") as stream:
+            json.dump(fixture, stream, sort_keys=True)
+            stream.write("\n")
+
+        prelude = r'''import Foundation
+
+private struct AcceptanceInstallFixture: Decodable {
+    let machServiceName: String
+    let approvedCorePath: String
+    let trustReceiptPath: String
+    let appBundlePath: String
+    let appExecutablePath: String
+    let clientCDHash: String
+    let approvedSourcePath: String
+    let coreSHA256: String
+    let helperSHA256: String
+}
+
+private struct PrivilegedHelperTrustMaterial {
+    let clientCDHash: String
+    let approvedSourcePath: String
+    let coreSHA256: String
+    let helperSHA256: String
+}
+
+private enum AcceptanceInstallState {
+    static var fixture: AcceptanceInstallFixture!
+}
+
+private struct AcceptanceBundleMainFacade {
+    let bundlePath: String
+    let executableURL: URL?
+}
+
+private enum AcceptanceBundleFacade {
+    static var main: AcceptanceBundleMainFacade!
+}
+
+// The production extension refers to Bundle.main. This scoped alias supplies
+// the signed probe bundle paths while the remaining Foundation APIs stay real.
+private typealias Bundle = AcceptanceBundleFacade
+
+private enum Logger {
+    enum Level { case error }
+    static func log(_ message: String, level: Level) {}
+}
+
+private final class PrivilegedHelperManager {
+    static var machServiceName: String { AcceptanceInstallState.fixture.machServiceName }
+    static var approvedCorePath: String { AcceptanceInstallState.fixture.approvedCorePath }
+    static var trustReceiptPath: String { AcceptanceInstallState.fixture.trustReceiptPath }
+
+    private let trustMaterial: PrivilegedHelperTrustMaterial
+
+    init(trustMaterial: PrivilegedHelperTrustMaterial) {
+        self.trustMaterial = trustMaterial
+    }
+
+    func cachedTrustMaterialForCurrentApp() -> PrivilegedHelperTrustMaterial? { nil }
+    func trustMaterialForCurrentApp() -> PrivilegedHelperTrustMaterial? { trustMaterial }
+}
+'''
+        suffix = r'''
+
+@main
+private struct LegacyInstallScriptGenerator {
+    static func main() throws {
+        guard CommandLine.arguments.count == 3 else {
+            throw NSError(domain: "LegacyInstallScriptGenerator", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "expected fixture JSON and output script paths"])
+        }
+        let fixtureURL = URL(fileURLWithPath: CommandLine.arguments[1])
+        let fixtureData = try Data(contentsOf: fixtureURL)
+        let fixture = try JSONDecoder().decode(AcceptanceInstallFixture.self, from: fixtureData)
+        AcceptanceInstallState.fixture = fixture
+        AcceptanceBundleFacade.main = AcceptanceBundleMainFacade(
+            bundlePath: fixture.appBundlePath,
+            executableURL: URL(fileURLWithPath: fixture.appExecutablePath)
+        )
+        let trust = PrivilegedHelperTrustMaterial(
+            clientCDHash: fixture.clientCDHash,
+            approvedSourcePath: fixture.approvedSourcePath,
+            coreSHA256: fixture.coreSHA256,
+            helperSHA256: fixture.helperSHA256
+        )
+        let script = PrivilegedHelperManager(trustMaterial: trust).getInstallScript()
+        guard script.hasPrefix("#!/bin/bash\nset -euo pipefail") else {
+            throw NSError(domain: "LegacyInstallScriptGenerator", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "production installer did not return a bash script"])
+        }
+        try script.write(toFile: CommandLine.arguments[2], atomically: true, encoding: .utf8)
+    }
+}
+'''
+        self.install_generator_source.write_text(
+            prelude + "\nextension PrivilegedHelperManager {\n" + production_methods + "\n}\n" + suffix,
+            encoding="utf-8")
+        require_command_success([
+            "/usr/bin/swiftc", "-swift-version", "5", "-parse-as-library",
+            str(self.install_generator_source), "-framework", "Foundation",
+            "-o", str(self.install_generator),
+        ], 120)
+        require_command_success([
+            str(self.install_generator), str(self.install_fixture_path),
+            str(self.production_install_script),
+        ], 20)
+        script = self.production_install_script.read_text(encoding="utf-8")
+        if not script.startswith("#!/bin/bash\nset -euo pipefail"):
+            raise RuntimeError("generated production installer script is missing its strict bash prologue")
+        self.generated_install_script_sha256 = hashlib.sha256(script.encode()).hexdigest()
+
+        observation = f'''# Acceptance-only read assertions after production metadata normalization.
+for acceptancePath in "$stagedApp" "$stagedResources/mihomo_core"; do
+    for acceptanceAttribute in com.apple.FinderInfo com.apple.ResourceFork; do
+        if /usr/bin/xattr -p "$acceptanceAttribute" "$acceptancePath" >/dev/null 2>&1; then
+            printf 'forbidden display metadata remains in staged app: %s %s\\n' "$acceptancePath" "$acceptanceAttribute" >&2
+            exit 73
+        fi
+    done
+done
+acceptanceUnrelated=$(/usr/bin/xattr -p {shlex.quote(UNRELATED_TEST_XATTR)} "$stagedResources/mihomo_core")
+[ "$acceptanceUnrelated" = {shlex.quote(UNRELATED_TEST_XATTR_VALUE.decode())} ] || exit 74
+printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained":true}}' > {shlex.quote(str(self.metadata_stage_report))}
+'''
+        marker = "# Check filesystem flag support while the existing service is still intact.\n"
+        if script.count(marker) != 1:
+            raise RuntimeError("production installer staging marker changed; cannot add metadata read assertion")
+        instrumented = script.replace(marker, observation + marker, 1)
+        self.instrumented_install_script.write_text(instrumented, encoding="utf-8")
+        os.chmod(self.instrumented_install_script, 0o700)
+        self.instrumented_install_script_sha256 = hashlib.sha256(instrumented.encode()).hexdigest()
+
+    def _expected_approved_clients(self, bundle_paths):
+        core_sha256 = file_sha256(self.core_path)
         entries = []
-        for bundle_path, cdhash in self.approved_client_cdhashes.items():
-            source_path = Path(bundle_path) / "Contents" / "Resources" / "mihomo_core"
+        for bundle_path in bundle_paths:
+            bundle_path = Path(bundle_path)
+            cdhash = self.approved_client_cdhashes.get(str(bundle_path))
             if not re.fullmatch(r"[0-9a-f]{40}", cdhash or ""):
                 raise RuntimeError(f"approved client CDHash is not a lowercase 40-character digest: {cdhash}")
+            source_path = bundle_path / "Contents" / "Resources" / "mihomo_core"
             entries.append({
                 "BundleIdentifier": CLIENT_BUNDLE_ID,
                 "ClientCDHash": cdhash,
                 "ApprovedSourcePath": str(source_path.resolve(strict=True)),
                 "CoreSHA256": core_sha256,
             })
-        receipt = {"SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION, "ApprovedClients": entries}
-        receipt_bytes = plistlib.dumps(receipt, fmt=plistlib.FMT_XML, sort_keys=True)
+        return entries
 
-        for path, content, mode in ((APPROVED_CORE_PATH, core_bytes, 0o555),
-                                    (TRUST_RECEIPT_PATH, receipt_bytes, 0o444)):
-            with path.open("xb") as stream:
-                info = os.fstat(stream.fileno())
-                self.trust_paths_created[path] = (info.st_dev, info.st_ino)
-                stream.write(content)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.chown(path, 0, 0)
-            os.chmod(path, mode)
-        require_command_success(["/usr/bin/chflags", "uchg", str(APPROVED_CORE_PATH)], 8)
-        require_command_success(["/usr/bin/chflags", "uchg", str(TRUST_RECEIPT_PATH)], 8)
+    def _expected_launchd_job(self):
+        return {
+            "Label": SERVICE_LABEL,
+            "MachServices": {SERVICE_LABEL: True},
+            "Program": str(self.helper_path),
+            "ProgramArguments": [str(self.helper_path)],
+        }
 
-        if (not root_trust_file_is_safe(APPROVED_CORE_PATH, executable=True,
-                                        expected_sha256=core_sha256) or
-                not root_trust_file_is_safe(TRUST_RECEIPT_PATH, executable=False,
-                                            expected_sha256=hashlib.sha256(receipt_bytes).hexdigest())):
-            raise RuntimeError("installed root core or trust receipt failed ownership, mode, immutable, or digest checks")
-        with TRUST_RECEIPT_PATH.open("rb") as stream:
-            installed_receipt = plistlib.load(stream)
-        self.assertion("root receipt pins exactly the two approved client CDHashes and source paths",
-                       installed_receipt == receipt and
-                       installed_receipt.get("SchemaVersion") == TRUST_RECEIPT_SCHEMA_VERSION and
-                       len(installed_receipt.get("ApprovedClients", [])) == 2 and
-                       {entry.get("ApprovedSourcePath") for entry in installed_receipt["ApprovedClients"]} ==
-                       {str(self.probe_core.resolve()), str(self.test_core.resolve())} and
-                       all(entry.get("BundleIdentifier") == CLIENT_BUNDLE_ID and
-                           entry.get("CoreSHA256") == core_sha256 and
-                           re.fullmatch(r"[0-9a-f]{64}", entry.get("CoreSHA256", "")) and
-                           re.fullmatch(r"[0-9a-f]{40}", entry.get("ClientCDHash", ""))
-                           for entry in installed_receipt["ApprovedClients"]),
-                       {"schemaVersion": installed_receipt.get("SchemaVersion"),
-                        "approvedClients": installed_receipt.get("ApprovedClients"),
-                        "approvedCorePath": str(APPROVED_CORE_PATH),
-                        "trustReceiptPath": str(TRUST_RECEIPT_PATH)})
-        self.report["coverage"]["approvedClientCoreTrust"] = True
+    def _track_install_file(self, path, expected_sha256):
+        try:
+            info = path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+                    file_sha256(path) != expected_sha256):
+                return False
+            self.installed_paths_created[path] = {
+                "identity": (info.st_dev, info.st_ino),
+                "sha256": expected_sha256,
+            }
+            return True
+        except OSError:
+            return False
+
+    def _matches_tracked_install_file(self, path, expected_sha256):
+        tracked = self.installed_paths_created.get(path)
+        if tracked is None or not os.path.lexists(path):
+            return False
+        try:
+            info = path.lstat()
+            return (stat.S_ISREG(info.st_mode) and info.st_uid == 0 and
+                    (info.st_dev, info.st_ino) == tracked["identity"] and
+                    tracked["sha256"] == expected_sha256 and
+                    file_sha256(path) == expected_sha256)
+        except OSError:
+            return False
+
+    def _capture_fixture_install_outputs(self):
+        self._track_install_file(self.helper_path, self.expected_embedded_helper_sha256)
+        self._track_install_file(APPROVED_CORE_PATH, file_sha256(self.core_path))
+        expected_production_receipt = {
+            "SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION,
+            "ApprovedClients": self._expected_approved_clients((self.probe_app,)),
+        }
+        try:
+            if os.path.lexists(TRUST_RECEIPT_PATH):
+                receipt = decode_install_plist(TRUST_RECEIPT_PATH)
+                for bundles in ((self.probe_app,), (self.probe_app, self.transaction_app)):
+                    expected = {"SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION,
+                                "ApprovedClients": self._expected_approved_clients(bundles)}
+                    if receipt == expected:
+                        self._track_install_file(TRUST_RECEIPT_PATH, file_sha256(TRUST_RECEIPT_PATH))
+                        break
+        except (OSError, ValueError, RuntimeError, plistlib.InvalidFileException):
+            pass
+        if os.path.lexists(APPROVED_CORE_PATH.parent):
+            for path in APPROVED_CORE_PATH.parent.glob(TRUST_RECEIPT_PATH.name + ".tmp.*"):
+                try:
+                    info = path.lstat()
+                    if (stat.S_ISREG(info.st_mode) and info.st_uid == 0 and
+                            decode_install_plist(path) == expected_production_receipt):
+                        self.temporary_trust_paths_created[path] = {
+                            "identity": (info.st_dev, info.st_ino),
+                            "sha256": file_sha256(path),
+                        }
+                    else:
+                        self.unexpected_install_leftovers.append({
+                            "path": str(path),
+                            "reason": "production receipt temporary has unexpected identity or contents",
+                        })
+                except (OSError, ValueError, RuntimeError, plistlib.InvalidFileException) as error:
+                    self.unexpected_install_leftovers.append({"path": str(path), "reason": str(error)})
+            for path in APPROVED_CORE_PATH.parent.glob(".clashfx-install.*"):
+                self.unexpected_install_leftovers.append({
+                    "path": str(path),
+                    "reason": "production staging directory remained after installer exit; refusing unverified recursive removal",
+                })
+        try:
+            if (os.path.lexists(self.launchd_plist) and
+                    decode_install_plist(self.launchd_plist) == self._expected_launchd_job()):
+                self._track_install_file(self.launchd_plist, file_sha256(self.launchd_plist))
+        except (OSError, ValueError, RuntimeError, plistlib.InvalidFileException):
+            pass
+        if not self.trust_parent_existed_before_install and os.path.lexists(APPROVED_CORE_PATH.parent):
+            try:
+                info = APPROVED_CORE_PATH.parent.lstat()
+                if (stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and
+                        not info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
+                    self.trust_directory_created = (info.st_dev, info.st_ino)
+            except OSError:
+                pass
+        service = command_result(["/bin/launchctl", "print", f"system/{SERVICE_LABEL}"], 8)
+        service_text = service.stdout + service.stderr
+        self.bootstrapped = (service.returncode == 0 and str(self.launchd_plist) in service_text and
+                             str(self.helper_path) in service_text)
+
+    def _verify_production_install(self):
+        core_sha256 = file_sha256(self.core_path)
+        helper_sha256 = self.expected_embedded_helper_sha256
+        expected_receipt = {
+            "SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION,
+            "ApprovedClients": self._expected_approved_clients((self.probe_app,)),
+        }
+        expected_job = self._expected_launchd_job()
+
+        helper_info = self.helper_path.lstat()
+        helper_hash = file_sha256(self.helper_path)
+        details = command_result(["/usr/bin/codesign", "-dv", "--verbose=4", str(self.helper_path)], 15)
+        signed_text = details.stdout + details.stderr
+        identifier = re.search(r"^Identifier=(.+)$", signed_text, re.MULTILINE)
+        helper_valid = (stat.S_ISREG(helper_info.st_mode) and helper_info.st_uid == 0 and
+                        stat.S_IMODE(helper_info.st_mode) == 0o755 and helper_hash == helper_sha256 and
+                        self._matches_tracked_install_file(self.helper_path, helper_sha256) and
+                        details.returncode == 0 and identifier is not None and
+                        identifier.group(1).strip() == HELPER_BUNDLE_ID)
+        require_command_success(["/usr/bin/codesign", "--verify", "--strict", str(self.helper_path)], 15)
+
+        core_info = APPROVED_CORE_PATH.lstat()
+        core_hash = file_sha256(APPROVED_CORE_PATH)
+        core_valid = (stat.S_ISREG(core_info.st_mode) and core_info.st_uid == 0 and
+                      stat.S_IMODE(core_info.st_mode) == 0o555 and core_hash == core_sha256 and
+                      self._matches_tracked_install_file(APPROVED_CORE_PATH, core_sha256) and
+                      root_trust_file_is_safe(APPROVED_CORE_PATH, executable=True,
+                                              expected_sha256=core_sha256))
+
+        installed_receipt = decode_install_plist(TRUST_RECEIPT_PATH)
+        receipt_hash = file_sha256(TRUST_RECEIPT_PATH)
+        receipt_info = TRUST_RECEIPT_PATH.lstat()
+        receipt_valid = (installed_receipt == expected_receipt and receipt_info.st_uid == 0 and
+                         stat.S_IMODE(receipt_info.st_mode) == 0o444 and
+                         self._matches_tracked_install_file(TRUST_RECEIPT_PATH, receipt_hash) and
+                         root_trust_file_is_safe(TRUST_RECEIPT_PATH, executable=False,
+                                                 expected_sha256=receipt_hash))
+
+        launchd_job = decode_install_plist(self.launchd_plist)
+        launchd_info = self.launchd_plist.lstat()
+        launchd_hash = file_sha256(self.launchd_plist)
+        launchd_valid = (launchd_job == expected_job and launchd_info.st_uid == 0 and
+                         stat.S_IMODE(launchd_info.st_mode) == 0o644 and
+                         self._matches_tracked_install_file(self.launchd_plist, launchd_hash))
+        service = command_result(["/bin/launchctl", "print", f"system/{SERVICE_LABEL}"], 8)
+        service_text = service.stdout + service.stderr
+        service_loaded = (service.returncode == 0 and str(self.launchd_plist) in service_text and
+                          str(self.helper_path) in service_text)
+        if service_loaded:
+            self.bootstrapped = True
+
+        self.assertion("production Legacy installer installed its exact helper, immutable core, probe-only receipt and launchd job",
+                       helper_valid and core_valid and receipt_valid and launchd_valid and service_loaded,
+                       {"helperPath": str(self.helper_path), "helperSHA256": helper_hash,
+                        "expectedHelperSHA256": helper_sha256,
+                        "helperIdentifier": identifier.group(1).strip() if identifier else None,
+                        "corePath": str(APPROVED_CORE_PATH), "coreSHA256": core_hash,
+                        "coreImmutableAndSafe": core_valid,
+                        "receiptPath": str(TRUST_RECEIPT_PATH), "receiptSHA256": receipt_hash,
+                        "productionReceipt": installed_receipt,
+                        "launchDaemonPath": str(self.launchd_plist), "launchDaemon": launchd_job,
+                        "launchDaemonLoaded": service_loaded})
+        self.report["launchd"] = {
+            "label": SERVICE_LABEL,
+            "domain": "system",
+            "plist": str(self.launchd_plist),
+            "program": str(self.helper_path),
+            "source": str((ROOT / "ProxyConfigHelper" / "Helper-Launchd.plist").relative_to(ROOT)),
+            "productionMachServiceName": SERVICE_LABEL,
+            "loadedBy": "production Legacy getInstallScript",
+        }
+        self.report["productionInstallerReceipt"] = {
+            "schemaVersion": installed_receipt.get("SchemaVersion"),
+            "approvedClients": installed_receipt.get("ApprovedClients"),
+            "approvedClientCount": len(installed_receipt.get("ApprovedClients", [])),
+            "receiptSHA256": receipt_hash,
+            "verifiedBeforeAcceptanceFixtureAugmentation": True,
+        }
+        self.report.setdefault("productionInstallerReceiptHistory", []).append({
+            "attempt": self.production_install_attempt,
+            **self.report["productionInstallerReceipt"],
+        })
         self.report["build"]["approvedCorePath"] = str(APPROVED_CORE_PATH)
         self.report["build"]["approvedCoreSHA256"] = core_sha256
         self.report["build"]["trustReceiptPath"] = str(TRUST_RECEIPT_PATH)
+
+    def _assert_installed_for_reinstall(self):
+        required_paths = (self.launchd_plist, self.helper_path, TRUST_RECEIPT_PATH, APPROVED_CORE_PATH)
+        identities = {str(path): dict(self.installed_paths_created.get(path, {}))
+                      for path in required_paths}
+        files_match = all(self._matches_tracked_install_file(
+            path, self.installed_paths_created.get(path, {}).get("sha256", ""))
+            for path in required_paths)
+        receipt = decode_install_plist(TRUST_RECEIPT_PATH)
+        accepted_receipts = (
+            {"SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION,
+             "ApprovedClients": self._expected_approved_clients((self.probe_app,))},
+            {"SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION,
+             "ApprovedClients": self._expected_approved_clients((self.probe_app, self.transaction_app))},
+        )
+        service = command_result(["/bin/launchctl", "print", f"system/{SERVICE_LABEL}"], 8)
+        service_text = service.stdout + service.stderr
+        helper_pid = self.helper_pid()
+        ready = (files_match and receipt in accepted_receipts and
+                 root_trust_file_is_safe(APPROVED_CORE_PATH, executable=True,
+                                         expected_sha256=file_sha256(APPROVED_CORE_PATH)) and
+                 root_trust_file_is_safe(TRUST_RECEIPT_PATH, executable=False,
+                                         expected_sha256=file_sha256(TRUST_RECEIPT_PATH)) and
+                 decode_install_plist(self.launchd_plist) == self._expected_launchd_job() and
+                 service.returncode == 0 and str(self.launchd_plist) in service_text and
+                 str(self.helper_path) in service_text and helper_pid is not None)
+        self.assertion("prior production Helper installation identity is verified before update",
+                       ready, {"trackedPaths": identities, "receipt": receipt,
+                               "helperPID": helper_pid,
+                               "launchdLoadedFromProductionPath": service.returncode == 0 and
+                               str(self.launchd_plist) in service_text and
+                               str(self.helper_path) in service_text})
+        self.helper_pid_before_reinstall = helper_pid
+        return identities
+
+    def install_with_production_legacy_script(self, reinstall=False):
+        if not self.transaction_client_available or len(self.approved_client_cdhashes) != 2:
+            raise RuntimeError("ProtoProbe and TxDriver must both be built and signed before hosted installation")
+        prior_install_identities = self._assert_installed_for_reinstall() if reinstall else None
+        self.production_install_attempt += 1
+        core_sha256 = file_sha256(self.core_path)
+        self.assertion("both client bundles contain the exact executable production core resource",
+                       all(path.is_file() and os.access(path, os.X_OK) and
+                           file_sha256(path) == core_sha256
+                           for path in (self.probe_core, self.test_core)),
+                       {"coreSHA256": core_sha256,
+                        "clientCorePaths": [str(self.probe_core), str(self.test_core)]})
+        if not reinstall:
+            existing = [path for path in (self.launchd_plist, self.helper_path,
+                                          APPROVED_CORE_PATH, TRUST_RECEIPT_PATH)
+                        if os.path.lexists(path)]
+            if existing:
+                raise RuntimeError("refusing to replace paths that appeared after the clean-guest gate: " +
+                                   ", ".join(map(str, existing)))
+        if (not reinstall and not self.trust_parent_existed_before_install and
+                os.path.lexists(APPROVED_CORE_PATH.parent)):
+            raise RuntimeError("trusted-core directory appeared after the clean-guest gate")
+        if os.path.lexists(APPROVED_CORE_PATH.parent):
+            leftovers = list(APPROVED_CORE_PATH.parent.glob(TRUST_RECEIPT_PATH.name + ".tmp.*"))
+            leftovers.extend(APPROVED_CORE_PATH.parent.glob(".clashfx-install.*"))
+            if leftovers:
+                raise RuntimeError("refusing to run installer with unverified staged files: " +
+                                   ", ".join(map(str, leftovers)))
+        if self.decorated_metadata.get(str(self.probe_app)) is None:
+            raise RuntimeError("probe metadata decoration must precede production installer generation")
+
+        if self.generated_install_script_sha256 is None:
+            self._generate_production_install_script()
+        if reinstall:
+            self.installed_paths_created = {}
+        self.bootstrap_attempted = True
+        try:
+            completed = subprocess.run(["/bin/bash", str(self.instrumented_install_script)],
+                                       check=False, capture_output=True, text=True, timeout=180)
+        except subprocess.TimeoutExpired as error:
+            self._capture_fixture_install_outputs()
+            raise RuntimeError("production Legacy installer exceeded its 180 second deadline") from error
+        except Exception:
+            self._capture_fixture_install_outputs()
+            raise
+        self._capture_fixture_install_outputs()
+        if completed.returncode == 0:
+            # The clean-guest gate proved this label unused immediately before
+            # invoking the installer, so a successful final launchctl load is ours.
+            self.bootstrapped = True
+        if completed.returncode != 0:
+            raise RuntimeError("production Legacy installer failed: " +
+                               (completed.stderr or completed.stdout)[-4000:])
+
+        expected_stage_report = {
+            "forbiddenDisplayMetadataRemoved": True,
+            "unrelatedXattrRetained": True,
+        }
+        with self.metadata_stage_report.open("r", encoding="utf-8") as stream:
+            stage_report = json.load(stream)
+        source_metadata_unchanged = True
+        for raw_path, attributes in self.decorated_metadata.items():
+            path = Path(raw_path)
+            for name, expected_hex in attributes.items():
+                try:
+                    source_metadata_unchanged = (source_metadata_unchanged and
+                        os.getxattr(path, name, follow_symlinks=False).hex() == expected_hex)
+                except OSError:
+                    source_metadata_unchanged = False
+        self.assertion("production staging strips only FinderInfo and ResourceFork from its private app copy",
+                       stage_report == expected_stage_report and source_metadata_unchanged,
+                       {"stagedCopy": stage_report,
+                        "sourceMetadataUnchanged": source_metadata_unchanged,
+                        "sourceXattrs": self.decorated_metadata})
+        self._verify_production_install()
+        production_installer = self.report.setdefault("productionLegacyInstaller", {
+            "swiftSource": "ClashFX/General/Managers/PrivilegedHelperManager+Legacy.swift",
+            "generatorFacade": "Bundle.main paths point at the signed ProtoProbe.app; trust material comes from fixture JSON",
+            "generatedScriptSHA256": self.generated_install_script_sha256,
+            "executionScriptSHA256": self.instrumented_install_script_sha256,
+            "executionScriptInstrumentation": "read-only staged-xattr assertions before production codesign verification",
+            "installations": [],
+        })
+        current_identities = {
+            str(path): {"identity": list(tracked["identity"]), "sha256": tracked["sha256"]}
+            for path, tracked in self.installed_paths_created.items()
+        }
+        production_installer["installations"].append({
+            "attempt": self.production_install_attempt,
+            "kind": "reinstall-update" if reinstall else "clean-install",
+            "generatedScriptSHA256": self.generated_install_script_sha256,
+            "executionScriptSHA256": self.instrumented_install_script_sha256,
+            "exitCode": completed.returncode,
+            "stdoutTail": completed.stdout[-2000:],
+            "stderrTail": completed.stderr[-2000:],
+            "metadataStageReport": stage_report,
+            "sourceMetadataUnchanged": source_metadata_unchanged,
+            "previousTrackedInstallPaths": prior_install_identities,
+            "refreshedTrackedInstallPaths": current_identities,
+            "installedHelperPath": str(self.helper_path),
+            "installedLaunchDaemonPath": str(self.launchd_plist),
+            "productionReceipt": self.report.get("productionInstallerReceipt"),
+        })
+
+    def augment_installed_receipt_for_transaction_client(self):
+        if not self.transaction_client_available or str(self.transaction_app) not in self.approved_client_cdhashes:
+            raise RuntimeError("signed TxDriver is required for the controlled receipt fixture")
+        if not self._matches_tracked_install_file(self.helper_path, self.expected_embedded_helper_sha256):
+            raise RuntimeError("installed production Helper identity or expected hash changed before fixture receipt augmentation")
+        if not self._matches_tracked_install_file(APPROVED_CORE_PATH,
+                                                  self.report["build"]["approvedCoreSHA256"]):
+            raise RuntimeError("installed production core identity or expected hash changed before fixture receipt augmentation")
+        if not root_trust_file_is_safe(APPROVED_CORE_PATH, executable=True,
+                                       expected_sha256=self.report["build"]["approvedCoreSHA256"]):
+            raise RuntimeError("production-installed core is no longer immutable and trusted")
+        with TRUST_RECEIPT_PATH.open("rb") as stream:
+            original_receipt_bytes = stream.read()
+        original_receipt = plistlib.loads(original_receipt_bytes)
+        expected_original = {"SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION,
+                             "ApprovedClients": self._expected_approved_clients((self.probe_app,))}
+        original_hash = hashlib.sha256(original_receipt_bytes).hexdigest()
+        self.assertion("production installer receipt approves exactly ProtoProbe before test-fixture augmentation",
+                       original_receipt == expected_original and
+                       root_trust_file_is_safe(TRUST_RECEIPT_PATH, executable=False,
+                                               expected_sha256=original_hash),
+                       {"receipt": original_receipt,
+                        "expectedApprovedSourcePath": str(self.probe_core.resolve()),
+                        "receiptSHA256": original_hash})
+        if not self._matches_tracked_install_file(TRUST_RECEIPT_PATH, original_hash):
+            raise RuntimeError("production receipt identity or expected hash changed before fixture augmentation")
+
+        entries = self._expected_approved_clients((self.probe_app, self.transaction_app))
+        receipt_bytes = plistlib.dumps({"SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION,
+                                        "ApprovedClients": entries},
+                                       fmt=plistlib.FMT_XML, sort_keys=True)
+        receipt_sha256 = hashlib.sha256(receipt_bytes).hexdigest()
+        temporary = TRUST_RECEIPT_PATH.parent / f".clashfx-acceptance-trust-{secrets.token_hex(8)}.tmp"
+        temp_identity = None
+        try:
+            with temporary.open("xb") as stream:
+                info = os.fstat(stream.fileno())
+                temp_identity = (info.st_dev, info.st_ino)
+                self.temporary_trust_paths_created[temporary] = {
+                    "identity": temp_identity, "sha256": receipt_sha256,
+                }
+                stream.write(receipt_bytes)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chown(temporary, 0, 0)
+            os.chmod(temporary, 0o444)
+            tracked_receipt = self.installed_paths_created.get(TRUST_RECEIPT_PATH)
+            if (tracked_receipt is None or tracked_receipt["identity"] != file_identity(TRUST_RECEIPT_PATH) or
+                    tracked_receipt["sha256"] != file_sha256(TRUST_RECEIPT_PATH)):
+                raise RuntimeError("trust receipt identity or expected hash changed before augmentation")
+            require_command_success(["/usr/bin/chflags", "nouchg", str(TRUST_RECEIPT_PATH)], 8)
+            os.replace(temporary, TRUST_RECEIPT_PATH)
+            self.temporary_trust_paths_created.pop(temporary, None)
+            if not self._track_install_file(TRUST_RECEIPT_PATH, receipt_sha256):
+                raise RuntimeError("augmented trust receipt failed its expected hash or root ownership check")
+            require_command_success(["/usr/bin/chflags", "uchg", str(TRUST_RECEIPT_PATH)], 8)
+        finally:
+            if os.path.lexists(temporary) and temp_identity is not None:
+                info = temporary.lstat()
+                if (stat.S_ISREG(info.st_mode) and info.st_uid == 0 and
+                        (info.st_dev, info.st_ino) == temp_identity and
+                        file_sha256(temporary) == receipt_sha256):
+                    temporary.unlink()
+                    self.temporary_trust_paths_created.pop(temporary, None)
+
+        expected_augmented = {"SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION,
+                              "ApprovedClients": entries}
+        self.assertion("controlled root fixture adds TxDriver approval without replacing the installed helper or core",
+                       decode_install_plist(TRUST_RECEIPT_PATH) == expected_augmented and
+                       root_trust_file_is_safe(TRUST_RECEIPT_PATH, executable=False,
+                                               expected_sha256=receipt_sha256) and
+                       file_sha256(self.helper_path) == self.expected_embedded_helper_sha256 and
+                       file_sha256(APPROVED_CORE_PATH) == self.report["build"]["approvedCoreSHA256"],
+                       {"fixtureApprovedClients": entries,
+                        "helperSHA256": file_sha256(self.helper_path),
+                        "coreSHA256": file_sha256(APPROVED_CORE_PATH),
+                        "receiptSHA256": receipt_sha256})
+        self.report["testFixtureTrustAugmentation"] = {
+            "performedBy": "hosted acceptance harness after production install and ProtoProbe XPC roundtrip",
+            "productionInstallerApprovedClientCount": 1,
+            "addedClientBundlePath": str(self.transaction_app),
+            "addedClientCDHash": self.approved_client_cdhashes[str(self.transaction_app)],
+            "doesNotClaimProductionInstallerApprovedTxDriver": True,
+        }
+        self.report["coverage"]["approvedClientCoreTrust"] = True
         self.report["build"]["approvedClients"] = entries
 
     def _status_uses_approved_core_source(self, status, expected_source=None):
@@ -697,34 +1304,6 @@ class AcceptanceHarness:
                         "statusBinaryPath": status.get("binaryPath"),
                         "statusSourceBinaryPath": status.get("sourceBinaryPath")})
         self.report["coverage"]["rootImmutableCoreExecuted"] = True
-
-    def prepare_launchd_job(self):
-        job = dict(self.launchd_template)
-        job["ProgramArguments"] = [str(self.helper_path)]
-        job["RunAtLoad"] = True
-        job["StandardOutPath"] = str(self.helper_stdout)
-        job["StandardErrorPath"] = str(self.helper_stderr)
-        with self.launchd_plist.open("wb") as stream:
-            plistlib.dump(job, stream, fmt=plistlib.FMT_XML, sort_keys=True)
-        os.chmod(self.launchd_plist, 0o644)
-
-    def bootstrap_helper(self):
-        self.bootstrap_attempted = True
-        result = command_result(["/bin/launchctl", "bootstrap", "system", str(self.launchd_plist)], 25)
-        if result.returncode != 0:
-            probe = command_result(["/bin/launchctl", "print", f"system/{SERVICE_LABEL}"], 8)
-            if probe.returncode == 0 and str(self.helper_path) in probe.stdout:
-                self.bootstrapped = True
-            raise RuntimeError(f"launchctl bootstrap failed: {(result.stderr or result.stdout).strip()}")
-        self.bootstrapped = True
-        self.report["launchd"] = {
-            "label": SERVICE_LABEL,
-            "domain": "system",
-            "plist": str(self.launchd_plist),
-            "program": str(self.helper_path),
-            "source": str((ROOT / "ProxyConfigHelper" / "Helper-Launchd.plist").relative_to(ROOT)),
-            "productionMachServiceName": SERVICE_LABEL,
-        }
 
     def helper_pid(self):
         output = require_command_success(["/bin/launchctl", "print", f"system/{SERVICE_LABEL}"], 8)
@@ -1076,13 +1655,55 @@ class AcceptanceHarness:
         self.owned_core_pid = None
         self.owned_core_source_path = None
 
+    def _installed_helper_version_roundtrip(self, attempt):
+        helper_version = self.rpc("version")
+        protocol_version = self.rpc("protocolVersion")
+        helper_pid = self.helper_pid()
+        helper_paths = process_text_paths(helper_pid) if helper_pid is not None else []
+        helper_restarted = (attempt == 1 or
+                            (self.helper_pid_before_reinstall is not None and
+                             helper_pid != self.helper_pid_before_reinstall))
+        self.assertion(f"production Helper install attempt {attempt} completes its ProtoProbe XPC version roundtrip",
+                       isinstance(helper_version, str) and bool(helper_version) and protocol_version == 6 and
+                       helper_pid is not None and str(self.helper_path) in helper_paths and helper_restarted,
+                       {"attempt": attempt, "helperVersion": helper_version,
+                        "protocolVersion": protocol_version,
+                        "helperPID": helper_pid,
+                        "priorHelperPID": self.helper_pid_before_reinstall if attempt == 2 else None,
+                        "helperExecutablePaths": helper_paths,
+                        "installedHelperPath": str(self.helper_path),
+                        "productionInstallerReceipt": self.report.get("productionInstallerReceipt")})
+        self.report["coverage"]["productionHelperXPC"] = True
+        self.report["productionLegacyInstaller"]["installations"][-1]["protoProbeVersionRoundtrip"] = {
+            "helperVersion": helper_version,
+            "protocolVersion": protocol_version,
+            "passed": True,
+        }
+        return helper_version, protocol_version
+
     def run(self):
         self.compile_client()
         self.compile_transaction_client()
         self.prepare_unapproved_client()
-        self.install_root_core_and_receipt()
-        self.prepare_launchd_job()
-        self.bootstrap_helper()
+        self.decorate_probe_app_metadata()
+        self.install_with_production_legacy_script()
+        first_version = self._installed_helper_version_roundtrip(1)
+        self.augment_installed_receipt_for_transaction_client()
+        self.install_with_production_legacy_script(reinstall=True)
+        helper_version, protocol_version = self._installed_helper_version_roundtrip(2)
+        self.assertion("the same generated Legacy installer completes a verified Helper reinstall/update",
+                       len(self.report["productionLegacyInstaller"]["installations"]) == 2 and
+                       self.report["productionLegacyInstaller"]["installations"][0]["generatedScriptSHA256"] ==
+                       self.report["productionLegacyInstaller"]["installations"][1]["generatedScriptSHA256"] and
+                       self.report["productionLegacyInstaller"]["installations"][1]["protoProbeVersionRoundtrip"]["passed"] is True,
+                       {"firstProtoProbeVersion": first_version[0],
+                        "secondProtoProbeVersion": helper_version,
+                        "firstInstall": self.report["productionLegacyInstaller"]["installations"][0],
+                        "reinstall": self.report["productionLegacyInstaller"]["installations"][1]})
+        self.report["coverage"]["productionLegacyHelperInstallation"] = True
+        self.report["coverage"]["legacyHelperReinstallation"] = True
+        self.report["coverage"]["metadataDecoratedAppInstallation"] = True
+        self.augment_installed_receipt_for_transaction_client()
 
         started = time.monotonic()
         try:
@@ -1121,8 +1742,6 @@ class AcceptanceHarness:
                         "stderrTail": unapproved.stderr[-2000:]})
         self.report["coverage"]["unapprovedSameBundleIDRejected"] = True
 
-        helper_version = self.rpc("version")
-        protocol_version = self.rpc("protocolVersion")
         self.assertion("real Helper exposes production protocol version 6",
                        protocol_version == 6,
                        {"helperVersion": helper_version, "protocolVersion": protocol_version})
@@ -1460,6 +2079,14 @@ class AcceptanceHarness:
             return
         result = command_result(["/bin/launchctl", "bootout", f"system/{SERVICE_LABEL}"], 20)
         if result.returncode != 0:
+            probe = command_result(["/bin/launchctl", "print", f"system/{SERVICE_LABEL}"], 8)
+            missing_text = (probe.stdout + probe.stderr).lower()
+            if probe.returncode != 0 and ("could not find service" in missing_text or
+                                          "service not found" in missing_text):
+                self.bootstrapped = False
+                self.report["cleanup"] = {**self.report.get("cleanup", {}),
+                                           "helperAlreadyUnloaded": True}
+                return
             self.report["failures"].append({"phase": "cleanup", "operation": "launchctl-bootout",
                                             "message": (result.stderr or result.stdout).strip()})
             self.exit_code = self.exit_code or 1
@@ -1468,40 +2095,73 @@ class AcceptanceHarness:
         self.report["cleanup"] = {**self.report.get("cleanup", {}), "helperBootedOut": True}
 
     def _remove_installed_root_trust(self):
-        failures = []
+        if self.bootstrapped:
+            self.cleanup_assertion("installer paths remain intact until the Helper is booted out", False,
+                                   {"service": SERVICE_LABEL,
+                                    "reason": "launchd bootout did not complete; preserving live service files"})
+            return
+        failures = list(self.unexpected_install_leftovers)
         removed = []
+        immutable_paths = {APPROVED_CORE_PATH, TRUST_RECEIPT_PATH}
+        install_paths = (self.launchd_plist, self.helper_path, TRUST_RECEIPT_PATH, APPROVED_CORE_PATH)
         immutable_flag = getattr(stat, "UF_IMMUTABLE", None)
-        for path in (TRUST_RECEIPT_PATH, APPROVED_CORE_PATH):
-            identity = self.trust_paths_created.get(path)
-            if identity is None:
-                if os.path.lexists(path):
-                    failures.append({"path": str(path), "reason": "path was not created by this fixture"})
-                else:
+        for path in install_paths:
+            tracked = self.installed_paths_created.get(path)
+            if not os.path.lexists(path):
+                if tracked is None:
                     removed.append(str(path))
+                else:
+                    failures.append({"path": str(path), "reason": "tracked installer path disappeared before cleanup"})
+                continue
+            if tracked is None:
+                failures.append({"path": str(path), "reason": "path was not created with a verified identity and expected hash"})
                 continue
             try:
                 info = path.lstat()
-                if ((info.st_dev, info.st_ino) != identity or not stat.S_ISREG(info.st_mode) or
-                        info.st_uid != 0):
-                    raise RuntimeError("path identity, file type, or owner changed after staging")
-                if immutable_flag is None:
-                    raise RuntimeError("Python does not expose the macOS UF_IMMUTABLE file flag")
-                if getattr(info, "st_flags", 0) & immutable_flag:
-                    require_command_success(["/usr/bin/chflags", "nouchg", str(path)], 8)
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+                        (info.st_dev, info.st_ino) != tracked["identity"] or
+                        file_sha256(path) != tracked["sha256"]):
+                    raise RuntimeError("path identity, file type, owner, or expected hash changed after install")
+                if path in immutable_paths:
+                    if immutable_flag is None:
+                        raise RuntimeError("Python does not expose the macOS UF_IMMUTABLE file flag")
+                    if getattr(info, "st_flags", 0) & immutable_flag:
+                        require_command_success(["/usr/bin/chflags", "nouchg", str(path)], 8)
                 path.unlink()
                 if os.path.lexists(path):
                     raise RuntimeError("path remains after unlink")
                 removed.append(str(path))
             except Exception as error:
                 failures.append({"path": str(path), "reason": str(error)})
-        passed = not failures and all(not os.path.lexists(path)
-                                      for path in (APPROVED_CORE_PATH, TRUST_RECEIPT_PATH))
-        self.cleanup_assertion("fixture removed its installed root core and trust receipt", passed,
+
+        for path, tracked in list(self.temporary_trust_paths_created.items()):
+            if not os.path.lexists(path):
+                failures.append({"path": str(path), "reason": "tracked temporary receipt disappeared before cleanup"})
+                continue
+            try:
+                info = path.lstat()
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+                        (info.st_dev, info.st_ino) != tracked["identity"] or
+                        file_sha256(path) != tracked["sha256"]):
+                    raise RuntimeError("temporary receipt identity, owner, or expected hash changed")
+                path.unlink()
+                if os.path.lexists(path):
+                    raise RuntimeError("temporary receipt remains after unlink")
+                removed.append(str(path))
+                self.temporary_trust_paths_created.pop(path, None)
+            except Exception as error:
+                failures.append({"path": str(path), "reason": str(error)})
+
+        paths_absent = all(not os.path.lexists(path) for path in install_paths)
+        passed = not failures and paths_absent
+        self.cleanup_assertion("fixture removed the installer-created launchd job, helper, root core and trust receipt",
+                               passed,
                                {"removed": removed, "failures": failures,
-                                "remaining": [str(path) for path in
-                                              (APPROVED_CORE_PATH, TRUST_RECEIPT_PATH)
-                                              if os.path.lexists(path)]})
-        self.report["cleanup"]["approvedCoreTrustPathsRemoved"] = passed
+                                "remaining": [str(path) for path in install_paths if os.path.lexists(path)]})
+        self.report["cleanup"]["productionInstallPathsRemoved"] = passed
+        self.report["cleanup"]["approvedCoreTrustPathsRemoved"] = (
+            not os.path.lexists(APPROVED_CORE_PATH) and not os.path.lexists(TRUST_RECEIPT_PATH))
+
         if self.trust_directory_created is not None:
             try:
                 directory = APPROVED_CORE_PATH.parent
@@ -1509,7 +2169,7 @@ class AcceptanceHarness:
                 if ((info.st_dev, info.st_ino) != self.trust_directory_created or
                         not stat.S_ISDIR(info.st_mode) or info.st_uid != 0):
                     raise RuntimeError("fixture trust directory identity changed")
-                directory.rmdir()  # Refuse to remove unexpected contents.
+                directory.rmdir()
                 self.cleanup_assertion("fixture removed its empty trust directory", True, {})
             except Exception as error:
                 self.cleanup_assertion("fixture removed its empty trust directory", False,
@@ -1656,9 +2316,7 @@ class AcceptanceHarness:
             name = "mihomo_core.log" if index == len(unique_core_logs) - 1 else f"mihomo_core-{index + 1}.log"
             copied = copy_log(source, self.artifact_dir / name)
             cleanup[name + "Copied"] = copied
-        for source, name in ((self.helper_stdout, "helper.stdout.log"),
-                             (self.helper_stderr, "helper.stderr.log"),
-                             (self.transaction_stdout, "transaction.stdout.log"),
+        for source, name in ((self.transaction_stdout, "transaction.stdout.log"),
                              (self.transaction_stderr, "transaction.stderr.log")):
             copied = copy_log(source, self.artifact_dir / name)
             cleanup[name + "Copied"] = copied

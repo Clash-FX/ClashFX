@@ -68,7 +68,7 @@ extension PrivilegedHelperManager {
         umask 077
 
         # Validate installer dependencies before touching DNS or the running daemon.
-        for executable in /bin/bash /bin/rm /bin/ls /bin/chmod /bin/launchctl /usr/sbin/chown /usr/bin/install /usr/bin/stat /usr/bin/awk /usr/bin/mktemp /usr/bin/basename /usr/bin/ditto /usr/bin/perl /usr/bin/find /usr/bin/codesign /usr/bin/shasum /usr/bin/base64 /usr/bin/env /usr/bin/chflags; do
+        for executable in /bin/bash /bin/rm /bin/ls /bin/chmod /bin/launchctl /usr/sbin/chown /usr/bin/install /usr/bin/stat /usr/bin/awk /usr/bin/mktemp /usr/bin/basename /usr/bin/ditto /usr/bin/perl /usr/bin/find /usr/bin/codesign /usr/bin/shasum /usr/bin/base64 /usr/bin/env /usr/bin/chflags /usr/bin/xattr; do
             if [ ! -x "$executable" ]; then
                 printf 'Helper installer prerequisite missing: %s\\n' "$executable" >&2
                 exit 1
@@ -132,6 +132,12 @@ extension PrivilegedHelperManager {
             case "$resolvedLink" in "$stagingDirectory"/*) ;; *) exit 1 ;; esac
         done < <(/usr/bin/find "$stagedApp" -type l -print0)
 
+        # Lab/custom Finder icons add unsigned display metadata. Strip only
+        # these two attributes from the private copy, without following links.
+        # Missing attributes are normal; strict validation below rejects any
+        # remaining forbidden metadata or altered signed content.
+        /usr/bin/xattr -r -s -d com.apple.FinderInfo "$stagedApp" 2>/dev/null || true
+        /usr/bin/xattr -r -s -d com.apple.ResourceFork "$stagedApp" 2>/dev/null || true
         /usr/bin/codesign --verify --deep --strict "$stagedApp"
         observedClientCDHash=$(/usr/bin/codesign --display --verbose=4 "$stagedApp" 2>&1 | /usr/bin/awk -F= '/^CDHash=/{print tolower($2); exit}')
         [ "$observedClientCDHash" = "$expectedClientCDHash" ] || exit 1

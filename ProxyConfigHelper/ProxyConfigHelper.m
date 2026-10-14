@@ -9,6 +9,7 @@
 #import "ProxyConfigHelper.h"
 #import "HelperTaskRunner.h"
 #import "ProxyConfigHelperTrustPolicy.h"
+#import "BundleDisplayMetadata.h"
 #import <AppKit/AppKit.h>
 #import <Security/Security.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -266,6 +267,16 @@ static NSURL *CreateRootOwnedStagedAppBundle(NSURL *sourceBundleURL, NSString **
         return nil;
     }
 
+    int displayMetadataError = ClashFXRemoveStagedBundleDisplayMetadata(stagedBundleURL.fileSystemRepresentation);
+    if (displayMetadataError != 0) {
+        RemoveRootOwnedStagedAppBundle(stagedBundleURL);
+        if (failure) {
+            *failure = [NSString stringWithFormat:@"cannot normalize staged app display metadata: %s",
+                        strerror(displayMetadataError)];
+        }
+        return nil;
+    }
+
     NSString *stagePrefix = [stagingRoot stringByAppendingString:@"/"];
     __block NSString *treeFailure = nil;
     NSDirectoryEnumerator<NSURL *> *enumerator = [[NSFileManager defaultManager]
@@ -294,6 +305,12 @@ static NSURL *CreateRootOwnedStagedAppBundle(NSURL *sourceBundleURL, NSString **
         }
         if (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode)) {
             treeFailure = @"staged app contains a non-file object";
+            break;
+        }
+        displayMetadataError = ClashFXRemoveStagedBundleDisplayMetadata(itemURL.fileSystemRepresentation);
+        if (displayMetadataError != 0) {
+            treeFailure = [NSString stringWithFormat:@"cannot normalize staged item display metadata: %s",
+                           strerror(displayMetadataError)];
             break;
         }
         mode_t mode = info.st_mode & 07777;

@@ -42,6 +42,9 @@ jobs:
         rm -rf ~/Library/Caches/CocoaPods 2>/dev/null || true
         echo "After cleanup: $(df -h / | tail -1 | awk '{print $4}') available"
 
+    - name: Helper bundle metadata and signature regression
+      run: python3 scripts/verify-helper-bundle-metadata.py
+
     - name: isolated regression tests
       run: |
         xcodebuild -workspace ClashFX.xcworkspace -scheme ClashFX \
