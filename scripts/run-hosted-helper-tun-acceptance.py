@@ -321,6 +321,19 @@ def root_trust_file_is_safe(path, executable, expected_sha256=None):
     return True
 
 
+def list_file_xattrs(path):
+    return require_command_success(["/usr/bin/xattr", "-s", str(path)], 8).splitlines()
+
+
+def read_file_xattr(path, name):
+    value = require_command_success(["/usr/bin/xattr", "-s", "-p", "-x", name, str(path)], 8)
+    return bytes.fromhex("".join(value.split()))
+
+
+def write_file_xattr(path, name, value):
+    require_command_success(["/usr/bin/xattr", "-s", "-w", "-x", name, value.hex(), str(path)], 8)
+
+
 def file_sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -653,13 +666,13 @@ class AcceptanceHarness:
         for path, attributes in decorations.items():
             if path.is_symlink() or not path.exists():
                 raise RuntimeError(f"metadata test target is missing or is a symlink: {path}")
-            existing = set(os.listxattr(path, follow_symlinks=False))
+            existing = set(list_file_xattrs(path))
             collisions = sorted(existing.intersection(attributes))
             if collisions:
                 raise RuntimeError(f"refusing to overwrite preexisting test xattrs on {path}: {collisions}")
             for name, value in attributes.items():
-                os.setxattr(path, name, value, follow_symlinks=False)
-            observed = {name: os.getxattr(path, name, follow_symlinks=False)
+                write_file_xattr(path, name, value)
+            observed = {name: read_file_xattr(path, name)
                         for name in attributes}
             if observed != attributes:
                 raise RuntimeError(f"metadata decorations did not round-trip on {path}")
@@ -1144,7 +1157,7 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
             for name, expected_hex in attributes.items():
                 try:
                     source_metadata_unchanged = (source_metadata_unchanged and
-                        os.getxattr(path, name, follow_symlinks=False).hex() == expected_hex)
+                        read_file_xattr(path, name).hex() == expected_hex)
                 except OSError:
                     source_metadata_unchanged = False
         self.assertion("production staging strips only FinderInfo and ResourceFork from its private app copy",
