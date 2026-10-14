@@ -706,23 +706,33 @@ func ReCreateServer(addr string, service resolver.Service) {
     current.tcpServer = &D.Server{Addr: addr, Listener: listener, Handler: current}
     server = current
     address = addr
-    start := func(protocol string, dnsServer *D.Server) {
-        started := make(chan struct{})
+    start := func(protocol string, dnsServer *D.Server) bool {
+        started := make(chan bool, 1)
         var once sync.Once
-        notify := func() { once.Do(func() { close(started) }) }
-        dnsServer.NotifyStartedFunc = notify
+        notify := func(ready bool) { once.Do(func() { started <- ready }) }
+        dnsServer.NotifyStartedFunc = func() { notify(true) }
         go func() {
-            defer notify() // Also release the publisher if activation fails.
+            defer notify(false) // Exit before startup is a failure, not readiness.
             if err := dnsServer.ActivateAndServe(); err != nil {
                 log.Errorln("Start DNS server(%s) error: %s", protocol, err.Error())
             }
             if dnsServer.PacketConn != nil { _ = dnsServer.PacketConn.Close() }
             if dnsServer.Listener != nil { _ = dnsServer.Listener.Close() }
         }()
-        <-started
+        return <-started
     }
-    start("UDP", current.udpServer)
-    start("TCP", current.tcpServer)
+    if !start("UDP", current.udpServer) {
+        _ = listener.Close()
+        current.SetService(nil)
+        address = ""
+        return
+    }
+    if !start("TCP", current.tcpServer) {
+        _ = current.udpServer.Shutdown()
+        current.SetService(nil)
+        address = ""
+        return
+    }
     log.Infoln("DNS server(UDP) listening at: %s", packet.LocalAddr().String())
     log.Infoln("DNS server(TCP) listening at: %s", listener.Addr().String())
 }
