@@ -295,7 +295,7 @@ final class BenchmarkProbeDiagnosticsTests: XCTestCase {
             scope: scope
         )
         let diagnostic = try XCTUnwrap(makeDiagnostic(token, outcome: .measured(42), statusCode: 200))
-        BenchmarkProbeDiagnosticsStore.prune(using: try makeSnapshot([(proxy.name, proxy.id ?? "")]))
+        try BenchmarkProbeDiagnosticsStore.prune(using: makeSnapshot([(proxy.name, proxy.id ?? "")]))
 
         XCTAssertTrue(BenchmarkProbeDiagnosticsStore.isCurrent(token, currentScope: scope))
         XCTAssertFalse(BenchmarkProbeDiagnosticsStore.publish(diagnostic, token: token, currentScope: scope))
@@ -401,7 +401,7 @@ final class BenchmarkProbeDiagnosticsTests: XCTestCase {
     func testStoreIsBoundedAndNewerSuccessReplacesPreviousFailure() throws {
         var proxies = [ClashProxy]()
         for index in 0 ..< BenchmarkProbeDiagnosticsStore.maximumCount + 1 {
-            proxies.append(try makeProxy(name: "Node-\(index)", id: "id-\(index)"))
+            try proxies.append(makeProxy(name: "Node-\(index)", id: "id-\(index)"))
         }
         let conditions = BenchmarkConditions(url: "https://example.test/probe")
         let first = proxies[0]

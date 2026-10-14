@@ -4,5 +4,6 @@
 #import "goClash.h"
 #import "ProxyConfigRemoteProcessProtocol.h"
 #import "LoginKitWrapper.h"
+#import "CurrentProcessCodeIdentity.h"
 #import <sys/proc_info.h>
 #import <libproc.h>

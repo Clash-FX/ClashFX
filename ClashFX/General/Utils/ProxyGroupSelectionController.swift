@@ -4,9 +4,9 @@ import AppKit
 /// remain the only source of checkmark state.
 final class ProxyGroupSelectionController: NSObject, NSMenuItemValidation {
     private static let registry = NSHashTable<ProxyGroupSelectionController>.weakObjects()
-    // A menu rebuild can release the old submenu while its PUT is still in
-    // flight. Keep that controller alive until its callback or timeout settles
-    // so another interaction cannot overlap the physical mutation.
+    /// A menu rebuild can release the old submenu while its PUT is still in
+    /// flight. Keep that controller alive until its callback or timeout settles
+    /// so another interaction cannot overlap the physical mutation.
     private static var activeOperationOwners = [UUID: ProxyGroupSelectionController]()
 
     static var isAnyOperationInProgress: Bool {

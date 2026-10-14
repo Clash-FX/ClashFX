@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D43000000000000000000002 /* TunDNSTransactionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43000000000000000000001; };
+		D43000000000000000000003 /* TunDNSTransactionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43000000000000000000001; };
+		D43100000000000000000002 /* TunDNSTransactionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43100000000000000000001; };
 		D42500000000000000000003 /* ProxySelectionMemoryRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D42500000000000000000001 /* ProxySelectionMemoryRestorationTests.swift */; };
 		D42400000000000000000003 /* ProxySelectionMemoryRestorationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D42400000000000000000001 /* ProxySelectionMemoryRestorationController.swift */; };
 		D42400000000000000000002 /* ProxySelectionMemoryRestorationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D42400000000000000000001 /* ProxySelectionMemoryRestorationController.swift */; };
@@ -276,6 +279,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		D43000000000000000000001 /* TunDNSTransactionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Managers/TunDNSTransactionController.swift; sourceTree = SOURCE_ROOT; };
+		D43100000000000000000001 /* TunDNSTransactionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/TunDNSTransactionTests.swift; sourceTree = SOURCE_ROOT; };
 		D42500000000000000000001 /* ProxySelectionMemoryRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/ProxySelectionMemoryRestorationTests.swift; sourceTree = SOURCE_ROOT; };
 		D42400000000000000000001 /* ProxySelectionMemoryRestorationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/ProxySelectionMemoryRestorationController.swift; sourceTree = SOURCE_ROOT; };
 		D42300000000000000000001 /* BundleIconImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/BundleIconImageTests.swift; sourceTree = SOURCE_ROOT; };
@@ -530,6 +535,8 @@
 		C30100000000000000000009 /* ClashFXTests */ = {
 			isa = PBXGroup;
 			children = (
+				D43100000000000000000001 /* TunDNSTransactionTests.swift */,
+				D43000000000000000000001 /* TunDNSTransactionController.swift */,
 				D40800000000000000000001 /* BenchmarkSortAndColorTests.swift */,
 				D40700000000000000000001 /* BenchmarkSettingsMigrationTests.swift */,
 				D40600000000000000000001 /* BenchmarkOptimizationPolicyTests.swift */,
@@ -1223,6 +1230,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D43000000000000000000003 /* TunDNSTransactionController.swift in Sources */,
+				D43100000000000000000002 /* TunDNSTransactionTests.swift in Sources */,
 				D40900000000000000000003 /* RuntimeBenchmarkSettingsPolicy.swift in Sources */,
 				D40800000000000000000003 /* BenchmarkSortAndColorTests.swift in Sources */,
 				D40700000000000000000003 /* BenchmarkSettingsMigrationTests.swift in Sources */,
@@ -1335,6 +1344,7 @@
 				49D6A45629AEEC55006487EF /* StatusItemViewProtocol.swift in Sources */,
 				493AEAE3221AE3420016FE98 /* AppVersionUtil.swift in Sources */,
 				49CF3B2120CD7463001EBF94 /* AppDelegate.swift in Sources */,
+				D43000000000000000000002 /* TunDNSTransactionController.swift in Sources */,
 				49CCDA2D2A54FBA600FF1E13 /* ConnectionsViewModel.swift in Sources */,
 				49C9AFEC2A592C5D00178BB4 /* ConnectionDetailViewModel.swift in Sources */,
 				4991D2302A564DDC00978143 /* SpeedUtils.swift in Sources */,

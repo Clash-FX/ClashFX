@@ -389,23 +389,25 @@
                                                                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                                     </textFieldCell>
                                                                 </textField>
-                                                                <popUpButton verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-mode-popup">
-                                                                    <rect key="frame" x="90" y="-3" width="300" height="25"/>
-                                                                    <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="borderAndBezel" imageScaling="proportionallyDown" inset="2" id="benchmark-mode-popup-cell">
-                                                                        <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                                <segmentedControl verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-mode-segmented">
+                                                                    <rect key="frame" x="90" y="-2" width="300" height="24"/>
+                                                                    <segmentedCell key="cell" borderStyle="border" alignment="left" style="rounded" trackingMode="selectOne" id="benchmark-mode-segmented-cell">
                                                                         <font key="font" metaFont="smallSystem"/>
-                                                                        <menu key="menu" id="benchmark-mode-menu"/>
-                                                                    </popUpButtonCell>
+                                                                        <segments>
+                                                                            <segment label="Quick" width="115" selected="YES"/>
+                                                                            <segment label="Complete" width="115"/>
+                                                                        </segments>
+                                                                    </segmentedCell>
                                                                     <connections>
                                                                         <action selector="actionBenchmarkModeChanged:" target="kma-mp-ncL" id="benchmark-mode-action"/>
                                                                     </connections>
-                                                                </popUpButton>
+                                                                </segmentedControl>
                                                             </subviews>
                                                             <constraints>
                                                                 <constraint firstAttribute="height" constant="24" id="benchmark-mode-row-height"/>
                                                                 <constraint firstItem="benchmark-mode-label" firstAttribute="leading" secondItem="benchmark-mode-row" secondAttribute="leading" id="benchmark-mode-label-leading"/>
-                                                                <constraint firstItem="benchmark-mode-popup" firstAttribute="leading" secondItem="benchmark-mode-label" secondAttribute="trailing" constant="8" id="benchmark-mode-popup-leading"/>
-                                                                <constraint firstAttribute="trailing" secondItem="benchmark-mode-popup" secondAttribute="trailing" id="benchmark-mode-popup-trailing"/>
+                                                                <constraint firstItem="benchmark-mode-segmented" firstAttribute="leading" secondItem="benchmark-mode-label" secondAttribute="trailing" constant="8" id="benchmark-mode-segmented-leading"/>
+                                                                <constraint firstAttribute="trailing" secondItem="benchmark-mode-segmented" secondAttribute="trailing" id="benchmark-mode-segmented-trailing"/>
                                                             </constraints>
                                                         </stackView>
                                                         <stackView distribution="fill" orientation="horizontal" alignment="centerY" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-sort-order-row">
@@ -709,7 +711,7 @@
                         <outlet property="apiPortTextField" destination="xJH-gA-vcL" id="L8f-GZ-BYW"/>
                         <outlet property="apiSecretOverrideButton" destination="N0V-ac-Acm" id="n9x-y4-XsR"/>
                         <outlet property="apiSecretTextField" destination="CE4-Aa-FiI" id="po3-LI-T3l"/>
-                        <outlet property="benchmarkModePopUp" destination="benchmark-mode-popup" id="benchmark-mode-popup-outlet"/>
+                        <outlet property="benchmarkModeSegmentedControl" destination="benchmark-mode-segmented" id="benchmark-mode-segmented-outlet"/>
                         <outlet property="benchmarkSortOrderPopUp" destination="benchmark-sort-order-popup" id="benchmark-sort-order-popup-outlet"/>
                         <outlet property="benchmarkMeasurementMethodPopUp" destination="benchmark-measurement-popup" id="benchmark-measurement-popup-outlet"/>
                         <outlet property="benchmarkURLPresetPopUp" destination="benchmark-url-preset-popup" id="benchmark-url-preset-popup-outlet"/>

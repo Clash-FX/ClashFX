@@ -6,6 +6,10 @@
 import Foundation
 
 enum ClaudeProxyLockPolicy {
+    static func requiresEnhancedMode(lockEnabled: Bool, preferredEnhancedMode: Bool) -> Bool {
+        lockEnabled || preferredEnhancedMode
+    }
+
     /// mihomo PROCESS-NAME is an exact match. Claude Desktop's network
     /// processes are "Claude", "Claude Helper", and "Claude Helper (Renderer|GPU|Plugin)".
     static let processNamePattern = "^claude( helper.*)?$"
@@ -341,136 +345,136 @@ enum ClaudeProxyLockPolicy {
         }
 
         for (index, group) in groups.enumerated() {
-                guard let name = group["name"] as? String, !name.isEmpty else { continue }
-                var candidates: [String] = []
-                var unresolved = false
+            guard let name = group["name"] as? String, !name.isEmpty else { continue }
+            var candidates: [String] = []
+            var unresolved = false
 
-                let includeAll = groupFlag("include-all", in: group, unresolved: &unresolved)
-                let includeAllProxiesFlag = groupFlag(
-                    "include-all-proxies",
-                    in: group,
-                    unresolved: &unresolved
-                )
-                let includeAllProvidersFlag = groupFlag(
-                    "include-all-providers",
-                    in: group,
-                    unresolved: &unresolved
-                )
-                let includeAllProxies = includeAll || includeAllProxiesFlag
-                let includeAllProviders = includeAll || includeAllProvidersFlag
+            let includeAll = groupFlag("include-all", in: group, unresolved: &unresolved)
+            let includeAllProxiesFlag = groupFlag(
+                "include-all-proxies",
+                in: group,
+                unresolved: &unresolved
+            )
+            let includeAllProvidersFlag = groupFlag(
+                "include-all-providers",
+                in: group,
+                unresolved: &unresolved
+            )
+            let includeAllProxies = includeAll || includeAllProxiesFlag
+            let includeAllProviders = includeAll || includeAllProvidersFlag
 
-                func appendCandidate(
-                    _ rawName: String,
-                    applyIncludeFilter: Bool,
-                    record: ProviderProxyRecord?
-                ) {
-                    let candidate = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !candidate.isEmpty else {
-                        unresolved = true
-                        return
-                    }
-                    let candidateType = record?.proxy["type"] as? String ??
-                        groupDefinitionsByName[candidate]?["type"] as? String ??
-                        builtinProxyType(candidate)
-                    guard let included = groupCandidateIncluded(
-                        candidate,
-                        proxyType: candidateType,
-                        group: group,
-                        applyIncludeFilter: applyIncludeFilter
-                    ) else {
-                        unresolved = true
-                        candidates.append(candidate)
-                        referencedNames.insert(candidate)
-                        return
-                    }
-                    if included {
-                        candidates.append(candidate)
-                        referencedNames.insert(candidate)
-                    }
+            func appendCandidate(
+                _ rawName: String,
+                applyIncludeFilter: Bool,
+                record: ProviderProxyRecord?
+            ) {
+                let candidate = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !candidate.isEmpty else {
+                    unresolved = true
+                    return
                 }
-
-                if let rawCandidates = group["proxies"] {
-                    if let values = rawCandidates as? [String] {
-                        for value in values {
-                            appendCandidate(
-                                value,
-                                applyIncludeFilter: false,
-                                record: proxyRecordsByName[value]
-                            )
-                        }
-                    } else {
-                        unresolved = true
-                    }
+                let candidateType = record?.proxy["type"] as? String ??
+                    groupDefinitionsByName[candidate]?["type"] as? String ??
+                    builtinProxyType(candidate)
+                guard let included = groupCandidateIncluded(
+                    candidate,
+                    proxyType: candidateType,
+                    group: group,
+                    applyIncludeFilter: applyIncludeFilter
+                ) else {
+                    unresolved = true
+                    candidates.append(candidate)
+                    referencedNames.insert(candidate)
+                    return
                 }
+                if included {
+                    candidates.append(candidate)
+                    referencedNames.insert(candidate)
+                }
+            }
 
-                if let rawNow = group["now"] {
-                    if let value = rawNow as? String {
+            if let rawCandidates = group["proxies"] {
+                if let values = rawCandidates as? [String] {
+                    for value in values {
                         appendCandidate(
                             value,
                             applyIncludeFilter: false,
                             record: proxyRecordsByName[value]
                         )
-                    } else {
-                        unresolved = true
-                    }
-                }
-
-                if includeAllProxies {
-                    if !inlineProxiesAreValid {
-                        unresolved = true
-                    } else {
-                        for proxy in inlineRecords {
-                            appendCandidate(
-                                proxy.name,
-                                applyIncludeFilter: true,
-                                record: proxy
-                            )
-                        }
-                    }
-                }
-
-                let usedProviders: [String]
-                if includeAllProviders {
-                    if !providerDefinitionsAreValid {
-                        unresolved = true
-                        usedProviders = []
-                    } else {
-                        usedProviders = providerDefinitions.keys.sorted()
-                    }
-                } else if let rawUse = group["use"] {
-                    if let values = rawUse as? [String] {
-                        usedProviders = values
-                    } else {
-                        unresolved = true
-                        usedProviders = []
                     }
                 } else {
-                    usedProviders = []
+                    unresolved = true
                 }
+            }
 
-                for providerName in usedProviders {
-                    guard providersKnown[providerName] == true,
-                          let members = providerMembers[providerName] else {
-                        unresolved = true
-                        continue
-                    }
-                    for member in members {
+            if let rawNow = group["now"] {
+                if let value = rawNow as? String {
+                    appendCandidate(
+                        value,
+                        applyIncludeFilter: false,
+                        record: proxyRecordsByName[value]
+                    )
+                } else {
+                    unresolved = true
+                }
+            }
+
+            if includeAllProxies {
+                if !inlineProxiesAreValid {
+                    unresolved = true
+                } else {
+                    for proxy in inlineRecords {
                         appendCandidate(
-                            member.name,
+                            proxy.name,
                             applyIncludeFilter: true,
-                            record: member
+                            record: proxy
                         )
                     }
                 }
+            }
 
-                if candidates.isEmpty {
+            let usedProviders: [String]
+            if includeAllProviders {
+                if !providerDefinitionsAreValid {
                     unresolved = true
+                    usedProviders = []
+                } else {
+                    usedProviders = providerDefinitions.keys.sorted()
                 }
-                insert(
-                    name,
-                    node: .group(candidates: unique(candidates), unresolved: unresolved),
-                    owner: "group:\(index)"
-                )
+            } else if let rawUse = group["use"] {
+                if let values = rawUse as? [String] {
+                    usedProviders = values
+                } else {
+                    unresolved = true
+                    usedProviders = []
+                }
+            } else {
+                usedProviders = []
+            }
+
+            for providerName in usedProviders {
+                guard providersKnown[providerName] == true,
+                      let members = providerMembers[providerName] else {
+                    unresolved = true
+                    continue
+                }
+                for member in members {
+                    appendCandidate(
+                        member.name,
+                        applyIncludeFilter: true,
+                        record: member
+                    )
+                }
+            }
+
+            if candidates.isEmpty {
+                unresolved = true
+            }
+            insert(
+                name,
+                node: .group(candidates: unique(candidates), unresolved: unresolved),
+                owner: "group:\(index)"
+            )
         }
 
         return DependencyGraph(

@@ -649,7 +649,7 @@
 "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "Новый core не смог открыть настроенные прокси-порты прослушивания: %@. Подробности см. в диагностическом журнале core.";
 "Direct fallback (no proxy nodes)" = "Прямое соединение (нет узлов прокси)";
 
-"Benchmark result with historical marker" = "%@ (предыдущее)";
+"Benchmark result with historical marker" = "%@ · стар.";
 
 "Benchmark cancelled: core changed" = "Тест отменён: смена ядра";
 
@@ -665,8 +665,6 @@
 
 "Latency First" = "Сначала узлы с низкой задержкой";
 
-"Benchmark options" = "Параметры проверки";
-
 "Quick (2.5 s)" = "Быстрая (2,5 с)";
 
 "Complete (5 s)" = "Полная (5 с)";
@@ -675,17 +673,11 @@
 
 "Benchmarking %d/%d" = "Проверка: %d/%d";
 
+"Succeeded: %d, timed out: %d, failed: %d, unavailable: %d, reused: %d" = "Успешно: %d, тайм-аутов: %d, ошибок: %d, недоступно: %d, повторно использовано: %d";
+
 "Testing automatic group" = "Проверка автоматической группы";
 
 "Testing selected automatic group" = "Проверка выбранной автоматической группы";
-
-"Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Быстрая проверка: успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d";
-
-"Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Готово: успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d";
-
-"Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time." = "Время быстрой проверки истекло через %d мс. Успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d. Для узлов, которым нужно больше времени, выберите полную проверку.";
-
-"Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Итоги проверки: успешно %d, тайм-аутов %d, ошибок %d, недоступно %d, повторно использовано %d";
 
 "No failed nodes to retry" = "Нет узлов с ошибками для повторной проверки";
 

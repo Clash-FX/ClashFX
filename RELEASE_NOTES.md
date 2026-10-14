@@ -1,33 +1,25 @@
-# ClashFX 1.1.11.10 (Lab)
+## ClashFX 1.1.11.11 (Lab)
 
-### Fixes
+### Improvements
 
-- **Proxy Lock** — Save lock preferences only after runtime and system proxy changes succeed. Roll back failed changes to the previous runtime and per-service proxy checkpoint; reject recursive dialing dependencies.
-- **Runtime ownership and recovery** — Prevent a second ClashFX process from competing for the helper, core or system proxy. Coalesce recovery events, verify actual state and limit retries; quarantine unconfirmed helper writes and bound Rule-mode recovery.
-- **Node selection** — Distinguish manual selection, automatic routing and manual priority. Show the core's actual route; automatic groups support a preferred node and Restore Auto without optimistic checkmarks.
-- **Latency tests and diagnostics** — Remove duplicate test menus and move test options and display order to Settings. Separate current failures/timeouts from historical measurements; add copyable single-node diagnostics with controlled failure reasons.
-- **Interaction consistency** — Coordinate selection, memory restoration, reloads, Lock and recovery. Reject stale replies across reloads and controller changes; bind diagnostics to the measured node and core scope.
-- **App icon** — Use a fixed bitmap representation when saving custom icons and the Lab badge.
+- **Reliable Startup and Restart** — Confirm helper-managed core shutdown before handing off listeners, publish a ready enhanced core before runtime requests, and cancel stale startup retries after recovery succeeds.
+- **Claude Lock Keeps Your Proxy Settings** — Disabling Claude lock preserves Enhanced Mode and System Proxy. Re-enabling and restarting restore the protected runtime without silently disabling the enhanced-mode preference after a failed restore.
+- **DNS Listener Lifecycle Synchronization** — Serialize DNS listener publication and shutdown, wait for startup acknowledgement, and protect resolver-service updates to prevent races during immediate suspension or reload.
+- **Safer DNS Recovery and Helper Updates** — Reject expired DNS mutation requests even when the main queue delays timeout delivery. Persist bounded per-service recovery journals, preserve newer external DNS changes, verify UDP/TCP DNS takeover, and restrict privileged execution to an approved root-owned core with validated client identity.
+- **Cleaner Benchmark Menus** — Choose Quick or Complete testing in Settings, defaulting to Quick. Remove verbose menu summaries and manual prefixes, and use a compact old-result marker with details on hover.
+- **Current Wi-Fi APIs and Useful Diagnostics** — Remove the obsolete airport fallback, skip SSID reads when auto-suspend is unused, and recheck after location authorization changes. Routine helper refresh and listener warm-up no longer appear as failures; interface warnings target the core's own TUN device.
 
-### Validation
-
-349 isolated XCTest cases passed (4 real-core cases skipped there and passed separately), 4 isolated Mihomo integration cases passed, and 30 production-method checks passed. A disposable GitHub-hosted Mac passed 43 real Helper/TUN assertions covering startup/restart, invalid-config and proxy-write rollback, proxy/DNS restoration and fixture cleanup. [Backend acceptance run](https://github.com/Clash-FX/ClashFX/actions/runs/38252765807).
-
-No running local ClashFX was changed during validation. Full GUI startup, SMJobBless authorization, physical display/power hot-plug and runtime testing on macOS 10.14 are outside this demonstrated coverage. The earlier HY2-69 API 503 does not identify its underlying cause; diagnostics now make future failures inspectable.
+Validation: 402 isolated XCTest cases (4 skipped, zero failures), 39 production Claude-lock flow checks and local App/Helper builds passed. Live Xcode checks covered helper update, lock disable/re-enable, app restart, DNS/proxy requests and sleep/wake recovery. Release CI rebuilds universal cores from source and checks packaged architectures and declared minimum OS versions. macOS 10.14 runtime testing remains outside demonstrated coverage. Subscription YAML errors are outside this release's changes.
 
 ---
 
-### 修复
+### 改进
 
-- **Proxy Lock** — 核心与系统代理均成功后才保存锁定设置；失败恢复旧运行配置和逐服务代理检查点，拒绝循环拨号依赖。
-- **运行控制与自动恢复** — 阻止第二个 ClashFX 副本争抢 Helper、核心和系统代理；合并恢复通知、读回实际状态并限制重试。未确认 Helper 写入隔离，Rule 模式恢复也有重试上限。
-- **节点选择** — 区分手动选择、自动选路与手动优先，显示核心实际使用的选路；自动组支持优先节点及“恢复自动”，勾选等待核心确认。
-- **测速与诊断** — 移除重复测速菜单，测速选项和显示顺序移至设置；分开显示本轮失败/超时和历史测量，补齐可复制的单节点失败原因诊断。
-- **交互一致性** — 协调选择、记忆恢复、配置重载、Lock 和自动恢复；重载或控制实例变化后拒绝旧回复，诊断绑定节点身份与核心作用域。
-- **应用图标** — 保存自定义图标和 Lab 标记时采用固定 bitmap 表示。
+- **启动与重启恢复更可靠** — 核心交接前确认 helper 管理的旧任务已退出；新增强核心就绪后及时发布运行状态，并取消过期启动重试。
+- **Claude 锁定保留代理设置** — 停用锁定保留增强模式和系统代理；重新开启和重启恢复受保护运行状态，恢复失败时不再悄悄关闭增强模式偏好。
+- **DNS 监听生命周期同步** — 串行发布和关闭监听，等待启动确认并保护解析服务更新，消除立即暂停或重载时的数据竞争。
+- **DNS 恢复与 Helper 更新更安全** — 即使主线程延迟处理超时也拒绝过期 DNS 修改请求；按网络服务持久保存有大小限制的恢复记录，保留用户后续修改的 DNS，验证 UDP/TCP 接管；特权执行仅使用经验证、由 root 保管的批准核心。
+- **测速菜单更简洁** — 快速／完整测速放入设置，默认快速；移除冗长菜单说明和手动前缀，旧结果使用简短标记并保留悬停详情。
+- **Wi-Fi 接口与日志更新** — 移除旧 airport 回退，未使用自动暂停时不读取 SSID，定位授权变化后重新检查。正常 helper 刷新、端口等待使用合适日志级别，仅对当前核心的 TUN 接口提示异常。
 
-### 验收结果
-
-隔离 XCTest 349 项通过（其中跳过的 4 项真实核心用例已单独通过）；独立 Mihomo 集成 4 项、生产方法探针 30 项通过。独立 GitHub macOS 环境真实 Helper/TUN 验收 43 项通过，覆盖启动/重启、无效配置及代理写入失败回滚、代理/DNS 恢复和夹具清理。[后端验收记录](https://github.com/Clash-FX/ClashFX/actions/runs/38252765807)。
-
-验证没有改变本机正在运行的 ClashFX。完整 GUI 启动、SMJobBless 授权、物理外屏/电源热插拔和 macOS 10.14 实机运行尚未覆盖。旧 HY2-69 的 API 503 仍不足以判定底层原因；新增诊断用于分析后续失败。
+验证：402 项隔离 XCTest（4 项跳过、0 失败）、39 项生产锁定流程检查及本机 App/Helper 构建通过。Xcode 实机验证覆盖 helper 更新、锁定取消／重新开启、App 重启、DNS／代理访问和睡眠唤醒恢复。发布 CI 从源码重新生成通用核心，检查最终包架构及最低系统版本声明；未完成 macOS 10.14 实机运行验证。订阅 YAML 错误不在本次修改范围。

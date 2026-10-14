@@ -69,11 +69,11 @@ final class ProxySelectionMemoryRestorationTests: XCTestCase {
         }
         harness.refreshCompletion?(snapshot())
         waitUntil("first selection started") { harness.selections.count == 1 }
-        XCTAssertEqual(harness.selections.map { $0.0 }, ["Selector"])
+        XCTAssertEqual(harness.selections.map(\.0), ["Selector"])
 
         harness.selectionCompletions[0](true)
         waitUntil("second selection started") { harness.selections.count == 2 }
-        XCTAssertEqual(harness.selections.map { $0.0 }, ["Selector", "OtherSelector"])
+        XCTAssertEqual(harness.selections.map(\.0), ["Selector", "OtherSelector"])
         harness.selectionCompletions[1](false)
         waitUntil("partial restore completed") { completions.count == 1 }
 

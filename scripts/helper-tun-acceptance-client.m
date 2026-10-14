@@ -98,6 +98,7 @@ int main(int argc, const char *argv[]) {
                         forSelector:@selector(getMihomoCoreStatusWithReply:)
                       argumentIndex:0
                             ofReply:YES];
+        ClashFXConfigureHelperXPCInterface(remoteInterface);
         connection.remoteObjectInterface = remoteInterface;
         [connection resume];
 
@@ -146,6 +147,17 @@ int main(int argc, const char *argv[]) {
             [proxy getCurrentProxySetting:^(NSDictionary *settings) { complete(settings, nil); }];
         } else if ([operation isEqualToString:@"dnsSnapshot"]) {
             [proxy getCurrentDNSSetting:^(NSDictionary *settings) { complete(settings, nil); }];
+        } else if ([operation isEqualToString:@"captureDNS"]) {
+            [proxy captureDNSWithFilterInterface:[request[@"filterInterface"] boolValue]
+                                           reply:^(NSDictionary *snapshot) { complete(snapshot, snapshot[@"error"]); }];
+        } else if ([operation isEqualToString:@"applyDNS"]) {
+            NSDictionary *snapshot = request[@"settings"];
+            NSArray *servers = request[@"servers"];
+            if (![snapshot isKindOfClass:[NSDictionary class]] || ![servers isKindOfClass:[NSArray class]]) {
+                complete(nil, @"applyDNS requires a snapshot dictionary and servers array");
+            } else {
+                [proxy applyDNSWithSnapshot:snapshot servers:servers reply:operationReply];
+            }
         } else if ([operation isEqualToString:@"coreStatus"]) {
             if (![proxy respondsToSelector:@selector(getMihomoCoreStatusWithReply:)]) {
                 complete(nil, @"Helper does not expose core status");

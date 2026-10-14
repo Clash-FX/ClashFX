@@ -117,7 +117,7 @@ func TestResolveConfiguredMixedPortNeverSilentlyChoosesBackup(t *testing.T) {
 	}
 
 	port, err = resolveConfiguredMixedPort(requested, func(int) bool { return false })
-	if err == nil || port != 0 || !strings.Contains(err.Error(), "4321") {
+	if err == nil || port != 0 || !strings.Contains(err.Error(), "4321") || !strings.HasPrefix(err.Error(), "[port_conflict] service=proxy_listener ") {
 		t.Fatalf("occupied configured port must be explicit: got port=%d err=%v", port, err)
 	}
 }

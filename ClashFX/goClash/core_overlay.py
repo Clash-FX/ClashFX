@@ -608,6 +608,148 @@ func (c *CacheFile) deleteStorageLocked(key string) {
     )
 
 
+DNS_SERVER_SOURCE_SHA256 = "322c9390c917161c924776806920472153bf46d4f154e26cd7c478cfc05a1dff"
+PATCHED_DNS_SERVER_SOURCE = r"""package dns
+
+import (
+    "context"
+    "net"
+    "sync"
+
+    "github.com/metacubex/mihomo/adapter/inbound"
+    "github.com/metacubex/mihomo/common/sockopt"
+    "github.com/metacubex/mihomo/component/resolver"
+    "github.com/metacubex/mihomo/log"
+    D "github.com/miekg/dns"
+)
+
+var (
+    address string
+    server = &Server{}
+    serverLifecycle sync.Mutex
+    dnsDefaultTTL uint32 = 600
+)
+
+type Server struct {
+    serviceLock sync.RWMutex
+    service resolver.Service
+    tcpServer *D.Server
+    udpServer *D.Server
+}
+
+func (s *Server) ServeDNS(w D.ResponseWriter, r *D.Msg) {
+    s.serviceLock.RLock()
+    service := s.service
+    s.serviceLock.RUnlock()
+    if service == nil {
+        m := new(D.Msg)
+        m.SetRcode(r, D.RcodeServerFailure)
+        _ = w.WriteMsg(m)
+        return
+    }
+    msg, err := service.ServeMsg(context.Background(), r)
+    if err != nil {
+        m := new(D.Msg)
+        m.SetRcode(r, D.RcodeServerFailure)
+        _ = w.WriteMsg(m)
+        return
+    }
+    msg.Compress = true
+    _ = w.WriteMsg(msg)
+}
+
+func (s *Server) SetService(service resolver.Service) {
+    s.serviceLock.Lock()
+    s.service = service
+    s.serviceLock.Unlock()
+}
+
+// ReCreateServer owns publication and shutdown. It waits for the DNS library's
+// started notification so an immediate suspend cannot miss a pending listener.
+func ReCreateServer(addr string, service resolver.Service) {
+    serverLifecycle.Lock()
+    defer serverLifecycle.Unlock()
+    if addr == address && service != nil {
+        server.SetService(service)
+        return
+    }
+    if server.tcpServer != nil {
+        _ = server.tcpServer.Shutdown()
+        server.tcpServer = nil
+    }
+    if server.udpServer != nil {
+        _ = server.udpServer.Shutdown()
+        server.udpServer = nil
+    }
+    server.SetService(nil)
+    address = ""
+    if addr == "" || service == nil { return }
+    _, port, err := net.SplitHostPort(addr)
+    if port == "0" || port == "" || err != nil { return }
+
+    packet, err := inbound.ListenPacket("udp", addr)
+    if err != nil {
+        log.Errorln("Start DNS server(UDP) error: %s", err.Error())
+        return
+    }
+    listener, err := inbound.Listen("tcp", addr)
+    if err != nil {
+        _ = packet.Close()
+        log.Errorln("Start DNS server(TCP) error: %s", err.Error())
+        return
+    }
+    if err := sockopt.UDPReuseaddr(packet); err != nil {
+        log.Warnln("Failed to Reuse UDP Address: %s", err)
+    }
+    current := &Server{service: service}
+    current.udpServer = &D.Server{Addr: addr, PacketConn: packet, Handler: current}
+    current.tcpServer = &D.Server{Addr: addr, Listener: listener, Handler: current}
+    server = current
+    address = addr
+    start := func(protocol string, dnsServer *D.Server) bool {
+        started := make(chan bool, 1)
+        var once sync.Once
+        notify := func(ready bool) { once.Do(func() { started <- ready }) }
+        dnsServer.NotifyStartedFunc = func() { notify(true) }
+        go func() {
+            defer notify(false) // Exit before startup is a failure, not readiness.
+            if err := dnsServer.ActivateAndServe(); err != nil {
+                log.Errorln("Start DNS server(%s) error: %s", protocol, err.Error())
+            }
+            if dnsServer.PacketConn != nil { _ = dnsServer.PacketConn.Close() }
+            if dnsServer.Listener != nil { _ = dnsServer.Listener.Close() }
+        }()
+        return <-started
+    }
+    if !start("UDP", current.udpServer) {
+        _ = listener.Close()
+        current.SetService(nil)
+        address = ""
+        return
+    }
+    if !start("TCP", current.tcpServer) {
+        _ = current.udpServer.Shutdown()
+        current.SetService(nil)
+        address = ""
+        return
+    }
+    log.Infoln("DNS server(UDP) listening at: %s", packet.LocalAddr().String())
+    log.Infoln("DNS server(TCP) listening at: %s", listener.Addr().String())
+}
+"""
+
+
+def _patch_dns_server_lifecycle(mihomo_root: pathlib.Path) -> None:
+    source_path = mihomo_root / "dns" / "server.go"
+    original = source_path.read_bytes()
+    if hashlib.sha256(original).hexdigest() != DNS_SERVER_SOURCE_SHA256:
+        raise RuntimeError("Pinned DNS server source changed; review the lifecycle overlay")
+    os.chmod(source_path, source_path.stat().st_mode | stat.S_IWUSR)
+    source_path.write_text(PATCHED_DNS_SERVER_SOURCE, encoding="utf-8")
+    formatted = subprocess.check_output(["gofmt", str(source_path)], text=True)
+    source_path.write_text(formatted, encoding="utf-8")
+
+
 def _patch_queue_races(mihomo_root: pathlib.Path) -> None:
     queue_path = mihomo_root / "common" / "queue" / "queue.go"
     original = queue_path.read_text(encoding="utf-8")
@@ -795,6 +937,7 @@ def core_modfile() -> Iterator[str]:
         )
         _patch_cachefile_lifecycle(mihomo_replacement_module)
         _patch_queue_races(mihomo_replacement_module)
+        _patch_dns_server_lifecycle(mihomo_replacement_module)
         _patch_probe_diagnostics(mihomo_replacement_module)
 
         modfile = temp_dir / "clashfx.mod"

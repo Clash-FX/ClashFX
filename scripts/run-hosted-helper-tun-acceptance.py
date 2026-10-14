@@ -12,6 +12,7 @@ import secrets
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -23,7 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SERVICE_LABEL = "com.clashfx.app.Helper"
 CLIENT_BUNDLE_ID = "com.clashfx.app"
 HELPER_BUNDLE_ID = "com.clashfx.app.Helper"
-TEST_DNS_SERVER = "203.0.113.53"
+APPROVED_CORE_PATH = Path("/Library/PrivilegedHelperTools/com.clashfx.app.Helper.mihomo_core")
+TRUST_RECEIPT_PATH = Path("/Library/PrivilegedHelperTools/com.clashfx.app.Helper.trust.plist")
+TRUST_RECEIPT_SCHEMA_VERSION = 1
+TEST_DNS_SERVER = "198.18.0.2"
 CORE_READY_TIMEOUT = 45
 CORE_EXIT_TIMEOUT = 15
 RESTORE_TIMEOUT = 25
@@ -174,13 +178,20 @@ def validate_build_inputs(raw_helper, raw_core, runner_temp):
 
     helper_info_path = ROOT / "ProxyConfigHelper" / "Helper-Info.plist"
     launchd_info_path = ROOT / "ProxyConfigHelper" / "Helper-Launchd.plist"
+    trust_policy_path = ROOT / "ProxyConfigHelper" / "ProxyConfigHelperTrustPolicy.h"
     app_info_path = ROOT / "ClashFX" / "Info.plist"
     with helper_info_path.open("rb") as stream:
         helper_info = plistlib.load(stream)
     with launchd_info_path.open("rb") as stream:
         launchd_info = plistlib.load(stream)
+    trust_policy_text = trust_policy_path.read_text(encoding="utf-8")
     with app_info_path.open("rb") as stream:
         app_info = plistlib.load(stream)
+    if (str(APPROVED_CORE_PATH) not in trust_policy_text or
+            str(TRUST_RECEIPT_PATH) not in trust_policy_text or
+            CLIENT_BUNDLE_ID not in trust_policy_text or
+            not re.search(r"ClashFXHelperTrustReceiptSchemaVersion\s*=\s*1\b", trust_policy_text)):
+        raise ValueError("ProxyConfigHelperTrustPolicy.h paths, bundle identifier, or receipt schema changed")
     if helper_info.get("CFBundleIdentifier") != HELPER_BUNDLE_ID:
         raise ValueError("production Helper-Info.plist bundle identifier changed")
     authorized = helper_info.get("SMAuthorizedClients")
@@ -221,8 +232,9 @@ def validate_build_inputs(raw_helper, raw_core, runner_temp):
         "authorizedClientRequirement": authorized[0],
         "productionAppPrivilegedHelperRequirement": app_authorized,
         "machService": SERVICE_LABEL,
-        "productionHelperSource": "ProxyConfigHelper/ProxyConfigHelper.m + ProxyConfigRemoteProcessProtocol.h",
+        "productionHelperSource": "ProxyConfigHelper/ProxyConfigHelper.m + ProxyConfigRemoteProcessProtocol.h + ProxyConfigHelperTrustPolicy.h",
         "productionHelperLaunchdSource": str(launchd_info_path.relative_to(ROOT)),
+        "productionHelperTrustPolicySource": str(trust_policy_path.relative_to(ROOT)),
     }, helper_path, core_path, launchd_info
 
 
@@ -230,10 +242,26 @@ def verify_clean_guest_before_mutation():
     existing_paths = [
         Path("/Library/LaunchDaemons") / f"{SERVICE_LABEL}.plist",
         Path("/Library/PrivilegedHelperTools") / SERVICE_LABEL,
+        APPROVED_CORE_PATH,
+        TRUST_RECEIPT_PATH,
     ]
-    present = [str(path) for path in existing_paths if path.exists()]
+    present = [str(path) for path in existing_paths if os.path.lexists(path)]
     if present:
-        raise RuntimeError("refusing to replace an existing Helper installation: " + ", ".join(present))
+        raise RuntimeError("refusing to replace an existing Helper or approved-core installation: " +
+                           ", ".join(present))
+
+    for directory in (Path("/"), Path("/Library"), Path("/Library/PrivilegedHelperTools")):
+        try:
+            info = directory.lstat()
+        except FileNotFoundError:
+            if directory == APPROVED_CORE_PATH.parent:
+                continue  # A fresh hosted guest may have no helper installation directory.
+            raise
+        except OSError as error:
+            raise RuntimeError(f"cannot inspect trusted-core parent directory {directory}: {error}") from error
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or
+                info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
+            raise RuntimeError(f"trusted-core parent directory is not a safe root-owned directory: {directory}")
 
     print_output = command_result(["/bin/launchctl", "print", f"system/{SERVICE_LABEL}"])
     if print_output.returncode == 0:
@@ -258,6 +286,35 @@ def verify_clean_guest_before_mutation():
             found.append({"pid": pid, "name": name})
     if found:
         raise RuntimeError(f"refusing because app/helper/core processes already exist: {found}")
+
+
+def root_trust_file_is_safe(path, executable, expected_sha256=None):
+    info = path.lstat()
+    required_access = stat.S_IXUSR if executable else stat.S_IRUSR
+    immutable_flag = getattr(stat, "UF_IMMUTABLE", None)
+    if immutable_flag is None:
+        raise RuntimeError("Python does not expose the macOS UF_IMMUTABLE file flag")
+    for directory in (Path("/"), Path("/Library"), path.parent):
+        directory_info = directory.lstat()
+        if (not stat.S_ISDIR(directory_info.st_mode) or directory_info.st_uid != 0 or
+                directory_info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
+            return False
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+            info.st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH) or
+            not info.st_mode & required_access or
+            not getattr(info, "st_flags", 0) & immutable_flag):
+        return False
+    if expected_sha256 is not None:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        return digest == expected_sha256
+    return True
+
+
+def process_text_paths(pid):
+    output = require_command_success([
+        "/usr/sbin/lsof", "-a", "-p", str(pid), "-d", "txt", "-Fn"
+    ], 8)
+    return [line[1:] for line in output.splitlines() if line.startswith("n")]
 
 
 def canonical_hash(value):
@@ -295,9 +352,12 @@ class AcceptanceHarness:
         self.client_root = temp_root / "clients"
         self.probe_app = self.client_root / "ProtoProbe.app"
         self.probe_executable = self.probe_app / "Contents" / "MacOS" / "ClashFX"
+        self.probe_core = self.probe_app / "Contents" / "Resources" / "mihomo_core"
         self.transaction_app = self.client_root / "TxDriver.app"
         self.transaction_executable = self.transaction_app / "Contents" / "MacOS" / "ClashFX"
         self.test_core = self.transaction_app / "Contents" / "Resources" / "mihomo_core"
+        self.unapproved_app = self.client_root / "UnapprovedClone.app"
+        self.unapproved_executable = self.unapproved_app / "Contents" / "MacOS" / "ClashFX"
         self.transaction_manifest = temp_root / "production-transaction-manifest.json"
         self.transaction_report_path = artifact_dir / "production-transaction.json"
         self.transaction_client_available = False
@@ -314,12 +374,17 @@ class AcceptanceHarness:
         self.transaction_stderr = temp_root / "transaction.stderr.log"
         self.owned_launch_id = None
         self.owned_core_pid = None
+        self.owned_core_source_path = None
         self.core_start_attempted = False
         self.harness_config_paths = set()
         self.core_home_by_config = {}
         self.core_log_path = None
         self.core_log_paths = []
         self.created_utuns = []
+        self.approved_client_cdhashes = {}
+        self.trust_paths_created = {}
+        self.trust_directory_created = None
+        self.unapproved_client_cdhash = None
         self.exit_code = 0
         self.report = {
             "schemaVersion": 1,
@@ -328,6 +393,9 @@ class AcceptanceHarness:
             "coverage": {
                 "productionHelperXPC": False,
                 "adHocSignedClientBundleIdentity": False,
+                "approvedClientCoreTrust": False,
+                "unapprovedSameBundleIDRejected": False,
+                "rootImmutableCoreExecuted": False,
                 "helperManagedCore": False,
                 "invalidConfigPathFailure": False,
                 "productionInvalidConfigRuntimeFailure": False,
@@ -416,8 +484,9 @@ class AcceptanceHarness:
         self.helper_path.parent.mkdir(mode=0o700)
         shutil.copy2(self.helper_source_path, self.helper_path)
         self.helper_path.chmod(0o755)
-        shutil.copy2(self.core_path, self.test_core)
-        self.test_core.chmod(0o755)
+        for client_core in (self.probe_core, self.test_core):
+            shutil.copy2(self.core_path, client_core)
+            client_core.chmod(0o755)
         info = {
             "CFBundleDevelopmentRegion": "en",
             "CFBundleExecutable": "ClashFX",
@@ -432,9 +501,9 @@ class AcceptanceHarness:
         for app in (self.probe_app, self.transaction_app):
             with (app / "Contents" / "Info.plist").open("wb") as stream:
                 plistlib.dump(info, stream, fmt=plistlib.FMT_XML, sort_keys=True)
-        self._sign_and_verify_client(self.probe_app)
-        self.report["coverage"]["adHocSignedClientBundleIdentity"] = True
+        self.approved_client_cdhashes[str(self.probe_app)] = self._sign_and_verify_client(self.probe_app)
         self.report["build"]["probeClientPath"] = str(self.probe_executable)
+        self.report["build"]["probeClientCorePath"] = str(self.probe_core)
         self.report["build"]["transactionClientBundlePath"] = str(self.transaction_app)
         self.report["build"]["transactionClientPath"] = str(self.transaction_executable)
 
@@ -448,20 +517,21 @@ class AcceptanceHarness:
         details = command_result(["/usr/bin/codesign", "-dv", "--verbose=4", str(app)], 15)
         signed_text = details.stdout + details.stderr
         identifier = re.search(r"^Identifier=(.+)$", signed_text, re.MULTILINE)
+        cdhash = re.search(r"^CDHash=(.+)$", signed_text, re.MULTILINE)
+        cdhash_value = cdhash.group(1).strip().lower() if cdhash else None
         valid = (executable.is_file() and details.returncode == 0 and identifier is not None and
-                 identifier.group(1).strip() == CLIENT_BUNDLE_ID)
+                 identifier.group(1).strip() == CLIENT_BUNDLE_ID and cdhash is not None and
+                 re.fullmatch(r"[0-9a-f]{40}", cdhash_value or "") is not None)
         self.assertion(f"{app.stem} has required executable path and ad-hoc identity", valid,
                        {"bundlePath": str(app), "executablePath": str(executable),
-                        "bundleIdentifier": identifier.group(1).strip() if identifier else None})
+                        "bundleIdentifier": identifier.group(1).strip() if identifier else None,
+                        "clientCDHash": cdhash_value})
+        return cdhash_value if valid else None
 
     def compile_transaction_client(self):
         source = ROOT / "scripts" / "helper-tun-production-transaction.swift"
         if not source.is_file():
-            self.report["transactionClient"] = {
-                "status": "skipped",
-                "reason": f"production transaction client is not present: {source}",
-            }
-            return False
+            raise RuntimeError(f"required production transaction client is not present: {source}")
         sources = [
             source,
             ROOT / "ClashFX" / "General" / "Managers" / "SystemProxyManager.swift",
@@ -478,16 +548,155 @@ class AcceptanceHarness:
             *(str(path) for path in sources), "-framework", "Foundation", "-framework", "SystemConfiguration",
             "-o", str(self.transaction_executable),
         ], 120)
-        self._sign_and_verify_client(self.transaction_app)
+        self.approved_client_cdhashes[str(self.transaction_app)] = self._sign_and_verify_client(
+            self.transaction_app)
         self.transaction_client_available = True
+        self.report["coverage"]["adHocSignedClientBundleIdentity"] = True
+
+    def prepare_unapproved_client(self):
+        shutil.copytree(self.probe_app, self.unapproved_app)
+        marker = self.unapproved_app / "Contents" / "Resources" / "unapproved-client-marker"
+        marker.write_text("same bundle identifier, unapproved code directory\n", encoding="utf-8")
+        source = ROOT / "scripts" / "helper-tun-acceptance-client.m"
+        require_command_success([
+            "/usr/bin/clang", "-fmodules", "-fobjc-arc", "-O0", "-I",
+            str(ROOT / "ProxyConfigHelper"), str(source), "-framework", "Foundation",
+            "-o", str(self.unapproved_executable),
+        ], 90)
+        fake_cdhash = self._sign_and_verify_client(self.unapproved_app)
+        approved_hashes = set(self.approved_client_cdhashes.values())
+        self.assertion("same-bundle-ID clone has a distinct unapproved CDHash",
+                       fake_cdhash not in approved_hashes,
+                       {"bundleIdentifier": CLIENT_BUNDLE_ID,
+                        "clientCDHash": fake_cdhash,
+                        "approvedClientCDHashes": sorted(approved_hashes)})
+        self.unapproved_client_cdhash = fake_cdhash
+
+    def install_root_core_and_receipt(self):
+        if not self.transaction_client_available or len(self.approved_client_cdhashes) != 2:
+            raise RuntimeError("both approved ad-hoc clients must be built and signed before trust staging")
+        for directory in (Path("/"), Path("/Library"), APPROVED_CORE_PATH.parent):
+            try:
+                info = directory.lstat()
+            except FileNotFoundError:
+                if directory != APPROVED_CORE_PATH.parent:
+                    raise
+                # Only after the hosted-guest and clean-install gates, with the
+                # existing root-owned ancestors already checked. Never chmod
+                # or replace a directory created by somebody else.
+                directory.mkdir(mode=0o755, exist_ok=False)
+                info = directory.lstat()
+                self.trust_directory_created = (info.st_dev, info.st_ino)
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or
+                    info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
+                raise RuntimeError(f"trusted-core parent directory became unsafe: {directory}")
+        existing = [path for path in (APPROVED_CORE_PATH, TRUST_RECEIPT_PATH)
+                    if os.path.lexists(path)]
+        if existing:
+            raise RuntimeError("refusing to replace preexisting approved-core trust paths: " +
+                               ", ".join(map(str, existing)))
+
+        core_bytes = self.core_path.read_bytes()
+        core_sha256 = hashlib.sha256(core_bytes).hexdigest()
+        if not re.fullmatch(r"[0-9a-f]{64}", core_sha256):
+            raise RuntimeError("core SHA256 is not a lowercase 64-character digest")
+        self.assertion("both client bundles contain the exact executable production core resource",
+                       all(path.is_file() and os.access(path, os.X_OK) and
+                           hashlib.sha256(path.read_bytes()).hexdigest() == core_sha256
+                           for path in (self.probe_core, self.test_core)),
+                       {"coreSHA256": core_sha256,
+                        "clientCorePaths": [str(self.probe_core), str(self.test_core)]})
+
+        entries = []
+        for bundle_path, cdhash in self.approved_client_cdhashes.items():
+            source_path = Path(bundle_path) / "Contents" / "Resources" / "mihomo_core"
+            if not re.fullmatch(r"[0-9a-f]{40}", cdhash or ""):
+                raise RuntimeError(f"approved client CDHash is not a lowercase 40-character digest: {cdhash}")
+            entries.append({
+                "BundleIdentifier": CLIENT_BUNDLE_ID,
+                "ClientCDHash": cdhash,
+                "ApprovedSourcePath": str(source_path.resolve(strict=True)),
+                "CoreSHA256": core_sha256,
+            })
+        receipt = {"SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION, "ApprovedClients": entries}
+        receipt_bytes = plistlib.dumps(receipt, fmt=plistlib.FMT_XML, sort_keys=True)
+
+        for path, content, mode in ((APPROVED_CORE_PATH, core_bytes, 0o555),
+                                    (TRUST_RECEIPT_PATH, receipt_bytes, 0o444)):
+            with path.open("xb") as stream:
+                info = os.fstat(stream.fileno())
+                self.trust_paths_created[path] = (info.st_dev, info.st_ino)
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chown(path, 0, 0)
+            os.chmod(path, mode)
+        require_command_success(["/usr/bin/chflags", "uchg", str(APPROVED_CORE_PATH)], 8)
+        require_command_success(["/usr/bin/chflags", "uchg", str(TRUST_RECEIPT_PATH)], 8)
+
+        if (not root_trust_file_is_safe(APPROVED_CORE_PATH, executable=True,
+                                        expected_sha256=core_sha256) or
+                not root_trust_file_is_safe(TRUST_RECEIPT_PATH, executable=False,
+                                            expected_sha256=hashlib.sha256(receipt_bytes).hexdigest())):
+            raise RuntimeError("installed root core or trust receipt failed ownership, mode, immutable, or digest checks")
+        with TRUST_RECEIPT_PATH.open("rb") as stream:
+            installed_receipt = plistlib.load(stream)
+        self.assertion("root receipt pins exactly the two approved client CDHashes and source paths",
+                       installed_receipt == receipt and
+                       installed_receipt.get("SchemaVersion") == TRUST_RECEIPT_SCHEMA_VERSION and
+                       len(installed_receipt.get("ApprovedClients", [])) == 2 and
+                       {entry.get("ApprovedSourcePath") for entry in installed_receipt["ApprovedClients"]} ==
+                       {str(self.probe_core.resolve()), str(self.test_core.resolve())} and
+                       all(entry.get("BundleIdentifier") == CLIENT_BUNDLE_ID and
+                           entry.get("CoreSHA256") == core_sha256 and
+                           re.fullmatch(r"[0-9a-f]{64}", entry.get("CoreSHA256", "")) and
+                           re.fullmatch(r"[0-9a-f]{40}", entry.get("ClientCDHash", ""))
+                           for entry in installed_receipt["ApprovedClients"]),
+                       {"schemaVersion": installed_receipt.get("SchemaVersion"),
+                        "approvedClients": installed_receipt.get("ApprovedClients"),
+                        "approvedCorePath": str(APPROVED_CORE_PATH),
+                        "trustReceiptPath": str(TRUST_RECEIPT_PATH)})
+        self.report["coverage"]["approvedClientCoreTrust"] = True
+        self.report["build"]["approvedCorePath"] = str(APPROVED_CORE_PATH)
+        self.report["build"]["approvedCoreSHA256"] = core_sha256
+        self.report["build"]["trustReceiptPath"] = str(TRUST_RECEIPT_PATH)
+        self.report["build"]["approvedClients"] = entries
+
+    def _status_uses_approved_core_source(self, status, expected_source=None):
+        known_sources = {str(self.probe_core), str(self.test_core)}
+        if expected_source is None:
+            valid_sources = known_sources
+        else:
+            expected_source = str(expected_source)
+            if expected_source not in known_sources:
+                return False
+            valid_sources = {expected_source}
+
+        binary_path = status.get("binaryPath")
+        source_path = status.get("sourceBinaryPath")
+        if binary_path not in {str(APPROVED_CORE_PATH), *valid_sources}:
+            return False
+        if source_path is not None and source_path not in valid_sources:
+            return False
+        if binary_path in known_sources and source_path is not None and binary_path != source_path:
+            return False
         return True
-        self.assertion("bundled core has fixed production resource name",
-                       self.test_core.name == "mihomo_core" and os.access(self.test_core, os.X_OK),
-                       {"path": str(self.test_core),
-                        "sha256": hashlib.sha256(self.test_core.read_bytes()).hexdigest()})
-        self.report["build"]["helperStagedPath"] = str(self.helper_path)
-        self.report["build"]["helperStagedSHA256"] = hashlib.sha256(self.helper_path.read_bytes()).hexdigest()
-        self.report["build"]["transactionClientPath"] = str(self.transaction_executable)
+
+    def assert_running_core_executable(self, status, assertion_name):
+        pid = status.get("pid")
+        if not isinstance(pid, int) or pid <= 0:
+            self.assertion(assertion_name, False, {"status": status, "reason": "missing positive PID"})
+        paths = process_text_paths(pid)
+        root_core_is_safe = root_trust_file_is_safe(
+            APPROVED_CORE_PATH, executable=True,
+            expected_sha256=self.report["build"]["approvedCoreSHA256"])
+        self.assertion(assertion_name, str(APPROVED_CORE_PATH) in paths and root_core_is_safe,
+                       {"pid": pid, "actualExecutablePaths": paths,
+                        "requiredRootExecutablePath": str(APPROVED_CORE_PATH),
+                        "rootCoreImmutableAndTrusted": root_core_is_safe,
+                        "statusBinaryPath": status.get("binaryPath"),
+                        "statusSourceBinaryPath": status.get("sourceBinaryPath")})
+        self.report["coverage"]["rootImmutableCoreExecuted"] = True
 
     def prepare_launchd_job(self):
         job = dict(self.launchd_template)
@@ -550,7 +759,9 @@ class AcceptanceHarness:
                     status = self.rpc("coreStatus")
                     last_status_check = time.monotonic()
                     if (status.get("running") is not True or status.get("pid") != pid or
-                            status.get("launchID") != launch_id):
+                            status.get("launchID") != launch_id or
+                            not self._status_uses_approved_core_source(
+                                status, self.owned_core_source_path)):
                         raise RuntimeError("Helper status lost the current test core launch identity")
                 version = self.lifecycle.api_json(endpoint, token, "/version")
                 config = self.lifecycle.api_json(endpoint, token, "/configs")
@@ -648,6 +859,8 @@ class AcceptanceHarness:
         manifest = {
             "controllerURL": endpoint,
             "secret": token,
+            # This manifest is consumed by TxDriver, so its source must be the
+            # core sealed into TxDriver.app rather than ProtoProbe.app.
             "coreBinary": str(self.test_core),
             "homeDir": str(core_home),
             "goodConfig": str(config_path),
@@ -729,17 +942,23 @@ class AcceptanceHarness:
         current_status = self.rpc("coreStatus")
         self.owned_launch_id = current_status.get("launchID")
         self.owned_core_pid = current_status.get("pid")
+        self.owned_core_source_path = str(self.test_core)
         self.core_log_path = current_status.get("logPath") or self.core_log_path
         if self.core_log_path:
             self.core_log_paths.append(self.core_log_path)
+        self.report["core"]["binaryPath"] = current_status.get("binaryPath")
+        self.report["core"]["sourceBinaryPath"] = current_status.get("sourceBinaryPath")
         self.assertion("production transaction restored the known-good Helper-managed runtime",
                        current_status.get("running") is True and
-                       current_status.get("binaryPath") == str(self.test_core) and
+                       self._status_uses_approved_core_source(current_status, self.test_core) and
                        current_status.get("configPath") == str(config_path) and
                        isinstance(self.owned_launch_id, str) and self.owned_launch_id,
                        {"status": current_status,
-                        "expectedBinaryPath": str(self.test_core),
+                        "expectedRootBinaryPath": str(APPROVED_CORE_PATH),
+                        "expectedBundledSourcePath": str(self.test_core),
                         "expectedGoodConfig": str(config_path)})
+        self.assert_running_core_executable(
+            current_status, "production transaction runs the immutable root-approved core")
         self.created_utuns = sorted(set(self.created_utuns) |
                                     (set(self.lifecycle.utun_interfaces()) -
                                      set(self.report["routeBaseline"]["utunInterfaces"])) )
@@ -766,7 +985,11 @@ class AcceptanceHarness:
 
     def exercise_dns_override(self):
         self.dns_may_be_dirty = True
-        self.rpc("overrideDNS", servers=[TEST_DNS_SERVER], filterInterface=True)
+        self.dns_recovery_snapshot = self.rpc("captureDNS", filterInterface=True)
+        if self.dns_recovery_snapshot.get("version") != 2 or not self.dns_recovery_snapshot.get("services"):
+            raise RuntimeError("Helper returned no transactional DNS capture scope")
+        self.dns_recovery_snapshot["expectedServers"] = [TEST_DNS_SERVER]
+        self.rpc("applyDNS", settings=self.dns_recovery_snapshot, servers=[TEST_DNS_SERVER])
         actual_during = self.rpc("dnsSnapshot")
         mismatches = []
         for service_id, settings in actual_during.items():
@@ -782,7 +1005,7 @@ class AcceptanceHarness:
             "serviceCount": len(actual_during), "snapshotSHA256": canonical_hash(actual_during),
             "testServer": TEST_DNS_SERVER,
         }
-        self.rpc("restoreDNS", settings=self.dns_snapshot, filterInterface=True)
+        self.rpc("restoreDNS", settings=self.dns_recovery_snapshot, filterInterface=True)
         restored = self.rpc("dnsSnapshot")
         exact = restored == self.dns_snapshot
         self.assertion("real Helper XPC restored the captured eligible DNS snapshot exactly",
@@ -799,12 +1022,18 @@ class AcceptanceHarness:
         home.mkdir()
         missing_config = self.temp_root / "intentionally-missing-config.yaml"
         self.core_start_attempted = True
+        self.owned_core_source_path = str(self.probe_core)
         self.harness_config_paths.add(str(missing_config))
         self.core_home_by_config[str(missing_config)] = str(home)
-        result = self.rpc("startCore", binaryPath=str(self.test_core),
+        result = self.rpc("startCore", binaryPath=str(self.probe_core),
                           configPath=str(missing_config), homeDir=str(home))
         self.assertion("Helper accepted process launch for invalid-config failure case", result is None)
         status = self.rpc("coreStatus")
+        self.assertion("invalid-config launch records ProtoProbe's bundled source path",
+                       self._status_uses_approved_core_source(status, self.probe_core),
+                       {"binaryPath": status.get("binaryPath"),
+                        "sourceBinaryPath": status.get("sourceBinaryPath"),
+                        "expectedProbeCorePath": str(self.probe_core)})
         launch_id = status.get("launchID")
         if not isinstance(launch_id, str) or not launch_id:
             raise RuntimeError("Helper did not report a launch ID for the invalid-config case")
@@ -845,17 +1074,57 @@ class AcceptanceHarness:
         self.report["coverage"]["invalidConfigPathFailure"] = True
         self.owned_launch_id = None
         self.owned_core_pid = None
+        self.owned_core_source_path = None
 
     def run(self):
         self.compile_client()
         self.compile_transaction_client()
+        self.prepare_unapproved_client()
+        self.install_root_core_and_receipt()
         self.prepare_launchd_job()
         self.bootstrap_helper()
 
+        started = time.monotonic()
+        try:
+            unapproved = subprocess.run(
+                [str(self.unapproved_executable)],
+                input=json.dumps({"operation": "version"}, separators=(",", ":")),
+                check=False, capture_output=True, text=True, timeout=RPC_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired as error:
+            self.report["xpcCalls"].append({"client": "UnapprovedClone", "operation": "version",
+                                              "ok": False,
+                                              "elapsedSeconds": round(time.monotonic() - started, 3),
+                                              "error": "client timed out while testing rejection"})
+            raise RuntimeError("same-bundle-ID unapproved client did not receive a timely rejection") from error
+        try:
+            unapproved_response = json.loads(unapproved.stdout)
+        except json.JSONDecodeError:
+            unapproved_response = None
+        denied = (unapproved.returncode != 0 and isinstance(unapproved_response, dict) and
+                  unapproved_response.get("ok") is False and
+                  isinstance(unapproved_response.get("error"), str) and
+                  bool(unapproved_response["error"]))
+        self.report["xpcCalls"].append({
+            "client": "UnapprovedClone", "operation": "version", "ok": not denied,
+            "elapsedSeconds": round(time.monotonic() - started, 3),
+            "exitCode": unapproved.returncode,
+            "error": unapproved_response.get("error") if isinstance(unapproved_response, dict) else None,
+        })
+        self.assertion("Helper rejects an unapproved ad-hoc client with the same bundle identifier",
+                       denied,
+                       {"bundleIdentifier": CLIENT_BUNDLE_ID,
+                        "clientCDHash": self.unapproved_client_cdhash,
+                        "approvedClientCDHashes": sorted(self.approved_client_cdhashes.values()),
+                        "exitCode": unapproved.returncode,
+                        "response": unapproved_response,
+                        "stderrTail": unapproved.stderr[-2000:]})
+        self.report["coverage"]["unapprovedSameBundleIDRejected"] = True
+
         helper_version = self.rpc("version")
         protocol_version = self.rpc("protocolVersion")
-        self.assertion("real Helper exposes production protocol version 4",
-                       protocol_version == 4,
+        self.assertion("real Helper exposes production protocol version 6",
+                       protocol_version == 6,
                        {"helperVersion": helper_version, "protocolVersion": protocol_version})
         self.report["coverage"]["productionHelperXPC"] = True
         helper_pid = self.helper_pid()
@@ -922,7 +1191,9 @@ class AcceptanceHarness:
         core_home.mkdir()
         endpoint = f"http://127.0.0.1:{controller_port}"
         self.report["core"] = {
-            "binaryPath": str(self.test_core),
+            "binaryPath": str(APPROVED_CORE_PATH),
+            "sourceBinaryPath": str(self.probe_core),
+            "startRequestBinaryPath": str(self.probe_core),
             "configPath": str(config_path),
             "homeDir": str(core_home),
             "ports": {"controller": controller_port, "dns": dns_port, "mixed": mixed_port},
@@ -930,9 +1201,10 @@ class AcceptanceHarness:
         }
 
         self.core_start_attempted = True
+        self.owned_core_source_path = str(self.probe_core)
         self.harness_config_paths.add(str(config_path))
         self.core_home_by_config[str(config_path)] = str(core_home)
-        start_result = self.rpc("startCore", binaryPath=str(self.test_core),
+        start_result = self.rpc("startCore", binaryPath=str(self.probe_core),
                                 configPath=str(config_path), homeDir=str(core_home))
         self.assertion("real Helper accepted the valid TUN core start request", start_result is None)
         status = self.rpc("coreStatus")
@@ -946,12 +1218,16 @@ class AcceptanceHarness:
                 self.owned_core_pid <= 0):
             raise RuntimeError(f"Helper did not report the launched core identity: {status}")
         self.assertion("Helper status identifies the bundled core and exact test config",
-                       status.get("binaryPath") == str(self.test_core) and
+                       self._status_uses_approved_core_source(status, self.probe_core) and
                        status.get("configPath") == str(config_path),
                        {"binaryPath": status.get("binaryPath"),
+                        "sourceBinaryPath": status.get("sourceBinaryPath"),
                         "configPath": status.get("configPath"),
-                        "expectedBinaryPath": str(self.test_core),
+                        "expectedRootBinaryPath": str(APPROVED_CORE_PATH),
+                        "expectedBundledSourcePath": str(self.probe_core),
                         "expectedConfigPath": str(config_path)})
+        self.assert_running_core_executable(
+            status, "Helper-launched Mihomo executable is the immutable root-approved core")
         core_uid = require_command_success(["/bin/ps", "-o", "uid=", "-p",
                                             str(self.owned_core_pid)], 5).strip()
         self.assertion("Helper-managed Mihomo process is root-owned in the hosted guest",
@@ -1010,12 +1286,15 @@ class AcceptanceHarness:
         if self.transaction_client_available:
             status = self.rpc("coreStatus")
             self.assertion("phase handoff stops only the owned basic-lifecycle core",
-                           status.get("launchID") == self.owned_launch_id and status.get("pid") == self.owned_core_pid)
+                           status.get("launchID") == self.owned_launch_id and
+                           status.get("pid") == self.owned_core_pid and
+                           self._status_uses_approved_core_source(status, self.probe_core))
             self.rpc("stopCore")
             stopped = self.rpc("coreStatus")
             self.assertion("transaction phase begins with no active Helper-managed core", stopped.get("running") is False)
             self.owned_launch_id = None
             self.owned_core_pid = None
+            self.owned_core_source_path = str(self.test_core)
             self.invoke_transaction_client(endpoint, token, config_path, alternate_path, invalid_path,
                                            core_home, mixed_port, mixed_port, dns_port)
         else:
@@ -1053,12 +1332,10 @@ class AcceptanceHarness:
         if not status.get("running"):
             return
         try:
-            executable = require_command_success(["/usr/sbin/lsof", "-a", "-p",
-                                                   str(core_pid), "-d", "txt", "-Fn"], 5)
-            paths = [line[1:] for line in executable.splitlines() if line.startswith("n")]
-            if str(self.test_core) not in paths:
+            paths = process_text_paths(core_pid)
+            if str(APPROVED_CORE_PATH) not in paths:
                 self.report["cleanup"] = {**self.report.get("cleanup", {}),
-                                           "fallbackStopSkipped": "PID executable did not match bundled test core",
+                                           "fallbackStopSkipped": "PID executable did not match immutable root core",
                                            "observedExecutables": paths}
                 return
             os.kill(core_pid, signal.SIGTERM)
@@ -1087,14 +1364,10 @@ class AcceptanceHarness:
                 if len(arguments) < 5:
                     return False
                 executable = str(Path(arguments[0]).resolve())
-                if (executable != str(self.test_core.resolve()) or
+                if (executable != str(APPROVED_CORE_PATH.resolve()) or
                         arguments[1:5] != ["-f", config_path, "-d", home_dir]):
                     return False
-                text_paths = require_command_success([
-                    "/usr/sbin/lsof", "-a", "-p", str(pid), "-d", "txt", "-Fn"
-                ], 5)
-                return str(self.test_core) in [line[1:] for line in text_paths.splitlines()
-                                               if line.startswith("n")]
+                return str(APPROVED_CORE_PATH) in process_text_paths(pid)
             except (OSError, RuntimeError, subprocess.SubprocessError, ValueError):
                 return False
 
@@ -1117,7 +1390,7 @@ class AcceptanceHarness:
                     except ValueError:
                         continue
                     if (len(arguments) >= 5 and
-                            str(Path(arguments[0]).resolve()) == str(self.test_core.resolve()) and
+                            str(Path(arguments[0]).resolve()) == str(APPROVED_CORE_PATH.resolve()) and
                             arguments[1:5] == ["-f", config_path, "-d", home_dir] and
                             matches_owned_command(pid, config_path, home_dir)):
                         matches.append({"pid": pid, "configPath": config_path, "homeDir": home_dir})
@@ -1170,7 +1443,7 @@ class AcceptanceHarness:
                 self.report["coverage"]["systemProxyExactRestore"] = matches
                 self.report["cleanup"] = {**self.report.get("cleanup", {}), "proxyRestored": matches}
         if self.dns_snapshot is not None and self.dns_may_be_dirty:
-            _result, error = self._safe_rpc_cleanup("restoreDNS", settings=self.dns_snapshot,
+            _result, error = self._safe_rpc_cleanup("restoreDNS", settings=getattr(self, "dns_recovery_snapshot", None) or self.dns_snapshot,
                                                     filterInterface=True)
             if error is None:
                 actual_snapshot, actual_error = self._safe_rpc_cleanup("dnsSnapshot")
@@ -1194,6 +1467,54 @@ class AcceptanceHarness:
         self.bootstrapped = False
         self.report["cleanup"] = {**self.report.get("cleanup", {}), "helperBootedOut": True}
 
+    def _remove_installed_root_trust(self):
+        failures = []
+        removed = []
+        immutable_flag = getattr(stat, "UF_IMMUTABLE", None)
+        for path in (TRUST_RECEIPT_PATH, APPROVED_CORE_PATH):
+            identity = self.trust_paths_created.get(path)
+            if identity is None:
+                if os.path.lexists(path):
+                    failures.append({"path": str(path), "reason": "path was not created by this fixture"})
+                else:
+                    removed.append(str(path))
+                continue
+            try:
+                info = path.lstat()
+                if ((info.st_dev, info.st_ino) != identity or not stat.S_ISREG(info.st_mode) or
+                        info.st_uid != 0):
+                    raise RuntimeError("path identity, file type, or owner changed after staging")
+                if immutable_flag is None:
+                    raise RuntimeError("Python does not expose the macOS UF_IMMUTABLE file flag")
+                if getattr(info, "st_flags", 0) & immutable_flag:
+                    require_command_success(["/usr/bin/chflags", "nouchg", str(path)], 8)
+                path.unlink()
+                if os.path.lexists(path):
+                    raise RuntimeError("path remains after unlink")
+                removed.append(str(path))
+            except Exception as error:
+                failures.append({"path": str(path), "reason": str(error)})
+        passed = not failures and all(not os.path.lexists(path)
+                                      for path in (APPROVED_CORE_PATH, TRUST_RECEIPT_PATH))
+        self.cleanup_assertion("fixture removed its installed root core and trust receipt", passed,
+                               {"removed": removed, "failures": failures,
+                                "remaining": [str(path) for path in
+                                              (APPROVED_CORE_PATH, TRUST_RECEIPT_PATH)
+                                              if os.path.lexists(path)]})
+        self.report["cleanup"]["approvedCoreTrustPathsRemoved"] = passed
+        if self.trust_directory_created is not None:
+            try:
+                directory = APPROVED_CORE_PATH.parent
+                info = directory.lstat()
+                if ((info.st_dev, info.st_ino) != self.trust_directory_created or
+                        not stat.S_ISDIR(info.st_mode) or info.st_uid != 0):
+                    raise RuntimeError("fixture trust directory identity changed")
+                directory.rmdir()  # Refuse to remove unexpected contents.
+                self.cleanup_assertion("fixture removed its empty trust directory", True, {})
+            except Exception as error:
+                self.cleanup_assertion("fixture removed its empty trust directory", False,
+                                       {"reason": str(error)})
+
     def cleanup(self):
         cleanup = self.report.setdefault("cleanup", {})
         if self.bootstrapped and self.core_start_attempted and not (
@@ -1202,7 +1523,8 @@ class AcceptanceHarness:
                 observed = self.rpc("coreStatus")
                 launch_id = observed.get("launchID")
                 pid = observed.get("pid")
-                owned_request = (observed.get("binaryPath") == str(self.test_core) and
+                owned_request = (self._status_uses_approved_core_source(
+                                     observed, self.owned_core_source_path) and
                                  observed.get("configPath") in self.harness_config_paths and
                                  isinstance(launch_id, str) and launch_id and
                                  isinstance(pid, int) and pid > 0)
@@ -1321,7 +1643,13 @@ class AcceptanceHarness:
                                             "message": str(error)})
             self.exit_code = self.exit_code or 1
 
-        self._bootout_helper()
+        try:
+            self._bootout_helper()
+        except Exception as error:
+            self.report["failures"].append({"phase": "cleanup", "operation": "launchctl-bootout",
+                                            "message": str(error)})
+            self.exit_code = self.exit_code or 1
+        self._remove_installed_root_trust()
 
         unique_core_logs = list(dict.fromkeys(self.core_log_paths))
         for index, source in enumerate(unique_core_logs):
@@ -1398,6 +1726,19 @@ def load_lifecycle_module():
 
 
 def main():
+    parser = JsonArgumentParser(description=__doc__)
+    parser.add_argument("--helper", required=True,
+                        help="Xcode-built com.clashfx.app.Helper production executable")
+    parser.add_argument("--core", required=True,
+                        help="guest-built mihomo_core executable with the shipping overlay")
+    parser.add_argument("--artifact-dir", required=True,
+                        help="new report/log directory under RUNNER_TEMP")
+    try:
+        args = parser.parse_args()
+    except UsageError as error:
+        emit_json({"status": "error", "reason": str(error)})
+        return 2
+
     gate_failures, effective_uid = hosted_runner_gate()
     if gate_failures:
         emit_json({"status": "refused", "scope": "no system actions were attempted",
@@ -1409,15 +1750,7 @@ def main():
                                    "imageOS": os.environ.get("ImageOS")}})
         return 2
 
-    parser = JsonArgumentParser(description=__doc__)
-    parser.add_argument("--helper", required=True,
-                        help="Xcode-built com.clashfx.app.Helper production executable")
-    parser.add_argument("--core", required=True,
-                        help="guest-built mihomo_core executable with the shipping overlay")
-    parser.add_argument("--artifact-dir", required=True,
-                        help="new report/log directory under RUNNER_TEMP")
     try:
-        args = parser.parse_args()
         runner_temp = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True)
         build_metadata, helper_path, core_path, launchd_template = validate_build_inputs(
             args.helper, args.core, runner_temp)

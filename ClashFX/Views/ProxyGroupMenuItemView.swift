@@ -344,7 +344,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
             isHistorical: resolved.isHistorical,
             localizedFormat: NSLocalizedString(
                 "Benchmark result with historical marker",
-                value: "%@ (previous)",
+                value: "%@ · old",
                 comment: "Format for a benchmark result that is historical"
             )
         ) ?? ""
@@ -386,7 +386,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         let modeTitle: String
         switch presentation.mode {
         case .manual:
-            modeTitle = NSLocalizedString("Manual Selection", value: "Manual", comment: "Short menu label for manual selection")
+            modeTitle = ""
         case .automatic:
             modeTitle = NSLocalizedString("Automatic Selection", value: "Auto", comment: "Short menu label for automatic selection")
         case .manualPriority:
@@ -394,7 +394,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         case .unknownAutomatic:
             modeTitle = NSLocalizedString("Core-managed Selection", value: "Core choice", comment: "Short menu label when selection mode is unknown")
         }
-        let label = presentation.leaf.map { "\(modeTitle) · \($0)" } ?? modeTitle
+        let label = presentation.leaf.map { modeTitle.isEmpty ? $0 : "\(modeTitle) · \($0)" } ?? modeTitle
         selectProxyLabel.stringValue = label
         selectProxyLabel.setAccessibilityLabel(label)
 

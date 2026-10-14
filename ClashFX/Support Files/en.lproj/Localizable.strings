@@ -656,7 +656,7 @@
 "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details.";
 "Direct fallback (no proxy nodes)" = "Direct fallback (no proxy nodes)";
 
-"Benchmark result with historical marker" = "%@ (previous)";
+"Benchmark result with historical marker" = "%@ · old";
 
 "Benchmark cancelled: core changed" = "Benchmark cancelled: core changed";
 
@@ -672,8 +672,6 @@
 
 "Latency First" = "Latency First";
 
-"Benchmark options" = "Benchmark options";
-
 "Quick (2.5 s)" = "Quick (2.5 s)";
 
 "Complete (5 s)" = "Complete (5 s)";
@@ -682,17 +680,11 @@
 
 "Benchmarking %d/%d" = "Benchmarking %d/%d";
 
+"Succeeded: %d, timed out: %d, failed: %d, unavailable: %d, reused: %d" = "Succeeded: %d, timed out: %d, failed: %d, unavailable: %d, reused: %d";
+
 "Testing automatic group" = "Testing automatic group";
 
 "Testing selected automatic group" = "Testing selected automatic group";
-
-"Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused";
-
-"Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused";
-
-"Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time." = "Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time.";
-
-"Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused";
 
 "No failed nodes to retry" = "No failed nodes to retry";
 

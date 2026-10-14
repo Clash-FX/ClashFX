@@ -19,15 +19,35 @@ final class ProxyGroupSelectionPresentationTests: XCTestCase {
         super.tearDown()
     }
 
-    func testManualSelectorShowsNestedAutomaticGroupsActualRoute() throws {
+    func testManualSelectorShowsSelectedLeafWithoutModeLabel() throws {
         let snapshot = try makeSnapshot()
         let view = try makeView(snapshot: snapshot, groupName: "Selector")
         let label = try selectionLabel(in: view)
 
-        XCTAssertEqual(label.stringValue, selectionTitle("Manual Selection", leaf: "Hong Kong"))
+        XCTAssertEqual(label.stringValue, "Hong Kong")
         XCTAssertEqual(label.toolTip, formatted("Actual route: %@", "Selector → Automatic → Hong Kong"))
         XCTAssertEqual(accessibilityHelp(of: label), label.toolTip)
         XCTAssertNil(view.toolTip)
+    }
+
+    func testManualSelectorCandidateDoesNotShowManualSelectionTooltip() throws {
+        let snapshot = try makeSnapshot()
+        let selector = try XCTUnwrap(snapshot.proxiesMap["Selector"])
+        let candidate = try XCTUnwrap(snapshot.proxiesMap["Japan"])
+        let item = ProxyMenuItem(proxy: candidate, group: selector, action: nil)
+        let manualHint = NSLocalizedString("Manual Selection", comment: "")
+
+        item.selectionHelp = manualHint
+
+        XCTAssertEqual(item.selectionHelp, manualHint)
+        XCTAssertNil(item.toolTip)
+        XCTAssertNil(item.view?.toolTip)
+
+        NotificationCenter.default.post(name: .proxyUpdate(for: "Selector"), object: selector)
+
+        XCTAssertEqual(item.selectionHelp, manualHint)
+        XCTAssertNil(item.toolTip)
+        XCTAssertNil(item.view?.toolTip)
     }
 
     func testManualPriorityShowsPreferredNodeAndCurrentRouteSeparately() throws {
@@ -92,14 +112,15 @@ final class ProxyGroupSelectionPresentationTests: XCTestCase {
         let originalParent = try XCTUnwrap(before.proxiesMap["Selector"])
         let originalLabel = try selectionLabel(in: view)
         XCTAssertEqual(originalParent.now, "Automatic")
-        XCTAssertTrue(try XCTUnwrap(originalLabel.toolTip).contains("Hong Kong"))
+        XCTAssertEqual(originalLabel.stringValue, "Hong Kong")
+        XCTAssertEqual(originalLabel.toolTip, formatted("Actual route: %@", "Selector → Automatic → Hong Kong"))
 
         let after = try makeSnapshot(automaticCurrent: "Japan")
         let updatedParent = try XCTUnwrap(after.proxiesMap["Selector"])
         XCTAssertEqual(updatedParent.now, originalParent.now)
         NotificationCenter.default.post(name: .proxyUpdate(for: "Selector"), object: updatedParent)
 
-        XCTAssertEqual(originalLabel.stringValue, selectionTitle("Manual Selection", leaf: "Japan"))
+        XCTAssertEqual(originalLabel.stringValue, "Japan")
         XCTAssertEqual(originalLabel.toolTip, formatted("Actual route: %@", "Selector → Automatic → Japan"))
         XCTAssertEqual(accessibilityHelp(of: originalLabel), originalLabel.toolTip)
     }
@@ -145,7 +166,7 @@ final class ProxyGroupSelectionPresentationTests: XCTestCase {
         XCTAssertEqual(try selectionLabel(in: view).stringValue, selectionTitle("Automatic Selection", leaf: "Hong Kong"))
         XCTAssertEqual(
             view.delayLabel.stringValue,
-            String(format: NSLocalizedString("Benchmark result with historical marker", value: "%@ (previous)", comment: ""), "84 ms")
+            String(format: NSLocalizedString("Benchmark result with historical marker", value: "%@ · old", comment: ""), "84 ms")
         )
         XCTAssertNil(view.toolTip)
         XCTAssertNotNil(view.delayLabel.toolTip)
@@ -208,7 +229,7 @@ final class ProxyGroupSelectionPresentationTests: XCTestCase {
 
     private func selectionLabel(in view: ProxyGroupMenuItemView) throws -> NSTextField {
         let fields = textFields(in: view.effectView)
-        return try XCTUnwrap(fields.first(where: { $0.accessibilityHelp() != nil }))
+        return try XCTUnwrap(fields.first(where: { $0.accessibilityLabel() != nil }))
     }
 
     private func fallbackViewSelectionText(_ view: ProxyGroupMenuItemView) -> String? {
