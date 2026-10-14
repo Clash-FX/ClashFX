@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.13 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.13 (Lab)</h2><ul><li><strong>Show the Selected Proxy Group by Default</strong> — If Netflix selects Proxies and Proxies selects Japan 27, the outer menu now shows Proxies, matching the submenu checkmark. Directly selected nodes still show their own names.</li><li><strong>Choose Final-Node Display in Settings</strong> — Enable “Show Final Node in Proxy Menu” in General settings to display the resolved final node. The preference is saved and existing menu rows update immediately.</li><li><strong>Keep Route Details Available</strong> — Route tooltips and accessibility help retain the full selection path. Automatic-selection and manual-priority labels remain visible; benchmark evidence continues to follow the core-resolved route.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 14 Oct 2026 17:14:54 +0000</pubDate>
+  <sparkle:version>1001011013</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.13</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.13/ClashFX.dmg"
+    sparkle:version="1001011013"
+    sparkle:shortVersionString="1.1.11.13"
+    sparkle:edSignature="KN/zYqQRriAxlcBa9NyjI5k01LBoQGSk9opGP2q4EC13QfuCugS8mMHw7IaHlL2XgkuOjVKLSD88G1Udp2VZDA=="
+    length="94411967"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.12 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.12 (Lab)</h2><ul><li><strong>Install the Helper After Applying a Lab or Custom Icon</strong> — Finder icon metadata could make strict validation of the staged app fail, blocking the helper update and Enhanced Mode startup in 1.1.11.11. Both installer staging paths now remove only FinderInfo and ResourceFork from the private copy before verification; the original app icon is preserved.</li><li><strong>Keep Signature and Core Trust Checks Intact</strong> — Full app signature verification, client CDHash, helper/core hashes, root ownership and symlink containment checks remain required. Altered executable or signed-resource bytes are still rejected.</li><li><strong>Exercise Installation Before Publishing</strong> — Add metadata-decorated signed-bundle regressions to source and release CI, and verify the production administrator installer plus helper-managed core startup in a disposable hosted guest. Installation gates run before any release tag is published.</li></ul>
