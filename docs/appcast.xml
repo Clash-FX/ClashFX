@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.11 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.11 (Lab)</h2><ul><li><strong>Reliable Startup and Restart</strong> — Confirm helper-managed core shutdown before handing off listeners, publish a ready enhanced core before runtime requests, and cancel stale startup retries after recovery succeeds.</li><li><strong>Claude Lock Keeps Your Proxy Settings</strong> — Disabling Claude lock preserves Enhanced Mode and System Proxy. Re-enabling and restarting restore the protected runtime without silently disabling the enhanced-mode preference after a failed restore.</li><li><strong>DNS Listener Lifecycle Synchronization</strong> — Serialize DNS listener publication and shutdown, wait for startup acknowledgement, and protect resolver-service updates to prevent races during immediate suspension or reload.</li><li><strong>Safer DNS Recovery and Helper Updates</strong> — Reject expired DNS mutation requests even when the main queue delays timeout delivery. Persist bounded per-service recovery journals, preserve newer external DNS changes, verify UDP/TCP DNS takeover, and restrict privileged execution to an approved root-owned core with validated client identity.</li><li><strong>Cleaner Benchmark Menus</strong> — Choose Quick or Complete testing in Settings, defaulting to Quick. Remove verbose menu summaries and manual prefixes, and use a compact old-result marker with details on hover.</li><li><strong>Current Wi-Fi APIs and Useful Diagnostics</strong> — Remove the obsolete airport fallback, skip SSID reads when auto-suspend is unused, and recheck after location authorization changes. Routine helper refresh and listener warm-up no longer appear as failures; interface warnings target the core's own TUN device.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 14 Oct 2026 12:45:55 +0000</pubDate>
+  <sparkle:version>1001011011</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.11</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.11/ClashFX.dmg"
+    sparkle:version="1001011011"
+    sparkle:shortVersionString="1.1.11.11"
+    sparkle:edSignature="kcftJv0Hxtri9nVg3M/nM69OkOs+/rCBSL60HbJ42zUsYNDNNSmg/SJzPJLjbm0CItMXm5TZu860gT02LnJFAA=="
+    length="94396594"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.10 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.10 (Lab)</h2><ul><li><strong>Proxy Lock</strong> — Save lock preferences only after runtime and system proxy changes succeed. Roll back failed changes to the previous runtime and per-service proxy checkpoint; reject recursive dialing dependencies.</li><li><strong>Runtime ownership and recovery</strong> — Prevent a second ClashFX process from competing for the helper, core or system proxy. Coalesce recovery events, verify actual state and limit retries; quarantine unconfirmed helper writes and bound Rule-mode recovery.</li><li><strong>Node selection</strong> — Distinguish manual selection, automatic routing and manual priority. Show the core's actual route; automatic groups support a preferred node and Restore Auto without optimistic checkmarks.</li><li><strong>Latency tests and diagnostics</strong> — Remove duplicate test menus and move test options and display order to Settings. Separate current failures/timeouts from historical measurements; add copyable single-node diagnostics with controlled failure reasons.</li><li><strong>Interaction consistency</strong> — Coordinate selection, memory restoration, reloads, Lock and recovery. Reject stale replies across reloads and controller changes; bind diagnostics to the measured node and core scope.</li><li><strong>App icon</strong> — Use a fixed bitmap representation when saving custom icons and the Lab badge.</li></ul>
