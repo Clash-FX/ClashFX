@@ -253,6 +253,10 @@ def verify_clean_guest_before_mutation():
     for directory in (Path("/"), Path("/Library"), Path("/Library/PrivilegedHelperTools")):
         try:
             info = directory.lstat()
+        except FileNotFoundError:
+            if directory == APPROVED_CORE_PATH.parent:
+                continue  # A fresh hosted guest may have no helper installation directory.
+            raise
         except OSError as error:
             raise RuntimeError(f"cannot inspect trusted-core parent directory {directory}: {error}") from error
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or
@@ -379,6 +383,7 @@ class AcceptanceHarness:
         self.created_utuns = []
         self.approved_client_cdhashes = {}
         self.trust_paths_created = {}
+        self.trust_directory_created = None
         self.unapproved_client_cdhash = None
         self.exit_code = 0
         self.report = {
@@ -571,7 +576,17 @@ class AcceptanceHarness:
         if not self.transaction_client_available or len(self.approved_client_cdhashes) != 2:
             raise RuntimeError("both approved ad-hoc clients must be built and signed before trust staging")
         for directory in (Path("/"), Path("/Library"), APPROVED_CORE_PATH.parent):
-            info = directory.lstat()
+            try:
+                info = directory.lstat()
+            except FileNotFoundError:
+                if directory != APPROVED_CORE_PATH.parent:
+                    raise
+                # Only after the hosted-guest and clean-install gates, with the
+                # existing root-owned ancestors already checked. Never chmod
+                # or replace a directory created by somebody else.
+                directory.mkdir(mode=0o755, exist_ok=False)
+                info = directory.lstat()
+                self.trust_directory_created = (info.st_dev, info.st_ino)
             if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or
                     info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
                 raise RuntimeError(f"trusted-core parent directory became unsafe: {directory}")
@@ -1487,6 +1502,18 @@ class AcceptanceHarness:
                                               (APPROVED_CORE_PATH, TRUST_RECEIPT_PATH)
                                               if os.path.lexists(path)]})
         self.report["cleanup"]["approvedCoreTrustPathsRemoved"] = passed
+        if self.trust_directory_created is not None:
+            try:
+                directory = APPROVED_CORE_PATH.parent
+                info = directory.lstat()
+                if ((info.st_dev, info.st_ino) != self.trust_directory_created or
+                        not stat.S_ISDIR(info.st_mode) or info.st_uid != 0):
+                    raise RuntimeError("fixture trust directory identity changed")
+                directory.rmdir()  # Refuse to remove unexpected contents.
+                self.cleanup_assertion("fixture removed its empty trust directory", True, {})
+            except Exception as error:
+                self.cleanup_assertion("fixture removed its empty trust directory", False,
+                                       {"reason": str(error)})
 
     def cleanup(self):
         cleanup = self.report.setdefault("cleanup", {})
