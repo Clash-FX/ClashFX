@@ -100,7 +100,8 @@ def run():
     with core_modfile() as modfile:
         go_modfile = modfile
         print("verify core workaround and Go tests")
-        subprocess.check_output(
+        # Preserve test output on failure so the publication gate is diagnosable.
+        subprocess.check_call(
             [go_bin, "test", f"-modfile={go_modfile}", "./..."],
         )
         print("clean existing")

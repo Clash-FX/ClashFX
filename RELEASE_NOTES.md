@@ -1,25 +1,19 @@
-## ClashFX 1.1.11.11 (Lab)
+## ClashFX 1.1.11.12 (Lab)
 
 ### Improvements
 
-- **Reliable Startup and Restart** — Confirm helper-managed core shutdown before handing off listeners, publish a ready enhanced core before runtime requests, and cancel stale startup retries after recovery succeeds.
-- **Claude Lock Keeps Your Proxy Settings** — Disabling Claude lock preserves Enhanced Mode and System Proxy. Re-enabling and restarting restore the protected runtime without silently disabling the enhanced-mode preference after a failed restore.
-- **DNS Listener Lifecycle Synchronization** — Serialize DNS listener publication and shutdown, wait for startup acknowledgement, and protect resolver-service updates to prevent races during immediate suspension or reload.
-- **Safer DNS Recovery and Helper Updates** — Reject expired DNS mutation requests even when the main queue delays timeout delivery. Persist bounded per-service recovery journals, preserve newer external DNS changes, verify UDP/TCP DNS takeover, and restrict privileged execution to an approved root-owned core with validated client identity.
-- **Cleaner Benchmark Menus** — Choose Quick or Complete testing in Settings, defaulting to Quick. Remove verbose menu summaries and manual prefixes, and use a compact old-result marker with details on hover.
-- **Current Wi-Fi APIs and Useful Diagnostics** — Remove the obsolete airport fallback, skip SSID reads when auto-suspend is unused, and recheck after location authorization changes. Routine helper refresh and listener warm-up no longer appear as failures; interface warnings target the core's own TUN device.
+- **Install the Helper After Applying a Lab or Custom Icon** — Finder icon metadata could make strict validation of the staged app fail, blocking the helper update and Enhanced Mode startup in 1.1.11.11. Both installer staging paths now remove only FinderInfo and ResourceFork from the private copy before verification; the original app icon is preserved.
+- **Keep Signature and Core Trust Checks Intact** — Full app signature verification, client CDHash, helper/core hashes, root ownership and symlink containment checks remain required. Altered executable or signed-resource bytes are still rejected.
+- **Exercise Installation Before Publishing** — Add metadata-decorated signed-bundle regressions to source and release CI, and verify the production administrator installer plus helper-managed core startup in a disposable hosted guest. Installation gates run before any release tag is published.
 
-Validation: 402 isolated XCTest cases (4 skipped, zero failures), 39 production Claude-lock flow checks and local App/Helper builds passed. Live Xcode checks covered helper update, lock disable/re-enable, app restart, DNS/proxy requests and sleep/wake recovery. Release CI rebuilds universal cores from source and checks packaged architectures and declared minimum OS versions. macOS 10.14 runtime testing remains outside demonstrated coverage. Subscription YAML errors are outside this release's changes.
+Validation: source CI, metadata cleanup/tamper regressions and hosted installation/startup acceptance must pass before tagging. The GitHub Actions release pipeline rebuilds the app and universal cores, checks the packaged architectures/minimum versions, signs the DMG with Sparkle and produces the Lab update feed. Full GUI authorization-dialog interaction and macOS 10.14 runtime testing are outside demonstrated coverage. Subscription YAML handling is unchanged.
 
 ---
 
 ### 改进
 
-- **启动与重启恢复更可靠** — 核心交接前确认 helper 管理的旧任务已退出；新增强核心就绪后及时发布运行状态，并取消过期启动重试。
-- **Claude 锁定保留代理设置** — 停用锁定保留增强模式和系统代理；重新开启和重启恢复受保护运行状态，恢复失败时不再悄悄关闭增强模式偏好。
-- **DNS 监听生命周期同步** — 串行发布和关闭监听，等待启动确认并保护解析服务更新，消除立即暂停或重载时的数据竞争。
-- **DNS 恢复与 Helper 更新更安全** — 即使主线程延迟处理超时也拒绝过期 DNS 修改请求；按网络服务持久保存有大小限制的恢复记录，保留用户后续修改的 DNS，验证 UDP/TCP 接管；特权执行仅使用经验证、由 root 保管的批准核心。
-- **测速菜单更简洁** — 快速／完整测速放入设置，默认快速；移除冗长菜单说明和手动前缀，旧结果使用简短标记并保留悬停详情。
-- **Wi-Fi 接口与日志更新** — 移除旧 airport 回退，未使用自动暂停时不读取 SSID，定位授权变化后重新检查。正常 helper 刷新、端口等待使用合适日志级别，仅对当前核心的 TUN 接口提示异常。
+- **设置 Lab／自定义图标后仍可安装辅助程序** — Finder 图标元数据会导致暂存 App 的严格签名检查失败，从而阻止 1.1.11.11 的 helper 更新和增强模式启动。两个安装暂存路径现在仅清除副本中的 FinderInfo 与 ResourceFork，再执行验证；原 App 图标保留。
+- **保留完整签名与核心信任校验** — App 完整签名、客户端 CDHash、helper／核心哈希、root 归属与链接范围仍必须通过检查；被修改的可执行文件或签名资源仍会被拒绝。
+- **发布前验证安装流程** — 源码与发布 CI 增加带图标元数据的签名 App 回归检查，并在一次性托管环境验证生产管理员安装脚本和 helper 管理的核心启动；通过安装门槛后才打发布标签。
 
-验证：402 项隔离 XCTest（4 项跳过、0 失败）、39 项生产锁定流程检查及本机 App/Helper 构建通过。Xcode 实机验证覆盖 helper 更新、锁定取消／重新开启、App 重启、DNS／代理访问和睡眠唤醒恢复。发布 CI 从源码重新生成通用核心，检查最终包架构及最低系统版本声明；未完成 macOS 10.14 实机运行验证。订阅 YAML 错误不在本次修改范围。
+验证：源码 CI、元数据清理／篡改拒绝测试和托管环境安装／启动验收通过后才发布。GitHub Actions 重新构建 App 与通用核心，检查最终包架构及最低系统版本，执行 Sparkle 签名并生成 Lab 更新订阅。未覆盖 GUI 授权弹窗交互和 macOS 10.14 实机运行。订阅 YAML 处理未改动。

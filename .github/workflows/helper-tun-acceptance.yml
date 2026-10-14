@@ -79,7 +79,9 @@ jobs:
           report = json.loads((Path(os.environ['RUNNER_TEMP']) / 'clashfx-helper-tun-evidence/report.json').read_text())
           expected = ['productionHelperXPC', 'helperManagedCore', 'tunInterfaceAndRoutes',
                       'systemProxyExactRestore', 'systemDNSExactRestore',
-                      'productionSystemProxyManager', 'ClaudeProxyLockTransactionRollback']
+                      'productionSystemProxyManager', 'ClaudeProxyLockTransactionRollback',
+                      'productionLegacyHelperInstallation', 'metadataDecoratedAppInstallation',
+                      'legacyHelperReinstallation']
           missing = [name for name in expected if report.get('coverage', {}).get(name) is not True]
           assert report.get('status') == 'passed' and not missing, (report.get('status'), missing)
           assert not report.get('failures'), report.get('failures')
