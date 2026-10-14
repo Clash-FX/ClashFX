@@ -887,3 +887,7 @@
 "ClashFX is already running. This copy will close to protect the active proxy." = "ClashFX はすでに実行中です。現在のプロキシを保護するため、このコピーを終了します。";
 "ClashFX could not obtain exclusive runtime control." = "ClashFX の排他的な実行制御を取得できませんでした。";
 "System Proxy recovery paused after repeated conflicts. Click to retry." = "競合が続いたためシステムプロキシの復元を停止しました。クリックして再試行できます。";
+
+/* Proxy menu selection display */
+"Show Final Node in Proxy Menu" = "プロキシメニューに最終ノードを表示";
+"By default, shows the selected node or group (such as Proxies). Enable to show the final node." = "通常は選択したノードまたはグループ（Proxies など）を表示します。有効にすると最終ノードを表示します。";

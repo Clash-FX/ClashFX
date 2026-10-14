@@ -887,3 +887,7 @@
 "ClashFX is already running. This copy will close to protect the active proxy." = "ClashFX уже запущен. Эта копия закроется, чтобы защитить действующий прокси.";
 "ClashFX could not obtain exclusive runtime control." = "ClashFX не удалось получить исключительное управление средой выполнения.";
 "System Proxy recovery paused after repeated conflicts. Click to retry." = "Восстановление системного прокси приостановлено из-за повторяющихся конфликтов. Нажмите, чтобы повторить.";
+
+/* Proxy menu selection display */
+"Show Final Node in Proxy Menu" = "Показывать конечный узел в меню прокси";
+"By default, shows the selected node or group (such as Proxies). Enable to show the final node." = "По умолчанию отображается выбранный узел или группа (например, Proxies). Включите для отображения конечного узла.";

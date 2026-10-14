@@ -205,6 +205,15 @@ enum Settings {
         NotificationCenter.default.post(name: menuBarSpeedAlignmentDidChange, object: alignment)
     }
 
+    @UserDefault("showFinalProxyNodeInMenu", defaultValue: false)
+    static var showFinalProxyNodeInMenu: Bool {
+        didSet {
+            NotificationCenter.default.post(name: proxyMenuSelectionDisplayDidChange, object: nil)
+        }
+    }
+
+    static let proxyMenuSelectionDisplayDidChange = Notification.Name("ClashFX.proxyMenuSelectionDisplayDidChange")
+
     @UserDefault("proxyPort", defaultValue: 0)
     static var proxyPort: Int
 

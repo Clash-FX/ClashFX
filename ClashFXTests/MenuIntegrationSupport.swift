@@ -11,6 +11,12 @@ enum Settings {
     static var benchmarkMeasurementMethod: BenchmarkMeasurementMethod = .followConfiguration
     static var menuBarSpeedAlignment: MenuBarSpeedAlignment = .right
     static var selectedMenuIconID = "default"
+    static let proxyMenuSelectionDisplayDidChange = Notification.Name("ClashFX.proxyMenuSelectionDisplayDidChange")
+    static var showFinalProxyNodeInMenu = false {
+        didSet {
+            NotificationCenter.default.post(name: proxyMenuSelectionDisplayDidChange, object: nil)
+        }
+    }
 }
 
 enum MenuItemFactory {
