@@ -1036,3 +1036,28 @@ func TestConfiguredProxyListenerPortsAreReserved(t *testing.T) {
 		t.Fatalf("reserved proxy ports = %v, want %v", got, want)
 	}
 }
+
+// Regression: suspension immediately after recreation must also close listeners
+// whose serving goroutines have only just been scheduled.
+func TestImmediateDNSRecreationSuspensionReleasesBothListeners(t *testing.T) {
+	resolvers := mihomoDNS.NewResolver(mihomoDNS.Config{})
+	mapper := mihomoDNS.NewEnhancer(mihomoDNS.EnhancerConfig{EnhancedMode: C.DNSNormal})
+	service := mihomoDNS.NewService(resolvers.Resolver, mapper)
+	t.Cleanup(closeBuiltinDNSListener)
+	for i := 0; i < 20; i++ {
+		probe, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := probe.Addr().(*net.TCPAddr).Port
+		_ = probe.Close()
+		if !checkDNSPortAvailable(port) {
+			continue
+		}
+		mihomoDNS.ReCreateServer(net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), service)
+		closeBuiltinDNSListener()
+		if !checkDNSPortAvailable(port) {
+			t.Fatalf("immediate suspension left DNS port %d occupied", port)
+		}
+	}
+}
