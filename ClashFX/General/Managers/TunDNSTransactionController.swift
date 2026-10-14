@@ -369,6 +369,7 @@ final class TunDNSTransactionController {
                 done()
             }
             self.activeSettlement = settlement
+            let deliveryDeadline = ProcessInfo.processInfo.systemUptime + max(0, timeout)
             settlement.scheduleTimeout(after: timeout, outcome: { "DNS apply timed out; recovery journal retained" })
             guard isCurrent() else { _ = settlement.finish("DNS operation superseded"); return }
             client.capture(filterInterface) { captured in
@@ -422,6 +423,13 @@ final class TunDNSTransactionController {
                             }
                             guard saved else {
                                 _ = settlement.finish("Cannot persist the DNS recovery journal; system DNS was not changed")
+                                return
+                            }
+                            // A busy main queue can deliver the persistence callback
+                            // before the already-due timeout work item. Never send a
+                            // system mutation after its absolute monotonic deadline.
+                            guard ProcessInfo.processInfo.systemUptime < deliveryDeadline else {
+                                _ = settlement.finish("DNS apply timed out; recovery journal retained")
                                 return
                             }
                             client.apply(snapshot, servers) { error in
