@@ -78,12 +78,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     private var benchmarkFeedback: BenchmarkFeedback?
     private var benchmarkFeedbackResetWorkItem: DispatchWorkItem?
     private var benchmarkProgressSnapshot: BenchmarkProgressSnapshot?
-    private var benchmarkProgressMode: BenchmarkMode = .quick
     private var benchmarkProgressPhase: String?
-    private var benchmarkProgressWasCancelled = false
-    private var benchmarkAdditionalSummary: String?
-    private var benchmarkAdditionalTitle: String?
-    private var benchmarkAdditionalTimeouts = 0
     private var selectorAttemptOutcomes = [SelectorBenchmarkMeasurementKey: ProxyDelayOutcome]()
     private(set) lazy var retryFailedNodesMenuItem: NSMenuItem = {
         let item = NSMenuItem(
@@ -174,7 +169,6 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
 
         beginBenchmarkAction(
             session: session,
-            mode: benchmarkMode,
             phase: NSLocalizedString("Testing automatic group", comment: "")
         )
         let presentationSessionIdentifier = UUID()
@@ -416,7 +410,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
                     benchmarkProgressSnapshot.completed,
                     benchmarkProgressSnapshot.total
                 )
-                feedbackMessage = benchmarkProgressSummary(benchmarkProgressSnapshot)
+                feedbackMessage = nil
             } else {
                 title = NSLocalizedString("Testing", comment: "")
                 feedbackMessage = nil
@@ -424,9 +418,6 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         } else if let cancellation = Self.cancellationFeedback {
             title = cancellation.title
             feedbackMessage = cancellation.message
-        } else if let benchmarkProgressSnapshot, !benchmarkProgressWasCancelled {
-            title = benchmarkProgressTitle(benchmarkProgressSnapshot)
-            feedbackMessage = benchmarkProgressSummary(benchmarkProgressSnapshot)
         } else {
             title = testType.title
             feedbackMessage = nil
@@ -510,19 +501,13 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
 
     func beginBenchmarkAction(
         session: ApiRequest.BenchmarkSession,
-        mode: BenchmarkMode? = nil,
         phase: String? = nil
     ) {
         clearBenchmarkFeedback()
         benchmarkActionSession = session
         isTesting = true
         benchmarkProgressSnapshot = nil
-        benchmarkProgressMode = mode ?? Settings.benchmarkMode
         benchmarkProgressPhase = phase
-        benchmarkProgressWasCancelled = false
-        benchmarkAdditionalSummary = nil
-        benchmarkAdditionalTitle = nil
-        benchmarkAdditionalTimeouts = 0
         Self.interactionSession = session
         Self.updateAllBenchmarkInteractionPresentations()
         updateRetryMenuItemPresentation()
@@ -561,7 +546,6 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     @discardableResult
     func finishBenchmarkActionIfOwned(session: ApiRequest.BenchmarkSession) -> Bool {
         guard benchmarkActionSession === session else { return false }
-        benchmarkProgressWasCancelled = session.isCancelled
         benchmarkProgressPhase = nil
         benchmarkActionSession = nil
         isTesting = false
@@ -619,43 +603,6 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         updateBenchmarkInteractionPresentation()
     }
 
-    func recordSelectorAutomaticGroupOutcome(_ result: ProxyGroupDelayOutcome, session: ApiRequest.BenchmarkSession) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard benchmarkActionSession === session,
-              !session.isCancelled,
-              AppDelegate.shared.isActiveBenchmarkSession(session) else { return }
-        switch result {
-        case let .success(candidateDelays):
-            let values = Array(candidateDelays.values)
-            benchmarkAdditionalTitle = String(
-                format: NSLocalizedString("Group %d succeeded · %d failed", comment: ""),
-                values.filter { $0 > 0 }.count,
-                values.filter { $0 == 0 }.count
-            )
-            benchmarkAdditionalSummary = String(
-                format: NSLocalizedString("Selected automatic group response: %d succeeded, %d failed", comment: ""),
-                values.filter { $0 > 0 }.count,
-                values.filter { $0 == 0 }.count
-            )
-        case .allFailed:
-            benchmarkAdditionalTimeouts = 1
-            benchmarkAdditionalTitle = NSLocalizedString("Group timed out", comment: "")
-            benchmarkAdditionalSummary = NSLocalizedString("Selected automatic group request timed out", comment: "")
-        case .empty:
-            benchmarkAdditionalTitle = NSLocalizedString("Group unavailable", comment: "")
-            benchmarkAdditionalSummary = NSLocalizedString("Selected automatic group returned no results", comment: "")
-        case .httpFailure:
-            benchmarkAdditionalTitle = NSLocalizedString("Group unavailable", comment: "")
-            benchmarkAdditionalSummary = NSLocalizedString("Selected automatic group was unavailable", comment: "")
-        case .cancelled:
-            return
-        }
-        if benchmarkProgressSnapshot == nil {
-            benchmarkProgressSnapshot = BenchmarkProgressSnapshot()
-        }
-        updateBenchmarkInteractionPresentation()
-    }
-
     func recordSelectorAttemptOutcome(
         _ outcome: ProxyDelayOutcome,
         for key: SelectorBenchmarkMeasurementKey,
@@ -681,60 +628,6 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
 
     func retryingFailures(from plan: SelectorBenchmarkPlan) -> SelectorBenchmarkPlan? {
         plan.retryingFailures(from: selectorAttemptOutcomes)
-    }
-
-    private func benchmarkProgressTitle(_ progress: BenchmarkProgressSnapshot) -> String {
-        let isQuickTimeout = benchmarkProgressMode == .quick
-            && progress.timedOut + benchmarkAdditionalTimeouts > 0
-        let key = isQuickTimeout
-            ? "Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused"
-            : "Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused"
-        var title = String(
-            format: NSLocalizedString(key, comment: "Completed benchmark summary"),
-            progress.succeeded,
-            progress.timedOut + benchmarkAdditionalTimeouts,
-            progress.failed,
-            progress.unavailable,
-            progress.reused
-        )
-        if let benchmarkAdditionalTitle {
-            title += " · " + benchmarkAdditionalTitle
-        }
-        return title
-    }
-
-    private func benchmarkProgressSummary(_ progress: BenchmarkProgressSnapshot) -> String {
-        var summary: String
-        if benchmarkProgressMode == .quick, progress.timedOut + benchmarkAdditionalTimeouts > 0 {
-            summary = String(
-                format: NSLocalizedString(
-                    "Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time.",
-                    comment: ""
-                ),
-                benchmarkProgressMode.timeoutMilliseconds,
-                progress.succeeded,
-                progress.timedOut + benchmarkAdditionalTimeouts,
-                progress.failed,
-                progress.unavailable,
-                progress.reused
-            )
-        } else {
-            summary = String(
-                format: NSLocalizedString(
-                    "Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused",
-                    comment: ""
-                ),
-                progress.succeeded,
-                progress.timedOut + benchmarkAdditionalTimeouts,
-                progress.failed,
-                progress.unavailable,
-                progress.reused
-            )
-        }
-        if let benchmarkAdditionalSummary {
-            summary += "\n" + benchmarkAdditionalSummary
-        }
-        return summary
     }
 
     fileprivate func showBenchmarkFeedback(
@@ -930,7 +823,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             return
         }
 
-        speedTestItem.beginBenchmarkAction(session: session, mode: benchmarkMode)
+        speedTestItem.beginBenchmarkAction(session: session)
 
         var plan: SelectorBenchmarkPlan?
         var reusableMeasurements = [SelectorBenchmarkMeasurementKey: Int]()
@@ -1061,8 +954,6 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                         finish()
                         return
                     }
-
-                    speedTestItem.recordSelectorAutomaticGroupOutcome(result, session: session)
 
                     ApiRequest.getMergedProxyData(session: session, timeout: 10) { snapshot in
                         DispatchQueue.main.async {

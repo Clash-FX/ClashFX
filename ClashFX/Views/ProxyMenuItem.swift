@@ -320,9 +320,18 @@ class ProxyMenuItem: NSMenuItem {
     /// updates cannot erase the meaning of clicking an automatic-group row.
     var selectionHelp: String? {
         didSet {
-            toolTip = selectionHelp
-            view?.toolTip = selectionHelp
+            let displayedHelp = displayedSelectionHelp
+            toolTip = displayedHelp
+            view?.toolTip = displayedHelp
         }
+    }
+
+    private var displayedSelectionHelp: String? {
+        guard parentGroupType == .select,
+              selectionHelp == NSLocalizedString("Manual Selection", comment: "") else {
+            return selectionHelp
+        }
+        return nil
     }
 
     func captureConfigurationSortIndex(_ index: Int) {
@@ -502,7 +511,7 @@ class ProxyMenuItem: NSMenuItem {
             isHistorical: presentation.isHistorical,
             localizedFormat: NSLocalizedString(
                 "Benchmark result with historical marker",
-                value: "%@ (previous)",
+                value: "%@ · old",
                 comment: "Format for a benchmark result that is historical"
             )
         )
@@ -518,7 +527,8 @@ class ProxyMenuItem: NSMenuItem {
     private func updateBenchmarkToolTip(_ details: String?) {
         // Native text-only menu items cannot restrict their tooltip to the
         // delay suffix. Do not fall back to a disruptive whole-row tooltip.
-        toolTip = selectionHelp
+        toolTip = displayedSelectionHelp
+        view?.toolTip = displayedSelectionHelp
         (view as? ProxyItemView)?.delayLabel.toolTip = details
     }
 

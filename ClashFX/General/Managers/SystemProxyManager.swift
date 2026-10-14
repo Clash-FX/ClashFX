@@ -279,11 +279,11 @@ final class SystemProxyManager: NSObject {
         // Checkpoint restoration always covers every service and is independent
         // of the user's preference for ordinary proxy shutdown.
         guard !stage.isSettled else { return }
-        trackHelperMutation({ done in
+        trackHelperMutation { done in
             helper.restore(httpPort, socksPort, checkpoint.liveSnapshot, false, done)
-        }, completion: { error in
+        } completion: { error in
             _ = stage.finish(error.map(OperationError.disableFailed))
-        })
+        }
     }
 
     private func verifyCheckpointRestore(
@@ -320,8 +320,8 @@ final class SystemProxyManager: NSObject {
         helper.getCurrentProxySetting { info in
             guard let actual = info as? [String: Any],
                   SystemProxyOperationPolicy.restoredSnapshotMatches(
-                    expected: checkpoint.liveSnapshot,
-                    actual: actual
+                      expected: checkpoint.liveSnapshot,
+                      actual: actual
                   ) else {
                 _ = stage.finish(.disableFailed("restored proxy settings did not match the checkpoint"))
                 return
@@ -336,7 +336,7 @@ final class SystemProxyManager: NSObject {
         onSuccess: @escaping () -> Void
     ) -> ManagedOperationSettlement<OperationError?> {
         let stage = ManagedOperationSettlement<OperationError?> { [self] error in
-            self.transitionQueue.async {
+            transitionQueue.async {
                 guard !operation.isSettled else { return }
                 if let error = error {
                     Logger.log("system proxy checkpoint operation failed: \(error)", level: .error)
@@ -618,11 +618,11 @@ final class SystemProxyManager: NSObject {
                 return
             }
             guard !settlement.isSettled else { return }
-            self.trackHelperMutation({ done in
+            self.trackHelperMutation { done in
                 proxy.disable(self.dependencies.filterInterface(), done)
-            }, completion: { error in
+            } completion: { error in
                 _ = settlement.finish(error.map(OperationError.disableFailed))
-            })
+            }
         }
     }
 
@@ -654,12 +654,12 @@ final class SystemProxyManager: NSObject {
                 return
             }
             guard !settlement.isSettled else { return }
-            self.trackHelperMutation({ done in
+            self.trackHelperMutation { done in
                 proxy.enable(Int32(port), Int32(socksPort), self.dependencies.filterInterface(),
                              self.dependencies.proxyIgnoreList(), done)
-            }, completion: { error in
+            } completion: { error in
                 _ = settlement.finish(error.map(OperationError.enableFailed))
-            })
+            }
         }
     }
 
@@ -711,15 +711,15 @@ final class SystemProxyManager: NSObject {
             return
         }
         guard !settlement.isSettled else { return }
-        trackHelperMutation({ done in
+        trackHelperMutation { done in
             if shouldRestore {
                 proxy.restore(Int32(port), Int32(socksPort), savedProxyInfo, dependencies.filterInterface(), done)
             } else {
                 proxy.disable(dependencies.filterInterface(), done)
             }
-        }, completion: { error in
+        } completion: { error in
             _ = settlement.finish(error.map(OperationError.disableFailed))
-        })
+        }
     }
 
     private func verifyRestoredSnapshot(generation: UInt64,

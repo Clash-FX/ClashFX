@@ -111,7 +111,7 @@ public struct BenchmarkProbeDiagnostic: Equatable {
         let completionDate = DateFormatter.localizedString(from: completedAt, dateStyle: .medium, timeStyle: .medium)
         let identityScope: String
         switch scopeProvenance.identity {
-        case .leaf(_):
+        case .leaf:
             identityScope = NSLocalizedString("benchmark_probe_identity_leaf", value: "Leaf identity", comment: "")
         case .nodeNameOnly:
             identityScope = NSLocalizedString(

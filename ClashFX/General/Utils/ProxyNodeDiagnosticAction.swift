@@ -50,14 +50,9 @@ final class ProxyNodeDiagnosticAction {
             nodes.forEach { picker.addItem(withTitle: $0.name) }
             let urlField = NSTextField(string: Settings.benchMarkUrl)
             urlField.widthAnchor.constraint(equalToConstant: 420).isActive = true
-            let modePicker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 420, height: 26))
-            modePicker.addItems(withTitles: [NSLocalizedString("Quick (2.5 s)", comment: ""),
-                                           NSLocalizedString("Complete (5 s)", comment: "")])
-            modePicker.selectItem(at: Settings.benchmarkMode == .quick ? 0 : 1)
             let stack = NSStackView(views: [
                 NSTextField(labelWithString: NSLocalizedString("Node:", comment: "")), picker,
-                NSTextField(labelWithString: NSLocalizedString("Benchmark URL:", comment: "")), urlField,
-                NSTextField(labelWithString: NSLocalizedString("Probe timeout:", comment: "")), modePicker
+                NSTextField(labelWithString: NSLocalizedString("Benchmark URL:", comment: "")), urlField
             ])
             stack.orientation = .vertical
             stack.alignment = .leading
@@ -88,7 +83,7 @@ final class ProxyNodeDiagnosticAction {
                 return
             }
             let node = nodes[picker.indexOfSelectedItem]
-            let timeout = modePicker.indexOfSelectedItem == 0 ? 2500 : 5000
+            let timeout = Settings.benchmarkMode.timeoutMilliseconds
             let identity = LeafProxyBenchmarkIdentity(proxy: node)
             let conditions = BenchmarkConditions(url: url)
             let completed: (ProxyDelayOutcome) -> Void = { outcome in
@@ -106,10 +101,10 @@ final class ProxyNodeDiagnosticAction {
             }
             if let provider = node.enclosingProvider {
                 ApiRequest.getProviderProxyDelayOutcome(providerName: provider.name, proxyName: node.name,
-                    benchmarkURL: url, timeout: timeout, session: session, identity: identity, callback: completed)
+                                                        benchmarkURL: url, timeout: timeout, session: session, identity: identity, callback: completed)
             } else {
                 ApiRequest.getProxyDelayOutcome(proxyName: node.name, benchmarkURL: url,
-                    timeout: timeout, session: session, identity: identity, callback: completed)
+                                                timeout: timeout, session: session, identity: identity, callback: completed)
             }
         }
     }

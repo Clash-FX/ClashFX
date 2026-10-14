@@ -388,8 +388,8 @@ final class RealCoreMenuIntegrationTests: XCTestCase {
             throw XCTSkip("Opt-in real core fixture is not running")
         }
         let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: file))) as? [String: Any])
-        endpoint = try XCTUnwrap(URL(string: try XCTUnwrap(manifest["endpoint"] as? String)))
-        origin = try XCTUnwrap(URL(string: try XCTUnwrap(manifest["origin"] as? String)))
+        endpoint = try XCTUnwrap(try URL(string: XCTUnwrap(manifest["endpoint"] as? String)))
+        origin = try XCTUnwrap(try URL(string: XCTUnwrap(manifest["origin"] as? String)))
         secret = try XCTUnwrap(manifest["secret"] as? String)
         ApiRequest.loopbackFixture = .init(endpoint: endpoint, secret: secret)
         defer { ApiRequest.loopbackFixture = nil; GlobalLeafBenchmarkPresentationStore.clearAll() }
@@ -403,13 +403,13 @@ final class RealCoreMenuIntegrationTests: XCTestCase {
         let scope = BenchmarkProbeCoreScope(configName: "isolated", remoteUUID: nil,
                                             apiURI: endpoint.absoluteString, proxySelectionGeneration: 0)
         let token = BenchmarkProbeDiagnosticsStore.begin(nodeName: node.name, providerName: nil,
-            identity: LeafProxyBenchmarkIdentity(proxy: node), conditions: conditions, scope: scope)
+                                                         identity: LeafProxyBenchmarkIdentity(proxy: node), conditions: conditions, scope: scope)
         GlobalLeafBenchmarkPresentationStore.publish(.init(identity: .init(proxy: node), benchmarkURL: conditions.url,
-            sessionIdentifier: UUID(), rowState: .measured(displayName: node.name, delay: 83),
-            publishedAt: Date(timeIntervalSinceNow: -60)))
+                                                           sessionIdentifier: UUID(), rowState: .measured(displayName: node.name, delay: 83),
+                                                           publishedAt: Date(timeIntervalSinceNow: -60)))
         var components = try XCTUnwrap(URLComponents(url: endpoint.appendingPathComponent("proxies/Local-Auth/delay"), resolvingAgainstBaseURL: false))
         components.queryItems = [.init(name: "url", value: conditions.url), .init(name: "timeout", value: "2500")]
-        var request = URLRequest(url: try XCTUnwrap(components.url))
+        var request = try URLRequest(url: XCTUnwrap(components.url))
         request.setValue("Bearer " + secret, forHTTPHeaderField: "Authorization")
         let started = Date()
         let done = expectation(description: "real authentication failure")
@@ -430,17 +430,17 @@ final class RealCoreMenuIntegrationTests: XCTestCase {
         let outcome = ProxyDelayOutcome.decode(statusCode: status, data: received, transportFailed: false)
         XCTAssertEqual(outcome, .failed)
         let diagnostic = try XCTUnwrap(BenchmarkProbeDiagnostic.make(nodeName: node.name, providerName: nil,
-            benchmarkURL: conditions.url, timeoutMilliseconds: 2500, startedAt: started, completedAt: Date(),
-            statusCode: status, outcome: outcome, data: received, transportError: nil,
-            identity: token.identity, scopeProvenance: token.scopeProvenance))
+                                                                     benchmarkURL: conditions.url, timeoutMilliseconds: 2500, startedAt: started, completedAt: Date(),
+                                                                     statusCode: status, outcome: outcome, data: received, transportError: nil,
+                                                                     identity: token.identity, scopeProvenance: token.scopeProvenance))
         XCTAssertEqual(diagnostic.failureKind, .authentication)
         XCTAssertTrue(BenchmarkProbeDiagnosticsStore.publish(diagnostic, token: token, currentScope: scope))
-        let menu = try self.menu("Diagnostic-Selector")
+        let menu = try menu("Diagnostic-Selector")
         let parent = try XCTUnwrap(snapshot.proxiesMap["Diagnostic-Selector"])
         let row = ProxyMenuItem(proxy: node, group: parent, action: nil)
         menu.addItem(row)
         GlobalLeafBenchmarkPresentationStore.publish(.init(identity: .init(proxy: node), benchmarkURL: conditions.url,
-            sessionIdentifier: UUID(), rowState: outcome.rowState(name: node.name)))
+                                                           sessionIdentifier: UUID(), rowState: outcome.rowState(name: node.name)))
         // The real core body must reach the production row resolver and delay
         // tooltip, without retaining the old 83 ms as the current result.
         Settings.benchMarkUrl = conditions.url
@@ -450,7 +450,7 @@ final class RealCoreMenuIntegrationTests: XCTestCase {
         let tooltip = try XCTUnwrap(view.delayLabel.toolTip)
         XCTAssertTrue(tooltip.contains("83 ms"))
         XCTAssertTrue(tooltip.contains("2500"))
-        XCTAssertTrue(tooltip.contains(try XCTUnwrap(diagnostic.localizedFailureDescription)))
+        XCTAssertTrue(try tooltip.contains(XCTUnwrap(diagnostic.localizedFailureDescription)))
         XCTAssertTrue(diagnostic.localizedReport.contains("503"))
         print("REAL_CORE_PROBE_DIAGNOSTIC_COMPLETE: actual HTTP proxy authentication failure, current failed row, previous successful reference and controlled cause")
     }

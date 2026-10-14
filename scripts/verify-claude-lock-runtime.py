@@ -12,15 +12,15 @@ ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / 'ClashFX/AppDelegate.swift').read_text()
 
 
-def declaration(marker):
-    start = source.index(marker)
-    opening = source.index('{', start)
+def declaration(marker, input_source=source):
+    start = input_source.index(marker)
+    opening = input_source.index('{', start)
     depth = 1
     end = opening + 1
     while depth:
-        depth += (source[end] == '{') - (source[end] == '}')
+        depth += (input_source[end] == '{') - (input_source[end] == '}')
         end += 1
-    return source[start:end]
+    return input_source[start:end]
 
 
 methods = '\n'.join(declaration('    private func ' + name) for name in (
@@ -30,6 +30,12 @@ methods = '\n'.join(declaration('    private func ' + name) for name in (
 states = '\n'.join(declaration(marker) for marker in (
     '    private struct ClaudeLockRuntimeSettings', '    private final class ClaudeLockChange'
 ))
+launch = source.index('    private func finishEnhancedModeLaunchPreparation(')
+ready_start = source.index('                            ConfigManager.shared.apiPort = port', launch)
+ready_end = source.index('                            self.refreshStatusItemViewStatus()', ready_start)
+verified_runtime_publication = source[ready_start:ready_end]
+lock_policy = (ROOT / 'ClashFX/General/Utils/ClaudeProxyLockPolicy.swift').read_text()
+policy = 'enum ClaudeProxyLockPolicy {\n' + declaration('    static func requiresEnhancedMode(', lock_policy) + '\n}'
 stubs = r'''
 import Foundation
 
@@ -49,6 +55,8 @@ final class ConfigManager {
     var currentConfig: Config? = Config()
     var isEnhancedModeActive = false
     var isRunning = true
+    var apiPort = "0"
+    var apiSecret = ""
     var proxyPortAutoSet = false
     var isProxySetByOtherVariable = Value()
 }
@@ -76,7 +84,7 @@ final class Harness {
         events.append("enable")
         enhancedModeGeneration += 1
         DispatchQueue.main.async {
-            if self.enableError == nil { ConfigManager.shared.isEnhancedModeActive = true }
+            if self.enableError == nil { self.publishVerifiedRuntime(port: "19090", secret: "fixture") }
             completion(self.enhancedModeGeneration, self.enableError)
         }
     }
@@ -99,6 +107,7 @@ final class Harness {
     func startProxy() { events.append("start builtin"); ConfigManager.shared.isRunning = true }
     func refreshStatusItemViewStatus() {}
     func requestConfigUpdateApplyingRuntimePatch(configName: String, callback: @escaping (String?) -> Void) {
+        guard ConfigManager.shared.isRunning else { callback("invalid URL: core is not running"); return }
         events.append(claudeLockChange!.restoring ? "reload old" : "reload new")
         callback(reloadErrors.isEmpty ? nil : reloadErrors.removeFirst())
     }
@@ -110,6 +119,7 @@ final class Harness {
     func begin(enabled: Bool = true) {
         claudeLockChange = ClaudeLockChange(enabled: enabled, target: "New", generation: enhancedModeGeneration)
     }
+    var requestedEnhanced: Bool { claudeLockChange!.requested.enhanced }
     func apply() -> String? {
         awaitReply { reply in self.applyClaudeLockRuntime(self.claudeLockChange!, completion: reply) }
     }
@@ -150,6 +160,33 @@ let live = Harness(); live.begin()
 check(live.apply() == nil, "live lock failed")
 check(live.events == ["reload new", "rule"], "live Enhanced lock must avoid port handoffs")
 check(!Settings.claudeProxyLockEnabled, "runtime stage must not commit preferences")
+reset(true)
+Settings.claudeProxyLockEnabled = true
+let unlocked = Harness(); unlocked.begin(enabled: false)
+check(unlocked.requestedEnhanced, "disabling Lock must preserve the existing Enhanced preference")
+check(unlocked.apply() == nil, "disabling Lock with a healthy Enhanced core failed")
+check(unlocked.events == ["reload new", "old mode"], "disabling Lock must not stop or replace the healthy Enhanced core")
+check(ConfigManager.shared.isEnhancedModeActive, "disabling Lock must retain the active TUN core")
+reset(false)
+let plainUnlocked = Harness(); plainUnlocked.begin(enabled: false)
+check(!plainUnlocked.requestedEnhanced, "disabling Lock must not enable an existing builtin-only preference")
+check(plainUnlocked.apply() == nil, "disabling Lock in builtin mode failed")
+check(plainUnlocked.events == ["reload new", "old mode"], "builtin-only Lock disable must avoid TUN handoffs")
+reset(false)
+ConfigManager.shared.isRunning = false
+let startupBlocked = Harness(); startupBlocked.begin(enabled: true)
+check(startupBlocked.apply() == nil, "verified Enhanced launch must recover a stopped startup state before Lock reload")
+check(ConfigManager.shared.isRunning, "verified Enhanced launch must publish a running core")
+check(ConfigManager.shared.apiPort == "19090" && ConfigManager.shared.apiSecret == "fixture", "Lock must use the verified endpoint identity")
+check(startupBlocked.events == ["enable", "reload new", "rule"], "recovered Lock must not issue an invalid endpoint request")
+reset(true)
+let repeated = Harness()
+for enabled in [true, false, true, false] {
+    repeated.begin(enabled: enabled)
+    check(repeated.apply() == nil, "repeated Lock toggle failed")
+    check(ConfigManager.shared.isEnhancedModeActive && ConfigManager.shared.isRunning, "Lock toggle must keep healthy TUN running")
+}
+check(!repeated.events.contains("disable") && !repeated.events.contains("enable"), "repeated Lock toggles must reuse the live core")
 reset(false)
 let builtin = Harness(); builtin.begin()
 check(builtin.apply() == nil, "builtin to Enhanced failed")
@@ -184,7 +221,8 @@ print("Production Lock runtime checks passed: \(passed)")
 '''
 with tempfile.TemporaryDirectory(prefix='clashfx-lock-runtime-') as temporary:
     path = Path(temporary) / 'main.swift'
-    path.write_text('\n'.join((stubs, states, methods, checks)))
+    publication = '    func publishVerifiedRuntime(port: String, secret: String) {\n' + verified_runtime_publication + '\n    }'
+    path.write_text(policy + '\n' + '\n'.join((stubs, states, publication, methods, checks)))
     binary = Path(temporary) / 'runtime-tests'
     subprocess.run(['swiftc', str(path), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)

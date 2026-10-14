@@ -4,7 +4,7 @@ import SystemConfiguration
 
 private let helperMachService = "com.clashfx.app.Helper"
 private let expectedClientBundleIdentifier = "com.clashfx.app"
-private let expectedHelperProtocolVersion = 4
+private let expectedHelperProtocolVersion = Int(CLASHFX_HELPER_PROTOCOL_VERSION)
 private let helperReplyTimeout: TimeInterval = 30
 private let controllerReadinessTimeout: TimeInterval = 45
 private let invalidRuntimeDeadline: TimeInterval = 15
@@ -111,8 +111,13 @@ private struct ValidatedManifest {
 
 private struct AcceptanceFailure: Error, LocalizedError {
     let message: String
-    init(_ message: String) { self.message = message }
-    var errorDescription: String? { message }
+    init(_ message: String) {
+        self.message = message
+    }
+
+    var errorDescription: String? {
+        message
+    }
 }
 
 private enum HelperClientFailure: Error, LocalizedError {
@@ -714,7 +719,7 @@ private final class AcceptanceRun {
                 self.evidence.assertion("Production Helper protocol version matches", passed: pass,
                                         evidence: ["actual": version, "expected": expectedHelperProtocolVersion])
                 guard pass else { self.finish("failed"); return }
-                    self.setCoverage("productionHelperXPC", true)
+                self.setCoverage("productionHelperXPC", true)
                 self.inspectStartingCore()
             case let .failure(error):
                 self.failAndFinish("helperProtocol", error.localizedDescription)
@@ -869,11 +874,11 @@ private final class AcceptanceRun {
             self.setCoverage("realSCPreferencesLockFailure", proxyFailureOccurred && realHelperPathReached && helperReplyObserved)
             self.setCoverage("realSCPreferencesLockFailureRollback",
                              proxyFailureOccurred && realHelperPathReached && helperReplyObserved && lockReleased &&
-                                self.latestGoodRuntimeRestorePassed && self.latestProxyRestorePassed && noPreferenceMutation)
+                                 self.latestGoodRuntimeRestorePassed && self.latestProxyRestorePassed && noPreferenceMutation)
             self.setCoverage("failedTransactionPreferenceCommitDeltaZero",
-                             (self.coverage("failedTransactionPreferenceCommitDeltaZero") && noPreferenceMutation))
+                             self.coverage("failedTransactionPreferenceCommitDeltaZero") && noPreferenceMutation)
             self.setCoverage("productionSystemProxyCheckpointRestore",
-                             (self.coverage("productionSystemProxyCheckpointRestore") && self.latestProxyRestorePassed))
+                             self.coverage("productionSystemProxyCheckpointRestore") && self.latestProxyRestorePassed)
             self.finish(passed ? "passed" : "failed")
         }
     }
@@ -891,7 +896,7 @@ private final class AcceptanceRun {
         let transactionID = UUID()
         activeTransactionID = transactionID
         evidence.record("transactionStarted", ["name": name, "transactionID": transactionID.uuidString,
-                                                "runtimeConfig": runtimeConfig])
+                                               "runtimeConfig": runtimeConfig])
         var runtimeRestoreSucceeded = false
         var proxyRestoreSucceeded = false
         let transaction = ClaudeProxyLockTransaction(dependencies: ClaudeProxyLockTransaction.Dependencies(
@@ -1069,10 +1074,10 @@ private final class AcceptanceRun {
                     if self.preferencesLocker.isHeld {
                         let unlocked = self.preferencesLocker.release()
                         self.evidence.updateProxyAttempt(name: attempt, fields: ["releasedDuringFinalization": true,
-                                                                               "finalUnlockSucceeded": unlocked])
+                                                                                 "finalUnlockSucceeded": unlocked])
                     }
                 }
-                let failureText = failure.map { $0.primary }
+                let failureText = failure.map(\.primary)
                 completion(failureText)
             }
         ))
@@ -1089,14 +1094,14 @@ private final class AcceptanceRun {
             let previousPIDValue = (before["pid"] as? NSNumber)?.intValue ?? 0
             let previousPID = previousPIDValue > 0 ? previousPIDValue : nil
             self.evidence.record("runtimeStartRequested", ["configPath": configPath,
-                                                            "previousLaunchID": previousLaunch as Any? ?? NSNull(),
-                                                            "previousPID": previousPID as Any? ?? NSNull()])
+                                                           "previousLaunchID": previousLaunch as Any? ?? NSNull(),
+                                                           "previousPID": previousPID as Any? ?? NSNull()])
             self.helper.startCore(binary: self.manifest.fixtures.coreBinary,
                                   config: configPath, home: self.manifest.fixtures.homeDir) { result in
                 switch result {
                 case let .success(helperError):
                     self.evidence.record("runtimeStartReply", ["configPath": configPath,
-                                                                "helperError": helperError as Any? ?? NSNull()])
+                                                               "helperError": helperError as Any? ?? NSNull()])
                     if let helperError {
                         completion("Production Helper rejected core start: \(helperError)")
                         return
@@ -1120,8 +1125,8 @@ private final class AcceptanceRun {
             }
             let previousLaunch = before["launchID"] as? String
             self.evidence.record("invalidRuntimeStartRequested", ["configPath": configPath,
-                                                                    "configExists": FileManager.default.fileExists(atPath: configPath),
-                                                                    "previousLaunchID": previousLaunch as Any? ?? NSNull()])
+                                                                  "configExists": FileManager.default.fileExists(atPath: configPath),
+                                                                  "previousLaunchID": previousLaunch as Any? ?? NSNull()])
             self.helper.startCore(binary: self.manifest.fixtures.coreBinary,
                                   config: configPath, home: self.manifest.fixtures.homeDir) { result in
                 let replyError: String?
@@ -1232,8 +1237,8 @@ private final class AcceptanceRun {
                     completion("Could not establish a new Helper launch identity for the invalid config")
                 } else {
                     self.schedulePoll { self.waitUntilInvalid(configPath: configPath, previousLaunchID: previousLaunchID,
-                                                             deadline: deadline, replyError: replyError,
-                                                             completion: completion) }
+                                                              deadline: deadline, replyError: replyError,
+                                                              completion: completion) }
                 }
                 return
             }
@@ -1245,8 +1250,8 @@ private final class AcceptanceRun {
                     completion("Helper did not report a new launch identity for the invalid config")
                 } else {
                     self.schedulePoll { self.waitUntilInvalid(configPath: configPath, previousLaunchID: previousLaunchID,
-                                                             deadline: deadline, replyError: replyError,
-                                                             completion: completion) }
+                                                              deadline: deadline, replyError: replyError,
+                                                              completion: completion) }
                 }
                 return
             }
@@ -1267,9 +1272,9 @@ private final class AcceptanceRun {
                                                 completion: completion)
                 } else {
                     self.schedulePoll { self.waitUntilInvalid(configPath: configPath,
-                                                             previousLaunchID: previousLaunchID,
-                                                             deadline: deadline, replyError: replyError,
-                                                             completion: completion) }
+                                                              previousLaunchID: previousLaunchID,
+                                                              deadline: deadline, replyError: replyError,
+                                                              completion: completion) }
                 }
                 return
             }
@@ -1305,9 +1310,9 @@ private final class AcceptanceRun {
                                         replyError: String?, lastStatus: [String: Any],
                                         completion: @escaping (String?) -> Void) {
         guard Date() >= deadline else {
-            self.schedulePoll { self.waitUntilInvalid(configPath: configPath, previousLaunchID: previousLaunchID,
-                                                      deadline: deadline, replyError: replyError,
-                                                      completion: completion) }
+            schedulePoll { self.waitUntilInvalid(configPath: configPath, previousLaunchID: previousLaunchID,
+                                                 deadline: deadline, replyError: replyError,
+                                                 completion: completion) }
             return
         }
         invalidRuntimeEvidence(configPath: configPath, kind: "notReadyAtDeadline",
@@ -1406,12 +1411,17 @@ private final class AcceptanceRun {
         CFRunLoopStop(CFRunLoopGetMain())
     }
 
-    var processExitCode: Int32 { exitCode }
-    var isFinished: Bool { didFinish }
+    var processExitCode: Int32 {
+        exitCode
+    }
+
+    var isFinished: Bool {
+        didFinish
+    }
 
     private static func redactedCoreStatus(_ status: [String: Any]) -> [String: Any] {
         var result: [String: Any] = [:]
-        ["running", "pid", "launchID", "configPath", "binaryPath", "lastTermination"].forEach { key in
+        for key in ["running", "pid", "launchID", "configPath", "binaryPath", "lastTermination"] {
             if let value = status[key] { result[key] = value }
         }
         return result
@@ -1448,9 +1458,9 @@ private enum ClientEntry {
                 throw AcceptanceFailure("GITHUB_WORKSPACE and RUNNER_TEMP are required on the hosted guest")
             }
             let confinedFixtureURL = try confinedURL(arguments[1],
-                                                      workspace: URL(fileURLWithPath: workspace, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL,
-                                                      runnerTemp: URL(fileURLWithPath: runnerTemp, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL,
-                                                      mustExist: true)
+                                                     workspace: URL(fileURLWithPath: workspace, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL,
+                                                     runnerTemp: URL(fileURLWithPath: runnerTemp, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL,
+                                                     mustExist: true)
             confinedManifestURL = confinedFixtureURL
             let data = try Data(contentsOf: confinedFixtureURL)
             let fixtures = try JSONDecoder().decode(Fixtures.self, from: data)
@@ -1494,10 +1504,10 @@ private enum ClientEntry {
         let environment = ProcessInfo.processInfo.environment
         var failures: [String] = []
         #if os(macOS)
-        let platform = "macOS"
+            let platform = "macOS"
         #else
-        let platform = "non-macOS"
-        failures.append("Darwin/macOS is required")
+            let platform = "non-macOS"
+            failures.append("Darwin/macOS is required")
         #endif
         if environment["GITHUB_ACTIONS"] != "true" { failures.append("GITHUB_ACTIONS must equal true") }
         if environment["RUNNER_ENVIRONMENT"] != "github-hosted" {
@@ -1576,11 +1586,11 @@ private enum ClientEntry {
         let outputURL = try validatedOutputURL(fixtures.outputJSON, workspace: workspaceURL,
                                                runnerTemp: runnerTempURL)
         return ValidatedManifest(fixtures: Fixtures(controllerURL: baseURL.absoluteString,
-                                                     secret: fixtures.secret, coreBinary: coreURL.path,
-                                                     homeDir: homeURL.path, goodConfig: goodURL.path,
-                                                     alternateConfig: alternateConfig?.path,
-                                                     invalidConfig: invalidURL.path,
-                                                     outputJSON: outputURL.path),
+                                                    secret: fixtures.secret, coreBinary: coreURL.path,
+                                                    homeDir: homeURL.path, goodConfig: goodURL.path,
+                                                    alternateConfig: alternateConfig?.path,
+                                                    invalidConfig: invalidURL.path,
+                                                    outputJSON: outputURL.path),
                                  controller: controller,
                                  targetConfig: alternateConfig ?? goodConfig,
                                  goodConfig: goodConfig, alternateConfig: alternateConfig,
@@ -1616,8 +1626,8 @@ private enum ClientEntry {
         guard let workspace = environment["GITHUB_WORKSPACE"], let runnerTemp = environment["RUNNER_TEMP"] else { return nil }
         do {
             return try validatedOutputURL(path,
-                                         workspace: URL(fileURLWithPath: workspace, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL,
-                                         runnerTemp: URL(fileURLWithPath: runnerTemp, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL)
+                                          workspace: URL(fileURLWithPath: workspace, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL,
+                                          runnerTemp: URL(fileURLWithPath: runnerTemp, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL)
         } catch { return nil }
     }
 
@@ -1638,7 +1648,6 @@ private enum ClientEntry {
         }
         exit(code)
     }
-
 }
 
 @main
@@ -1647,4 +1656,3 @@ private struct HelperTUNProductionTransactionMain {
         ClientEntry.main()
     }
 }
-

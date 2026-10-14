@@ -1,7 +1,7 @@
 import XCTest
 
 final class BenchmarkHistoryPresentationTests: XCTestCase {
-    private let historyFormat = "%@ (previous)"
+    private let historyFormat = "%@ · old"
 
     func testUnavailableLatestAttemptRemainsPrimaryAndKeepsPreviousSuccess() {
         let measuredAt = Date(timeIntervalSince1970: 1_800_000_000)
@@ -229,7 +229,7 @@ final class BenchmarkHistoryPresentationTests: XCTestCase {
         XCTAssertTrue(result.isHistorical)
         XCTAssertFalse(result.lastAttemptUnavailable)
         XCTAssertEqual(result.state.rawDelay, 1177)
-        XCTAssertEqual(displayDelay(for: result), "1177 ms (previous)")
+        XCTAssertEqual(displayDelay(for: result), "1177 ms · old")
     }
 
     func testMethodChangeRejectsPreviousMeasurementsAndPendingActivity() {

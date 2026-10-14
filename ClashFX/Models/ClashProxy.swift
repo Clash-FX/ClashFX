@@ -1197,7 +1197,10 @@ class ClashProxy: Codable {
     /// The core's preferred member, distinct from its currently used `now`.
     /// Nil means this core did not report priority state; empty means automatic.
     private let fixedSelection: CoreFixedSelection?
-    var fixed: ClashProxyName? { fixedSelection?.target }
+    var fixed: ClashProxyName? {
+        fixedSelection?.target
+    }
+
     let alive: Bool?
     let extra: [String: ClashProxyTestState]?
     let hidden: Bool?

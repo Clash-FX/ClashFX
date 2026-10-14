@@ -1,6 +1,22 @@
 import XCTest
 
 final class EnhancedModeTransitionSafetyTests: XCTestCase {
+    func testProtectedAndLegacyCoreExecutablesBothPassOwnershipPathCheck() {
+        let bundle = "/Applications/ClashFX.app/Contents/Resources/mihomo_core"
+        let approved = "/Library/PrivilegedHelperTools/com.clashfx.app.Helper.mihomo_core"
+        for actual in [bundle, approved] {
+            XCTAssertTrue(EnhancedModeDNSReadinessPolicy.matchesExpectedCoreBinary(
+                actual, bundlePath: bundle, approvedPath: approved
+            ))
+        }
+        let rejected: [String?] = [nil, "", "/tmp/mihomo_core", approved + ".other"]
+        for actual in rejected {
+            XCTAssertFalse(EnhancedModeDNSReadinessPolicy.matchesExpectedCoreBinary(
+                actual, bundlePath: bundle, approvedPath: approved
+            ))
+        }
+    }
+
     private enum RequestOutcome: Equatable {
         case reply
         case xpcFailure

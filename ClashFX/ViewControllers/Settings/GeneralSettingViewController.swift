@@ -30,7 +30,7 @@ class GeneralSettingViewController: NSViewController {
     @IBOutlet var ipv6Button: NSButton!
     @IBOutlet var speedTestUrlField: NSTextField!
     @IBOutlet var benchmarkURLSaveButton: NSButton!
-    @IBOutlet var benchmarkModePopUp: NSPopUpButton!
+    @IBOutlet var benchmarkModeSegmentedControl: NSSegmentedControl!
     @IBOutlet var benchmarkSortOrderPopUp: NSPopUpButton!
     @IBOutlet var benchmarkURLPresetPopUp: NSPopUpButton!
     @IBOutlet var benchmarkMeasurementMethodPopUp: NSPopUpButton!
@@ -95,6 +95,7 @@ class GeneralSettingViewController: NSViewController {
             .map { $0.components(separatedBy: ",").filter { !$0.isEmpty } }
             .subscribe { arr in
                 Settings.disableSSIDList = arr
+                SSIDSuspendTool.shared.requestPermissionIfNeed()
                 SSIDSuspendTool.shared.update()
             }.disposed(by: disposeBag)
 
@@ -262,19 +263,14 @@ class GeneralSettingViewController: NSViewController {
             82,
             benchmarkLabels.map { $0.intrinsicContentSize.width + 4 }.max() ?? 82
         )
-        benchmarkLabels.forEach {
-            $0.widthAnchor.constraint(equalToConstant: labelColumnWidth).isActive = true
+        for benchmarkLabel in benchmarkLabels {
+            benchmarkLabel.widthAnchor.constraint(equalToConstant: labelColumnWidth).isActive = true
         }
 
-        benchmarkModePopUp.removeAllItems()
-        for mode in [BenchmarkMode.quick, .complete] {
-            let title = mode == .quick
-                ? NSLocalizedString("Quick", comment: "")
-                : NSLocalizedString("Complete", comment: "")
-            benchmarkModePopUp.addItem(withTitle: title)
-            benchmarkModePopUp.item(at: benchmarkModePopUp.numberOfItems - 1)?.representedObject = mode.rawValue
-        }
-        benchmarkModePopUp.selectItem(at: Settings.benchmarkMode == .quick ? 0 : 1)
+        benchmarkModeSegmentedControl.setLabel(NSLocalizedString("Quick", comment: ""), forSegment: 0)
+        benchmarkModeSegmentedControl.setLabel(NSLocalizedString("Complete", comment: ""), forSegment: 1)
+        benchmarkModeSegmentedControl.selectedSegment = Settings.benchmarkMode == .quick ? 0 : 1
+        benchmarkModeSegmentedControl.setAccessibilityLabel(benchmarkModeLabel.stringValue)
 
         benchmarkSortOrderPopUp.removeAllItems()
         for order in [BenchmarkSortOrder.configuration, .latency] {
@@ -353,10 +349,15 @@ class GeneralSettingViewController: NSViewController {
         view.window?.makeFirstResponder(nil)
     }
 
-    @IBAction func actionBenchmarkModeChanged(_ sender: NSPopUpButton) {
-        guard let rawValue = sender.selectedItem?.representedObject as? String,
-              let mode = BenchmarkMode(rawValue: rawValue) else { return }
-        Settings.benchmarkMode = mode
+    @IBAction func actionBenchmarkModeChanged(_ sender: NSSegmentedControl) {
+        switch sender.selectedSegment {
+        case 0:
+            Settings.benchmarkMode = .quick
+        case 1:
+            Settings.benchmarkMode = .complete
+        default:
+            return
+        }
     }
 
     @IBAction func actionBenchmarkSortOrderChanged(_ sender: NSPopUpButton) {

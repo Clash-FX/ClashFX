@@ -28,6 +28,7 @@ import (
 	"github.com/metacubex/mihomo/component/mmdb"
 	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/constant"
+	mihomoDNS "github.com/metacubex/mihomo/dns"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/hub/route"
 	"github.com/metacubex/mihomo/listener"
@@ -104,143 +105,294 @@ func checkPortAvailable(port int) bool {
 	return true
 }
 
-const preferredEnhancedDNSPort = 7874
-
-func alignEnhancedDNSListen(dns map[string]interface{}) {
-	alignEnhancedDNSListenWith(dns, checkDNSPortAvailable, freeport.GetFreePort)
-}
-
-func checkDNSPortAvailable(port int) bool {
-	if !checkPortAvailable(port) {
+func checkLoopbackTCPPortAvailable(port int) bool {
+	if port < 1 || port > 65535 {
 		return false
 	}
-	for _, host := range []string{"0.0.0.0", "127.0.0.1"} {
-		packet, err := net.ListenPacket("udp", net.JoinHostPort(host, strconv.Itoa(port)))
-		if err != nil {
-			log.Warnln("check DNS UDP port fail %s:%d: %v", host, port, err)
-			return false
-		}
-		_ = packet.Close()
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		log.Warnln("check loopback TCP port fail %s: %v", address, err)
+		return false
 	}
+	_ = listener.Close()
 	return true
 }
 
-func alignEnhancedDNSListenWith(dns map[string]interface{}, available func(int) bool, freePort func() (int, error)) {
-	chosen := chooseEnhancedDNSPort(dns, available, freePort)
-	rewriteLoopbackDNSPorts(dns, chosen)
+const preferredEnhancedDNSPort = 7874
+
+func alignEnhancedDNSListen(dns map[string]interface{}, reservedPorts ...int) error {
+	return alignEnhancedDNSListenWithReserved(dns, reservedPorts, checkDNSPortAvailable, freeport.GetFreePort)
+}
+
+func checkDNSPortAvailable(port int) bool {
+	if port < 1 || port > 65535 {
+		return false
+	}
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	tcp, err := net.Listen("tcp", address)
+	if err != nil {
+		log.Warnln("check DNS TCP port fail %s: %v", address, err)
+		return false
+	}
+	_ = tcp.Close()
+	udp, err := net.ListenPacket("udp", address)
+	if err != nil {
+		log.Warnln("check DNS UDP port fail %s: %v", address, err)
+		return false
+	}
+	_ = udp.Close()
+	return true
+}
+
+func alignEnhancedDNSListenWith(dns map[string]interface{}, available func(int) bool, freePort func() (int, error)) error {
+	return alignEnhancedDNSListenWithReserved(dns, nil, available, freePort)
+}
+
+func alignEnhancedDNSListenWithReserved(dns map[string]interface{}, reservedPorts []int, available func(int) bool, freePort func() (int, error)) error {
+	bootstrapReferences := declaredProxyDNSBootstrapReferences(dns)
+	chosen, err := chooseEnhancedDNSPortWithBootstrap(dns, reservedPorts, bootstrapReferences, available, freePort)
+	if err != nil {
+		log.Errorln("%v", err)
+		return err
+	}
+	rewriteLoopbackDNSPorts(dns, chosen, bootstrapReferences...)
 	dns["listen"] = "127.0.0.1:" + strconv.Itoa(chosen)
+	return nil
 }
 
-func chooseEnhancedDNSPort(dns map[string]interface{}, available func(int) bool, freePort func() (int, error)) int {
-	referenced := loopbackDNSPorts(dns)
-	profile := listenPort(dns["listen"])
-	chosen := preferredEnhancedDNSPort
-	switch {
-	case containsInt(referenced, preferredEnhancedDNSPort) || profile == preferredEnhancedDNSPort:
-		chosen = preferredEnhancedDNSPort
-	case profile > 0:
-		chosen = profile
-	case len(referenced) == 1:
-		chosen = referenced[0]
-	}
-	if available(chosen) {
-		return chosen
-	}
-	if port, err := freePort(); err == nil && port > 0 && port != chosen && available(port) {
-		return port
-	}
-	if available(11053) {
-		return 11053
-	}
-	return 0
+func chooseEnhancedDNSPort(dns map[string]interface{}, reservedPorts []int, available func(int) bool, freePort func() (int, error)) (int, error) {
+	return chooseEnhancedDNSPortWithBootstrap(dns, reservedPorts, declaredProxyDNSBootstrapReferences(dns), available, freePort)
 }
 
-func rewriteLoopbackDNSPorts(dns map[string]interface{}, port int) {
-	for _, key := range []string{"nameserver", "default-nameserver", "fallback", "proxy-server-nameserver"} {
-		dns[key] = rewriteDNSServerList(dns[key], port)
+func chooseEnhancedDNSPortWithBootstrap(dns map[string]interface{}, reservedPorts []int, bootstrapReferences []dnsBootstrapReference, available func(int) bool, freePort func() (int, error)) (int, error) {
+	// The preferred port and the two fallback probes keep selection bounded.
+	// 7874 is the runtime default. Only a plain proxy-server-nameserver entry
+	// that exactly matches dns.listen is treated as the declared bootstrap path.
+	candidates := []int{preferredEnhancedDNSPort}
+	seen := make(map[int]struct{}, 3)
+	reserved := make(map[int]struct{}, len(reservedPorts))
+	for _, port := range reservedPorts {
+		if port > 0 && port <= 65535 {
+			reserved[port] = struct{}{}
+		}
 	}
-	policy, ok := dns["nameserver-policy"].(map[string]interface{})
+	cyclePorts := make([]int, 0, len(candidates))
+	if listen, ok := dns["listen"].(string); ok {
+		listenHost, listenPort, valid := dnsServerAddress(listen)
+		if valid && dnsHasGeneralSelfReference(dns, listenHost, listenPort, bootstrapReferences) {
+			_, collision := reserved[listenPort]
+			if collision || available(listenPort) {
+				return 0, fmt.Errorf("[dns_self_cycle] address=%s port=%d", listenHost, listenPort)
+			}
+		}
+	}
+	tryCandidate := func(port int) bool {
+		if port < 1 || port > 65535 {
+			return false
+		}
+		if _, duplicate := seen[port]; duplicate {
+			return false
+		}
+		seen[port] = struct{}{}
+		if _, collision := reserved[port]; collision {
+			return false
+		}
+		if dnsHasReferenceAtPort(dns, port, bootstrapReferences) {
+			if available(port) {
+				cyclePorts = append(cyclePorts, port)
+			}
+			return false
+		}
+		if available(port) {
+			return true
+		}
+		return false
+	}
+	for _, port := range candidates {
+		if tryCandidate(port) {
+			return port, nil
+		}
+	}
+	if port, err := freePort(); err == nil {
+		if tryCandidate(port) {
+			return port, nil
+		}
+	}
+	if tryCandidate(11053) {
+		return 11053, nil
+	}
+	if len(cyclePorts) > 0 {
+		return 0, fmt.Errorf("[dns_self_cycle] address=127.0.0.1 port=%d", cyclePorts[len(cyclePorts)-1])
+	}
+	return 0, portConflictError{
+		service: "dns_listener",
+		address: "127.0.0.1",
+		port:    preferredEnhancedDNSPort,
+		reason:  "fallbacks_exhausted",
+	}
+}
+
+type dnsResolverReference struct {
+	DNSKey    string
+	PolicyKey string
+	Index     int
+	Value     string
+}
+
+// dnsBootstrapReference is derived in memory from an exact plain resolver
+// match to the profile's DNS listen endpoint. No YAML field can assert this
+// provenance on its own.
+type dnsBootstrapReference struct {
+	DNSKey          string
+	PolicyKey       string
+	Index           int
+	Value           string
+	SourceDNSListen string
+}
+
+// rewriteLoopbackDNSPorts only changes a reference when in-memory provenance
+// records its exact profile listener and plain DNS transport. All other
+// profile resolvers remain intact.
+func rewriteLoopbackDNSPorts(dns map[string]interface{}, port int, bootstrapReferences ...dnsBootstrapReference) {
+	if port < 1 || port > 65535 {
+		return
+	}
+	listen, ok := dns["listen"].(string)
 	if !ok {
 		return
 	}
-	for name, value := range policy {
-		switch server := value.(type) {
-		case string:
-			policy[name] = retargetLoopbackDNSServer(server, port)
-		default:
-			policy[name] = rewriteDNSServerList(value, port)
+	listenHost, listenPort, ok := dnsServerAddress(listen)
+	if !ok || listenHost != "127.0.0.1" {
+		return
+	}
+	for _, reference := range bootstrapReferences {
+		if reference.SourceDNSListen != listen || reference.Value == "" {
+			continue
+		}
+		refHost, refPort, ok := dnsServerAddress(reference.Value)
+		if !ok || refHost != listenHost || refPort != listenPort || !isPlainDNSTransport(reference.Value) {
+			continue
+		}
+		if reference.PolicyKey != "" {
+			policy, ok := dns[reference.DNSKey].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			value, exists := policy[reference.PolicyKey]
+			if !exists {
+				continue
+			}
+			if rewritten, changed := rewriteDNSReferenceAtIndex(value, reference.Index, reference.Value, listenPort, port); changed {
+				policy[reference.PolicyKey] = rewritten
+			}
+			continue
+		}
+		value, exists := dns[reference.DNSKey]
+		if !exists {
+			continue
+		}
+		if rewritten, changed := rewriteDNSReferenceAtIndex(value, reference.Index, reference.Value, listenPort, port); changed {
+			dns[reference.DNSKey] = rewritten
 		}
 	}
 }
 
-func rewriteDNSServerList(value interface{}, port int) interface{} {
+func rewriteDNSReferenceAtIndex(value interface{}, index int, expected string, oldPort, newPort int) (interface{}, bool) {
 	switch servers := value.(type) {
+	case string:
+		if index != -1 || servers != expected {
+			return value, false
+		}
+		return retargetLoopbackDNSServerAtPort(servers, oldPort, newPort), true
 	case []string:
-		rewritten := make([]string, len(servers))
-		for i, server := range servers {
-			rewritten[i] = retargetLoopbackDNSServer(server, port)
+		if index < 0 || index >= len(servers) || servers[index] != expected {
+			return value, false
 		}
-		return rewritten
+		rewritten := append([]string(nil), servers...)
+		rewritten[index] = retargetLoopbackDNSServerAtPort(rewritten[index], oldPort, newPort)
+		return rewritten, true
 	case []interface{}:
-		rewritten := make([]interface{}, len(servers))
-		for i, server := range servers {
-			if text, ok := server.(string); ok {
-				rewritten[i] = retargetLoopbackDNSServer(text, port)
-			} else {
-				rewritten[i] = server
-			}
+		if index < 0 || index >= len(servers) {
+			return value, false
 		}
-		return rewritten
+		server, ok := servers[index].(string)
+		if !ok || server != expected {
+			return value, false
+		}
+		rewritten := append([]interface{}(nil), servers...)
+		rewritten[index] = retargetLoopbackDNSServerAtPort(server, oldPort, newPort)
+		return rewritten, true
 	default:
-		return value
+		return value, false
 	}
 }
 
-func loopbackDNSPorts(dns map[string]interface{}) []int {
-	var ports []int
-	collect := func(value interface{}) {
-		switch servers := value.(type) {
-		case []string:
-			for _, server := range servers {
-				if port, ok := loopbackDNSPort(server); ok {
-					ports = append(ports, port)
-				}
-			}
-		case []interface{}:
-			for _, server := range servers {
-				text, ok := server.(string)
-				if !ok {
-					continue
-				}
-				if port, ok := loopbackDNSPort(text); ok {
-					ports = append(ports, port)
-				}
-			}
-		}
-	}
-	for _, key := range []string{"nameserver", "default-nameserver", "fallback", "proxy-server-nameserver"} {
-		collect(dns[key])
-	}
-	return ports
-}
-
-func listenPort(value interface{}) int {
-	text, ok := value.(string)
+func declaredProxyDNSBootstrapReferences(dns map[string]interface{}) []dnsBootstrapReference {
+	listen, ok := dns["listen"].(string)
 	if !ok {
-		return 0
+		return nil
 	}
-	_, portText, err := net.SplitHostPort(strings.TrimSpace(text))
-	if err != nil {
-		return 0
+	listenHost, listenPort, ok := dnsServerAddress(listen)
+	if !ok || listenHost != "127.0.0.1" {
+		return nil
 	}
-	port, err := strconv.Atoi(portText)
-	if err != nil || port < 1 || port > 65535 {
-		return 0
+	var references []dnsBootstrapReference
+	for _, reference := range dnsResolverReferences(dns) {
+		if reference.DNSKey != "proxy-server-nameserver" || !isPlainDNSTransport(reference.Value) {
+			continue
+		}
+		serverHost, serverPort, ok := dnsServerAddress(reference.Value)
+		if !ok || serverHost != listenHost || serverPort != listenPort {
+			continue
+		}
+		references = append(references, dnsBootstrapReference{
+			DNSKey:          reference.DNSKey,
+			PolicyKey:       reference.PolicyKey,
+			Index:           reference.Index,
+			Value:           reference.Value,
+			SourceDNSListen: listen,
+		})
 	}
-	return port
+	return references
 }
 
-func retargetLoopbackDNSServer(raw string, port int) string {
+func isPlainDNSTransport(raw string) bool {
+	server := strings.TrimSpace(raw)
+	if server == "" {
+		return false
+	}
+	if schemeEnd := strings.Index(server, "://"); schemeEnd >= 0 {
+		scheme := strings.ToLower(server[:schemeEnd])
+		if scheme != "udp" && scheme != "tcp" {
+			return false
+		}
+		server = server[schemeEnd+3:]
+	}
+	if strings.ContainsAny(server, "/?#@") {
+		return false
+	}
+	_, _, ok := dnsServerAddress(server)
+	return ok
+}
+
+var dnsServerListKeys = []string{
+	"nameserver",
+	"default-nameserver",
+	"fallback",
+	"proxy-server-nameserver",
+	"direct-nameserver",
+}
+
+var dnsServerPolicyKeys = []string{
+	"nameserver-policy",
+	"proxy-server-nameserver-policy",
+}
+
+func retargetLoopbackDNSServerAtPort(raw string, ownedPort, port int) string {
+	if ownedPort < 1 || ownedPort > 65535 || port < 1 || port > 65535 || !isPlainDNSTransport(raw) {
+		return raw
+	}
 	trimmed := strings.TrimSpace(raw)
 	scheme := ""
 	rest := trimmed
@@ -254,39 +406,115 @@ func retargetLoopbackDNSServer(raw string, port int) string {
 		hostport = rest[:slash]
 		suffix = rest[slash:]
 	}
-	current, ok := loopbackDNSPort(trimmed)
-	if !ok || current == port {
+	currentHost, current, ok := dnsServerAddress(trimmed)
+	if !ok || currentHost != "127.0.0.1" || current != ownedPort || current == port {
 		return raw
 	}
 	host, _, err := net.SplitHostPort(hostport)
-	if err != nil {
+	if err != nil || host != "127.0.0.1" {
 		return raw
 	}
 	return scheme + net.JoinHostPort(host, strconv.Itoa(port)) + suffix
 }
 
+func dnsResolverReferences(dns map[string]interface{}) []dnsResolverReference {
+	var references []dnsResolverReference
+	appendValue := func(key, policyKey string, value interface{}) {
+		switch servers := value.(type) {
+		case string:
+			references = append(references, dnsResolverReference{DNSKey: key, PolicyKey: policyKey, Index: -1, Value: servers})
+		case []string:
+			for i, server := range servers {
+				references = append(references, dnsResolverReference{DNSKey: key, PolicyKey: policyKey, Index: i, Value: server})
+			}
+		case []interface{}:
+			for i, raw := range servers {
+				if server, ok := raw.(string); ok {
+					references = append(references, dnsResolverReference{DNSKey: key, PolicyKey: policyKey, Index: i, Value: server})
+				}
+			}
+		}
+	}
+	for _, key := range dnsServerListKeys {
+		appendValue(key, "", dns[key])
+	}
+	for _, key := range dnsServerPolicyKeys {
+		if policy, ok := dns[key].(map[string]interface{}); ok {
+			for policyKey, value := range policy {
+				appendValue(key, policyKey, value)
+			}
+		}
+	}
+	return references
+}
+
+func dnsHasReferenceAtPort(dns map[string]interface{}, port int, bootstrapReferences []dnsBootstrapReference) bool {
+	for _, reference := range dnsResolverReferences(dns) {
+		host, referencedPort, ok := dnsServerAddress(reference.Value)
+		if !ok || !isLoopbackHost(host) || referencedPort != port || isDeclaredBootstrapReference(reference, bootstrapReferences) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func dnsHasGeneralSelfReference(dns map[string]interface{}, listenHost string, listenPort int, bootstrapReferences []dnsBootstrapReference) bool {
+	for _, reference := range dnsResolverReferences(dns) {
+		if reference.DNSKey == "proxy-server-nameserver" || isDeclaredBootstrapReference(reference, bootstrapReferences) || !isPlainDNSTransport(reference.Value) {
+			continue
+		}
+		host, port, ok := dnsServerAddress(reference.Value)
+		// A wildcard IPv4 listener and the two loopback spellings share the
+		// generated listener's address space. Do not let an alias hide a cycle.
+		sameHost := host == listenHost ||
+			(isLoopbackHost(host) && (listenHost == "0.0.0.0" || isLoopbackHost(listenHost)))
+		if ok && sameHost && port == listenPort {
+			return true
+		}
+	}
+	return false
+}
+
+func isDeclaredBootstrapReference(reference dnsResolverReference, bootstrapReferences []dnsBootstrapReference) bool {
+	for _, bootstrap := range bootstrapReferences {
+		if reference.DNSKey == bootstrap.DNSKey && reference.PolicyKey == bootstrap.PolicyKey && reference.Index == bootstrap.Index && reference.Value == bootstrap.Value {
+			return true
+		}
+	}
+	return false
+}
+
 func loopbackDNSPort(raw string) (int, bool) {
-	rest := strings.TrimSpace(raw)
-	if i := strings.Index(rest, "://"); i >= 0 {
-		rest = rest[i+3:]
-	}
-	if slash := strings.Index(rest, "/"); slash >= 0 {
-		rest = rest[:slash]
-	}
-	host, portText, err := net.SplitHostPort(rest)
-	if err != nil || !isLoopbackHost(host) {
-		return 0, false
-	}
-	port, err := strconv.Atoi(portText)
-	if err != nil || port < 1 || port > 65535 {
+	host, port, ok := dnsServerAddress(raw)
+	if !ok || !isLoopbackHost(host) {
 		return 0, false
 	}
 	return port, true
 }
 
+func dnsServerAddress(raw string) (string, int, bool) {
+	rest := strings.TrimSpace(raw)
+	if i := strings.Index(rest, "://"); i >= 0 {
+		rest = rest[i+3:]
+	}
+	if suffix := strings.IndexAny(rest, "/?#"); suffix >= 0 {
+		rest = rest[:suffix]
+	}
+	host, portText, err := net.SplitHostPort(rest)
+	if err != nil {
+		return "", 0, false
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return "", 0, false
+	}
+	return strings.Trim(host, "[]"), port, true
+}
+
 func isLoopbackHost(host string) bool {
 	switch strings.Trim(strings.ToLower(host), "[]") {
-	case "127.0.0.1", "localhost", "::1":
+	case "127.0.0.1", "localhost":
 		return true
 	default:
 		return false
@@ -300,6 +528,33 @@ func containsInt(values []int, target int) bool {
 		}
 	}
 	return false
+}
+
+func configuredProxyListenerPorts(rawMap map[string]interface{}) []int {
+	ports := make([]int, 0, 8)
+	seen := make(map[int]struct{})
+	add := func(value interface{}) {
+		port := portValueOrZero(value)
+		if port < 1 || port > 65535 {
+			return
+		}
+		if _, exists := seen[port]; exists {
+			return
+		}
+		seen[port] = struct{}{}
+		ports = append(ports, port)
+	}
+	for _, key := range []string{"port", "socks-port", "mixed-port", "redir-port", "tproxy-port"} {
+		add(rawMap[key])
+	}
+	if listeners, ok := rawMap["listeners"].([]interface{}); ok {
+		for _, rawListener := range listeners {
+			if listener, ok := rawListener.(map[string]interface{}); ok {
+				add(listener["port"])
+			}
+		}
+	}
+	return ports
 }
 
 func mergeUniqueStrings(base []string, additions []string) []string {
@@ -1170,10 +1425,18 @@ func clashSuspendCore() {
 		listener.ReCreateRedir(0, tunnel.Tunnel)
 		listener.ReCreateTProxy(0, tunnel.Tunnel)
 		route.ReCreateServer(&route.Config{})
+		closeBuiltinDNSListener()
 	})
 	if err != nil {
 		log.Warnln("close cache database before suspending core failed: %v", err)
 	}
+}
+
+// closeBuiltinDNSListener releases both sockets owned by Mihomo's DNS server
+// while leaving the resolver module state available for configuration work.
+// startDefaultCoreWithCache rebuilds DNS through executor.ApplyConfig on resume.
+func closeBuiltinDNSListener() {
+	mihomoDNS.ReCreateServer("", nil)
 }
 
 //export clashReopenCacheDB
@@ -1270,10 +1533,27 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	if dns["default-nameserver"] == nil {
 		dns["default-nameserver"] = []string{"114.114.114.114", "223.5.5.5", "119.29.29.29"}
 	}
-	// Keep one loopback DNS port across rebuilds. Subscriptions often pin
-	// proxy-server-nameserver to that port; a fresh free port leaves them
-	// querying an address nothing listens on.
-	alignEnhancedDNSListen(dns)
+	ensureDefaultProxyPort(rawMap)
+	proxyPorts := configuredProxyListenerPorts(rawMap)
+
+	// The controller binds loopback, so preflight that exact address and keep
+	// its chosen port clear of configured proxy listeners.
+	ecPort := enhancedControllerPort
+	if containsInt(proxyPorts, ecPort) || !checkLoopbackTCPPortAvailable(ecPort) {
+		port, err := freeport.GetFreePort()
+		if err != nil || containsInt(proxyPorts, port) || !checkLoopbackTCPPortAvailable(port) {
+			conflict := portConflictError{service: "api_listener", address: "127.0.0.1", port: enhancedControllerPort, reason: "fallback_unavailable"}
+			log.Errorln("%v", conflict)
+			return C.CString("error:" + conflict.Error())
+		}
+		ecPort = port
+	}
+	reservedDNSPorts := append(append([]int(nil), proxyPorts...), ecPort)
+	// DNS selection and alignment only affect this generated runtime config.
+	// The user's source profile is never rewritten.
+	if err := alignEnhancedDNSListen(dns, reservedDNSPorts...); err != nil {
+		return C.CString("error:" + err.Error())
+	}
 	rawMap["dns"] = dns
 	if len(prefixes) > 0 {
 		tunMap, _ := rawMap["tun"].(map[string]interface{})
@@ -1283,14 +1563,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 
 	// Pin a stable controller port so the Yacd dashboard origin
 	// (127.0.0.1:PORT) stays constant across launches; otherwise its
-	// per-origin localStorage (theme, columns) resets every time. Fall back
-	// to a random free port only if the stable port is already taken.
-	ecPort := enhancedControllerPort
-	if !checkPortAvailable(ecPort) {
-		if p, err := freeport.GetFreePort(); err == nil {
-			ecPort = p
-		}
-	}
+	// per-origin localStorage (theme, columns) resets every time.
 	rawMap["external-controller"] = "127.0.0.1:" + strconv.Itoa(ecPort)
 	ec := rawMap["external-controller"].(string)
 
@@ -1309,8 +1582,6 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	}
 	profile["store-selected"] = true
 	rawMap["profile"] = profile
-
-	ensureDefaultProxyPort(rawMap)
 
 	if bypassCnApps != 0 {
 		providers, _ := rawMap["rule-providers"].(map[string]interface{})

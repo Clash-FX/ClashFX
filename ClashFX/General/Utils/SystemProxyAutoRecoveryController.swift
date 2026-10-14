@@ -34,7 +34,7 @@ final class SystemProxyAutoRecoveryCoordination {
     fileprivate var attemptsByScope = [String: Int]()
     fileprivate var suspendedScopes = Set<String>()
     fileprivate var lastAttemptAtByScope = [String: TimeInterval]()
-    fileprivate var activeLease: UUID?
+    private var activeLease: UUID?
     private var leaseWaiters = [UUID: () -> Void]()
 
     func reset() {

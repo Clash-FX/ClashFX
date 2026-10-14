@@ -520,8 +520,8 @@ final class IsolatedSystemProxyTests: XCTestCase {
         XCTAssertFalse(checkpoint.savedSnapshotValid)
         XCTAssertEqual(checkpoint.httpPort, 7890)
         XCTAssertEqual(checkpoint.socksPort, 7891)
-        XCTAssertTrue(NSDictionary(dictionary: previousSaved).isEqual(
-            to: try XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        XCTAssertTrue(try NSDictionary(dictionary: previousSaved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
         ))
         XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
         XCTAssertEqual(helper.events, ["capture"])
@@ -554,9 +554,9 @@ final class IsolatedSystemProxyTests: XCTestCase {
         XCTAssertTrue(restoreCheckpoint(checkpoint, with: manager))
 
         XCTAssertTrue(NSDictionary(dictionary: original).isEqual(to: helper.current))
-        XCTAssertTrue(NSDictionary(dictionary: original).isEqual(to: try XCTUnwrap(helper.lastRestoreSnapshot)))
-        XCTAssertTrue(NSDictionary(dictionary: previousSaved).isEqual(
-            to: try XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        XCTAssertTrue(try NSDictionary(dictionary: original).isEqual(to: XCTUnwrap(helper.lastRestoreSnapshot)))
+        XCTAssertTrue(try NSDictionary(dictionary: previousSaved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
         ))
         XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
         XCTAssertEqual(helper.restoreArguments?.httpPort, 7890)
@@ -581,8 +581,8 @@ final class IsolatedSystemProxyTests: XCTestCase {
             return XCTFail("non-property-list value must reject checkpoint")
         }
 
-        XCTAssertTrue(NSDictionary(dictionary: previousSaved).isEqual(
-            to: try XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        XCTAssertTrue(try NSDictionary(dictionary: previousSaved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
         ))
         XCTAssertTrue(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
         XCTAssertEqual(helper.events, ["capture", "capture"])
@@ -600,8 +600,8 @@ final class IsolatedSystemProxyTests: XCTestCase {
         XCTAssertFalse(restoreCheckpoint(checkpoint, with: manager))
         helper.restoreReply?(nil)
 
-        XCTAssertTrue(NSDictionary(dictionary: saved).isEqual(
-            to: try XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        XCTAssertTrue(try NSDictionary(dictionary: saved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
         ))
         XCTAssertTrue(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
         XCTAssertEqual(helper.events, ["capture", "restore"])
@@ -620,8 +620,8 @@ final class IsolatedSystemProxyTests: XCTestCase {
         }
         helper.captureReply?(original)
 
-        XCTAssertTrue(NSDictionary(dictionary: saved).isEqual(
-            to: try XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        XCTAssertTrue(try NSDictionary(dictionary: saved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
         ))
         XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
         XCTAssertEqual(helper.events, ["capture"])
@@ -643,8 +643,8 @@ final class IsolatedSystemProxyTests: XCTestCase {
 
         XCTAssertFalse(restoreCheckpoint(checkpoint, with: manager))
 
-        XCTAssertTrue(NSDictionary(dictionary: changedSaved).isEqual(
-            to: try XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        XCTAssertTrue(try NSDictionary(dictionary: changedSaved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
         ))
         XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
         XCTAssertEqual(helper.events, ["capture", "restore", "capture"])
@@ -666,8 +666,8 @@ final class IsolatedSystemProxyTests: XCTestCase {
 
         XCTAssertTrue(tokenWasReadOnMain)
         XCTAssertEqual(helper.events, ["capture"])
-        XCTAssertTrue(NSDictionary(dictionary: saved).isEqual(
-            to: try XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        XCTAssertTrue(try NSDictionary(dictionary: saved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
         ))
         XCTAssertTrue(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
     }

@@ -136,32 +136,6 @@ final class MenuIntegrationTests: XCTestCase {
         return Int(value)
     }
 
-    private func benchmarkSummaryTitle(
-        quickTimeout: Bool = false,
-        succeeded: Int,
-        timedOut: Int,
-        failed: Int,
-        unavailable: Int,
-        reused: Int,
-        groupTitle: String? = nil
-    ) -> String {
-        let key = quickTimeout
-            ? "Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused"
-            : "Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused"
-        var title = String(
-            format: NSLocalizedString(key, comment: "Completed benchmark summary"),
-            succeeded,
-            timedOut,
-            failed,
-            unavailable,
-            reused
-        )
-        if let groupTitle {
-            title += " · " + NSLocalizedString(groupTitle, comment: "")
-        }
-        return title
-    }
-
     private func row(_ menu: NSMenu, _ name: String) -> ProxyMenuItem {
         menu.items.compactMap { $0 as? ProxyMenuItem }.first { $0.proxyName == name }!
     }
@@ -249,15 +223,8 @@ final class MenuIntegrationTests: XCTestCase {
         clickBenchmark(menu)
         finish(menu)
 
-        XCTAssertEqual(action.title, benchmarkSummaryTitle(
-            quickTimeout: true,
-            succeeded: 1,
-            timedOut: 1,
-            failed: 0,
-            unavailable: 0,
-            reused: 0
-        ))
-        XCTAssertTrue(action.toolTip?.contains("Quick benchmark timed out after 2500 ms") == true)
+        XCTAssertEqual(action.title, NSLocalizedString("Benchmark", comment: ""))
+        XCTAssertNil(action.toolTip)
         XCTAssertEqual(text(menu, "Leaf-A"), "90 ms")
         XCTAssertEqual(text(menu, "Leaf-B"), NSLocalizedString("Benchmark timed out", comment: ""))
         let menuItemIdentities = menu.items.map(ObjectIdentifier.init)
@@ -285,13 +252,8 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertEqual(try timeoutMilliseconds(for: XCTUnwrap(delayRequests(for: "Leaf-B").last)), 5000)
         XCTAssertEqual(text(menu, "Leaf-A"), "90 ms")
         XCTAssertEqual(text(menu, "Leaf-B"), "118 ms")
-        XCTAssertEqual(action.title, benchmarkSummaryTitle(
-            succeeded: 1,
-            timedOut: 0,
-            failed: 0,
-            unavailable: 0,
-            reused: 0
-        ))
+        XCTAssertEqual(action.title, NSLocalizedString("Benchmark", comment: ""))
+        XCTAssertNil(action.toolTip)
         XCTAssertTrue(retryItem.isHidden)
         XCTAssertFalse(retryItem.isEnabled)
     }
@@ -438,7 +400,7 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertFalse(containsRemovedBenchmarkMenuStructure(menu))
     }
 
-    func testAutomaticGroupShowsPhaseAndOnlySummarizesReturnedCandidates() throws {
+    func testAutomaticGroupRestoresReTestTitleAfterBenchmark() throws {
         Settings.benchmarkMode = .quick
         MihomoMenuURLProtocol.groupReply = .init(body: ["Leaf-A": 72, "Leaf-B": 0])
         MihomoMenuURLProtocol.hold = true
@@ -460,14 +422,8 @@ final class MenuIntegrationTests: XCTestCase {
             $0.url?.path == "/group/Automatic/delay"
         })
         XCTAssertEqual(timeoutMilliseconds(for: groupRequest), 2500)
-        XCTAssertEqual(action.title, benchmarkSummaryTitle(
-            succeeded: 1,
-            timedOut: 0,
-            failed: 1,
-            unavailable: 0,
-            reused: 0
-        ))
-        XCTAssertTrue(action.toolTip?.contains("1 succeeded, 0 timed out, 1 failed") == true)
+        XCTAssertEqual(action.title, NSLocalizedString("ReTest", comment: ""))
+        XCTAssertNil(action.toolTip)
     }
 
     func testQuickAutomaticGroupTimeoutRemainsUnavailable() throws {
@@ -482,27 +438,30 @@ final class MenuIntegrationTests: XCTestCase {
         clickBenchmark(menu)
         finish(menu)
 
-        XCTAssertEqual(action.title, benchmarkSummaryTitle(
-            quickTimeout: true,
-            succeeded: 0,
-            timedOut: 1,
-            failed: 0,
-            unavailable: 0,
-            reused: 0
-        ))
-        XCTAssertTrue(action.toolTip?.contains("Quick benchmark timed out after 2500 ms") == true)
+        XCTAssertEqual(action.title, NSLocalizedString("ReTest", comment: ""))
+        XCTAssertNil(action.toolTip)
         XCTAssertEqual(text(menu, "Leaf-A"), NSLocalizedString("Benchmark unavailable", comment: ""))
         XCTAssertFalse(text(menu, "Leaf-A").localizedCaseInsensitiveContains("fail"))
     }
 
     func testRefreshingDuringBenchmarkKeepsRealRowsAndUpdatesCheckmark() throws {
         let menu = menu()
+        let action = try XCTUnwrap(menu.items.first as? ProxyGroupSpeedTestMenuItem)
         let identities = menu.items.map(ObjectIdentifier.init)
         configure("Leaf-A", urlA, 83)
         configure("Leaf-B", urlA, 107)
         MihomoMenuURLProtocol.hold = true
         clickBenchmark(menu)
         waitUntil("two deduplicated requests held") { MihomoMenuURLProtocol.held.count == 2 }
+        let session = try XCTUnwrap(AppDelegate.shared.active)
+        action.receiveBenchmarkProgress(
+            BenchmarkProgressSnapshot(total: 2, completed: 1, succeeded: 1, reused: 1),
+            session: session
+        )
+        XCTAssertNil(action.toolTip)
+        let actionView = try XCTUnwrap(action.view)
+        XCTAssertNil(actionView.toolTip)
+        XCTAssertNil((actionView.subviews.first as? NSTextField)?.toolTip)
         XCTAssertEqual(text(menu, "Leaf-A"), NSLocalizedString("Testing", comment: ""))
         setNow("Selector", "Leaf-B")
         refresh()
@@ -548,15 +507,8 @@ final class MenuIntegrationTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { drained.fulfill() }
         wait(for: [drained], timeout: 2)
         XCTAssertEqual(text(menu, "Leaf-A"), "42 ms")
-        let completedTitle = benchmarkSummaryTitle(
-            succeeded: 2,
-            timedOut: 0,
-            failed: 0,
-            unavailable: 0,
-            reused: 0
-        )
-        XCTAssertEqual(menu.items[0].title, completedTitle)
-        XCTAssertTrue(menu.items[0].toolTip?.contains("succeeded") == true)
+        XCTAssertEqual(menu.items[0].title, NSLocalizedString("Benchmark", comment: ""))
+        XCTAssertNil(menu.items[0].toolTip)
     }
 
     func testCoreSwitchCancellationExplainsWhyAcrossReopenedMenuAndNextBenchmark() throws {
@@ -611,13 +563,8 @@ final class MenuIntegrationTests: XCTestCase {
         wait(for: [drained], timeout: 2)
         XCTAssertEqual(text(reopened, "Leaf-A"), "42 ms")
         XCTAssertEqual(text(reopened, "Leaf-B"), "88 ms")
-        XCTAssertEqual(reopened.items[0].title, benchmarkSummaryTitle(
-            succeeded: 2,
-            timedOut: 0,
-            failed: 0,
-            unavailable: 0,
-            reused: 0
-        ))
+        XCTAssertEqual(reopened.items[0].title, NSLocalizedString("Benchmark", comment: ""))
+        XCTAssertNil(reopened.items[0].toolTip)
     }
 
     func testBenchmarkBusyPresentationCoversMouseKeyboardAndCrossGroupActivation() throws {
@@ -728,7 +675,7 @@ final class MenuIntegrationTests: XCTestCase {
         let menu = menu()
         let action = try XCTUnwrap(menu.items[0] as? ProxyGroupSpeedTestMenuItem)
         let previousDelay = text(menu, "Leaf-A")
-        XCTAssertEqual(previousDelay, "90 ms (previous)")
+        XCTAssertEqual(previousDelay, "90 ms · old")
 
         MihomoMenuURLProtocol.proxyDataResponseStatuses = [503]
         clickBenchmark(menu)
@@ -773,7 +720,7 @@ final class MenuIntegrationTests: XCTestCase {
             NSLocalizedString("Proxy core unavailable. Please try again shortly.", comment: "")
         )
         XCTAssertEqual(text(menu, "Leaf-A"), NSLocalizedString("Benchmark unavailable", comment: ""))
-        XCTAssertTrue((try XCTUnwrap(row(menu, "Leaf-A").view as? ProxyItemView)).delayLabel.toolTip?.contains("73 ms") == true)
+        XCTAssertTrue(try (XCTUnwrap(row(menu, "Leaf-A").view as? ProxyItemView)).delayLabel.toolTip?.contains("73 ms") == true)
         XCTAssertEqual(
             GlobalLeafBenchmarkPresentationStore.presentation(
                 for: leaf,
@@ -851,10 +798,10 @@ final class MenuIntegrationTests: XCTestCase {
         GlobalLeafBenchmarkPresentationStore.publish(.init(identity: .init(proxy: node), benchmarkURL: urlA,
                                                            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 90),
                                                            publishedAt: Date(timeIntervalSinceNow: -48 * 3600)))
-        XCTAssertEqual(text(first, "Leaf-A"), "90 ms (previous)")
+        XCTAssertEqual(text(first, "Leaf-A"), "90 ms · old")
         refresh()
         let reopened = menu()
-        XCTAssertEqual(text(reopened, "Leaf-A"), "90 ms (previous)")
+        XCTAssertEqual(text(reopened, "Leaf-A"), "90 ms · old")
         MihomoMenuURLProtocol.replies[MihomoMenuURLProtocol.key("Leaf-A", urlA)] = .init(status: 401, body: ["message": "Unauthorized"])
         clickBenchmark(reopened)
         finish(reopened)

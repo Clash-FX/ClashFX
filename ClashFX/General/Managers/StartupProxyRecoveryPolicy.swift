@@ -247,11 +247,19 @@ enum EnhancedModeLifecyclePolicy {
 
 enum DNSReadiness: Equatable {
     case protocolResponding
-    case upstreamHealthy
+    case answerAvailable
     case invalidResponse
 }
 
 enum EnhancedModeDNSReadinessPolicy {
+    static func matchesExpectedCoreBinary(_ actualPath: String?, bundlePath: String, approvedPath: String) -> Bool {
+        guard let actualPath, !actualPath.isEmpty else { return false }
+        let actual = URL(fileURLWithPath: actualPath).standardizedFileURL.path
+        return [bundlePath, approvedPath].contains {
+            actual == URL(fileURLWithPath: $0).standardizedFileURL.path
+        }
+    }
+
     struct Response {
         let responseCode: UInt8
         let answerCount: Int
@@ -362,9 +370,10 @@ enum EnhancedModeDNSReadinessPolicy {
         guard hasResponseFlag else { return .invalidResponse }
         // A DNS daemon can be correctly bound and answer SERVFAIL while its
         // upstream is transiently unavailable. That is protocol readiness,
-        // but not proof of a healthy upstream.
+        // but not proof of a healthy upstream. Likewise an A answer can be a
+        // local fake-IP or cached answer; only a data-plane probe tests egress.
         guard responseCode == 0, answerCount > 0 else { return .protocolResponding }
-        return .upstreamHealthy
+        return .answerAvailable
     }
 
     static func launchProtocolReady(

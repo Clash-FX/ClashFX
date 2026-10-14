@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"reflect"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -18,7 +21,9 @@ import (
 	"github.com/metacubex/mihomo/common/utils"
 	C "github.com/metacubex/mihomo/constant"
 	CP "github.com/metacubex/mihomo/constant/provider"
+	mihomoDNS "github.com/metacubex/mihomo/dns"
 	E "github.com/metacubex/sing/common/exceptions"
+	miekgDNS "github.com/miekg/dns"
 )
 
 type delayedURLTestAdapter struct {
@@ -377,7 +382,7 @@ func TestResolveTunStack(t *testing.T) {
 	}
 }
 
-func TestAlignEnhancedDNSListenKeepsProxyServerNameserverOn7874(t *testing.T) {
+func TestAlignEnhancedDNSListenPreservesExternalProxyServerNameserverOn7874(t *testing.T) {
 	dns := map[string]interface{}{
 		"listen": "127.0.0.1:49659",
 		"proxy-server-nameserver": []interface{}{
@@ -387,38 +392,78 @@ func TestAlignEnhancedDNSListenKeepsProxyServerNameserverOn7874(t *testing.T) {
 			"https://doh.pub/dns-query",
 		},
 	}
-	alignEnhancedDNSListenWith(dns, func(int) bool { return true }, func() (int, error) {
-		t.Fatal("did not expect a fallback port")
-		return 0, nil
-	})
-	if dns["listen"] != "127.0.0.1:7874" {
+	if err := alignEnhancedDNSListenWith(dns, func(port int) bool { return port == 63385 }, func() (int, error) {
+		return 63385, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if dns["listen"] != "127.0.0.1:63385" {
 		t.Fatalf("listen = %v", dns["listen"])
 	}
 	servers := dns["proxy-server-nameserver"].([]interface{})
 	if servers[0] != "udp://127.0.0.1:7874" {
-		t.Fatalf("proxy-server-nameserver = %v", servers)
+		t.Fatalf("external proxy-server-nameserver changed: %v", servers)
 	}
 }
 
-func TestAlignEnhancedDNSListenRewritesStalePortWhenPreferredIsBusy(t *testing.T) {
+func TestAlignDoesNotTreatProxyServerPortNumberAsOwnership(t *testing.T) {
+	dns := map[string]interface{}{
+		"listen":                  "127.0.0.1:49659",
+		"proxy-server-nameserver": []interface{}{"udp://127.0.0.1:7874"},
+	}
+	if err := alignEnhancedDNSListenWith(dns, func(int) bool { return true }, func() (int, error) {
+		return 63385, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if dns["listen"] != "127.0.0.1:63385" {
+		t.Fatalf("listener = %v, want fallback because 7874 is an unowned resolver target", dns["listen"])
+	}
+	if got := dns["proxy-server-nameserver"].([]interface{})[0]; got != "udp://127.0.0.1:7874" {
+		t.Fatalf("external proxy resolver changed to %v", got)
+	}
+}
+
+func TestAlignPreservesDoHAndDoTProxyResolversAtMatchingPort(t *testing.T) {
+	dns := map[string]interface{}{
+		"listen": "127.0.0.1:7874",
+		"proxy-server-nameserver": []interface{}{
+			"https://127.0.0.1:7874/dns-query",
+			"tls://127.0.0.1:7874",
+		},
+	}
+	if err := alignEnhancedDNSListenWith(dns, func(port int) bool { return port == 63385 }, func() (int, error) {
+		return 63385, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := []interface{}{"https://127.0.0.1:7874/dns-query", "tls://127.0.0.1:7874"}
+	if got := dns["proxy-server-nameserver"].([]interface{}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("DoH/DoT resolvers changed to %v", got)
+	}
+}
+
+func TestAlignEnhancedDNSListenPreservesRawReferencesWhenPreferredIsBusy(t *testing.T) {
 	dns := map[string]interface{}{
 		"proxy-server-nameserver": []interface{}{"udp://127.0.0.1:7874"},
 		"nameserver-policy": map[string]interface{}{
 			"example.com": "127.0.0.1:7874",
 		},
 	}
-	alignEnhancedDNSListenWith(dns, func(port int) bool { return port != 7874 }, func() (int, error) {
+	if err := alignEnhancedDNSListenWith(dns, func(port int) bool { return port != 7874 }, func() (int, error) {
 		return 63385, nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if dns["listen"] != "127.0.0.1:63385" {
 		t.Fatalf("listen = %v", dns["listen"])
 	}
 	servers := dns["proxy-server-nameserver"].([]interface{})
-	if servers[0] != "udp://127.0.0.1:63385" {
-		t.Fatalf("proxy-server-nameserver = %v", servers)
+	if servers[0] != "udp://127.0.0.1:7874" {
+		t.Fatalf("raw profile proxy-server-nameserver changed: %v", servers)
 	}
 	policy := dns["nameserver-policy"].(map[string]interface{})
-	if policy["example.com"] != "127.0.0.1:63385" {
+	if policy["example.com"] != "127.0.0.1:7874" {
 		t.Fatalf("nameserver-policy = %v", policy)
 	}
 }
@@ -454,25 +499,540 @@ func TestResolveConfiguredMixedPortAcceptsAvailableMaximumPort(t *testing.T) {
 func TestEnhancedDNSSelectionRejectsUnavailableFallbackPort(t *testing.T) {
 	dns := map[string]interface{}{"listen": "127.0.0.1:7874"}
 	available := func(port int) bool { return port == 11053 }
-	chosen := chooseEnhancedDNSPort(dns, available, func() (int, error) {
+	chosen, err := chooseEnhancedDNSPort(dns, nil, available, func() (int, error) {
 		return 63385, nil
 	})
-	if chosen != 11053 {
+	if err != nil || chosen != 11053 {
 		t.Fatalf("fallback DNS port = %d, want an available fallback 11053", chosen)
 	}
-	chosen = chooseEnhancedDNSPort(dns, func(int) bool { return false }, func() (int, error) {
+	chosen, err = chooseEnhancedDNSPort(dns, nil, func(int) bool { return false }, func() (int, error) {
 		return 63385, nil
 	})
-	if chosen != 0 {
-		t.Fatalf("DNS port = %d, want 0 when every candidate is occupied", chosen)
+	if chosen != 0 || err == nil || !strings.HasPrefix(err.Error(), "[port_conflict] service=dns_listener address=127.0.0.1 ") {
+		t.Fatalf("DNS selection = %d, %v; want an explicit port conflict when every candidate is occupied", chosen, err)
 	}
 }
 
-func TestRetargetLoopbackDNSServerLeavesPublicResolvers(t *testing.T) {
-	if got := retargetLoopbackDNSServer("tls://223.5.5.5:853", 7874); got != "tls://223.5.5.5:853" {
+func TestRetargetLoopbackDNSServerRequiresExactSourceEndpoint(t *testing.T) {
+	if got := retargetLoopbackDNSServerAtPort("tls://223.5.5.5:853", 7874, 63385); got != "tls://223.5.5.5:853" {
 		t.Fatalf("public resolver changed to %s", got)
 	}
-	if got := retargetLoopbackDNSServer("https://127.0.0.1:1053/dns-query", 7874); got != "https://127.0.0.1:7874/dns-query" {
-		t.Fatalf("loopback resolver = %s", got)
+	if got := retargetLoopbackDNSServerAtPort("https://127.0.0.1:5353/dns-query", 7874, 63385); got != "https://127.0.0.1:5353/dns-query" {
+		t.Fatalf("external DoH resolver changed to %s", got)
+	}
+	if got := retargetLoopbackDNSServerAtPort("udp://127.0.0.1:7874", 7874, 63385); got != "udp://127.0.0.1:63385" {
+		t.Fatalf("explicitly owned loopback resolver = %s", got)
+	}
+	for _, resolver := range []string{"udp://localhost:7874", "udp://[::1]:7874"} {
+		if got := retargetLoopbackDNSServerAtPort(resolver, 7874, 63385); got != resolver {
+			t.Fatalf("non-127.0.0.1 resolver %q changed to %q", resolver, got)
+		}
+	}
+}
+
+func TestRewriteLoopbackDNSPortsPreservesExternalLocalResolvers(t *testing.T) {
+	dns := map[string]interface{}{
+		"nameserver": []interface{}{
+			"127.0.0.1:5353",
+			"https://127.0.0.1:5353/dns-query",
+			"https://dns.adguard-dns.com/dns-query",
+		},
+		"fallback": []string{"127.0.0.1:5353"},
+		"proxy-server-nameserver": []interface{}{
+			"udp://127.0.0.1:7874",
+			"udp://localhost:7874",
+			"udp://[::1]:7874",
+		},
+		"nameserver-policy": map[string]interface{}{
+			"lan.example":       "127.0.0.1:5353",
+			"generated.example": "https://127.0.0.1:7874/dns-query",
+		},
+	}
+
+	rewriteLoopbackDNSPorts(dns, 63385)
+
+	servers := dns["nameserver"].([]interface{})
+	wantServers := []interface{}{
+		"127.0.0.1:5353",
+		"https://127.0.0.1:5353/dns-query",
+		"https://dns.adguard-dns.com/dns-query",
+	}
+	if !reflect.DeepEqual(servers, wantServers) {
+		t.Fatalf("external nameservers = %v, want %v", servers, wantServers)
+	}
+	fallback := dns["fallback"].([]string)
+	if fallback[0] != "127.0.0.1:5353" {
+		t.Fatalf("external fallback resolver changed to %s", fallback[0])
+	}
+	proxyServers := dns["proxy-server-nameserver"].([]interface{})
+	wantProxyServers := []interface{}{"udp://127.0.0.1:7874", "udp://localhost:7874", "udp://[::1]:7874"}
+	if !reflect.DeepEqual(proxyServers, wantProxyServers) {
+		t.Fatalf("proxy resolvers = %v, want %v", proxyServers, wantProxyServers)
+	}
+	policy := dns["nameserver-policy"].(map[string]interface{})
+	if policy["lan.example"] != "127.0.0.1:5353" {
+		t.Fatalf("external policy resolver changed to %v", policy["lan.example"])
+	}
+	if policy["generated.example"] != "https://127.0.0.1:7874/dns-query" {
+		t.Fatalf("profile policy resolver changed to %v", policy["generated.example"])
+	}
+}
+
+func TestRewriteLoopbackDNSPortsRequiresDeclaredBootstrapAndMatchingListen(t *testing.T) {
+	const (
+		listen = "127.0.0.1:7874"
+		server = "udp://127.0.0.1:7874"
+	)
+	dns := map[string]interface{}{
+		"listen":                  listen,
+		"proxy-server-nameserver": []interface{}{server},
+	}
+	metadata := declaredProxyDNSBootstrapReferences(dns)
+	if len(metadata) != 1 {
+		t.Fatalf("bootstrap references = %v, want one exact plain self-bootstrap", metadata)
+	}
+
+	// Raw profile references are preserved even when the field and port look
+	// like a historical ClashFX endpoint.
+	rewriteLoopbackDNSPorts(dns, 63385)
+	if got := dns["proxy-server-nameserver"].([]interface{})[0]; got != server {
+		t.Fatalf("unmarked profile resolver changed to %v", got)
+	}
+
+	rewriteLoopbackDNSPorts(dns, 63385, metadata...)
+	if got, want := dns["proxy-server-nameserver"].([]interface{})[0], "udp://127.0.0.1:63385"; got != want {
+		t.Fatalf("proven generated resolver = %v, want %v", got, want)
+	}
+
+	dns["proxy-server-nameserver"] = []interface{}{server}
+	mismatched := metadata[0]
+	mismatched.SourceDNSListen = "127.0.0.1:5353"
+	rewriteLoopbackDNSPorts(dns, 63385, mismatched)
+	if got := dns["proxy-server-nameserver"].([]interface{})[0]; got != server {
+		t.Fatalf("reference with mismatched source listener changed to %v", got)
+	}
+}
+
+func TestEnhancedDNSSelectionRejectsSelfCycleWhenFallbackTargetsResolver(t *testing.T) {
+	dns := map[string]interface{}{
+		"listen":     "127.0.0.1:11053",
+		"nameserver": []interface{}{"127.0.0.1:11053"},
+	}
+	chosen, err := chooseEnhancedDNSPort(dns, nil, func(port int) bool {
+		return port == 11053
+	}, func() (int, error) {
+		return 11053, nil
+	})
+	if chosen != 0 || err == nil || !strings.HasPrefix(err.Error(), "[dns_self_cycle] address=127.0.0.1 port=11053") {
+		t.Fatalf("DNS selection = %d, %v; want a detected self-cycle", chosen, err)
+	}
+}
+
+func TestGeneralResolverSelfCyclesAreRejected(t *testing.T) {
+	for _, key := range []string{"nameserver", "default-nameserver", "fallback"} {
+		t.Run(key, func(t *testing.T) {
+			dns := map[string]interface{}{
+				"listen": "127.0.0.1:7874",
+				key:      []interface{}{"127.0.0.1:7874"},
+			}
+			if err := alignEnhancedDNSListenWith(dns, func(int) bool { return true }, func() (int, error) {
+				t.Fatal("self-cycle must fail before fallback selection")
+				return 0, nil
+			}); err == nil || !strings.HasPrefix(err.Error(), "[dns_self_cycle] address=127.0.0.1 port=7874") {
+				t.Fatalf("align error = %v, want explicit DNS self-cycle", err)
+			}
+		})
+	}
+}
+
+func TestGeneralResolverSelfCycleOnReservedProxyPortIsRejected(t *testing.T) {
+	dns := map[string]interface{}{
+		"listen": "127.0.0.1:7890",
+		"nameserver": []interface{}{
+			"127.0.0.1:7890",
+			"https://dns.example/dns-query",
+		},
+	}
+	err := alignEnhancedDNSListenWithReserved(dns, []int{7890}, func(port int) bool {
+		return port == preferredEnhancedDNSPort
+	}, func() (int, error) {
+		t.Fatal("reserved self-cycle must fail before fallback selection")
+		return 0, nil
+	})
+	if err == nil || !strings.HasPrefix(err.Error(), "[dns_self_cycle] address=127.0.0.1 port=7890") {
+		t.Fatalf("align error = %v, want explicit self-cycle on the reserved proxy port", err)
+	}
+	if dns["listen"] != "127.0.0.1:7890" {
+		t.Fatalf("DNS listener changed after rejection: %v", dns["listen"])
+	}
+	wantServers := []interface{}{"127.0.0.1:7890", "https://dns.example/dns-query"}
+	if got := dns["nameserver"].([]interface{}); !reflect.DeepEqual(got, wantServers) {
+		t.Fatalf("resolver list changed after rejection: %v", got)
+	}
+}
+
+func TestReservedListenerAliasesCannotHideGeneralResolverCycle(t *testing.T) {
+	for _, addresses := range [][2]string{
+		{"0.0.0.0:7890", "127.0.0.1:7890"},
+		{"0.0.0.0:7890", "localhost:7890"},
+		{"127.0.0.1:7890", "localhost:7890"},
+	} {
+		t.Run(addresses[0]+"_"+addresses[1], func(t *testing.T) {
+			dns := map[string]interface{}{
+				"listen": addresses[0], "nameserver": []interface{}{addresses[1]},
+			}
+			err := alignEnhancedDNSListenWithReserved(dns, []int{7890}, func(int) bool {
+				t.Fatal("reserved listener aliases must be rejected before probing ports")
+				return false
+			}, func() (int, error) {
+				t.Fatal("reserved listener aliases must be rejected before allocating ports")
+				return 0, nil
+			})
+			if err == nil || !strings.HasPrefix(err.Error(), "[dns_self_cycle]") {
+				t.Fatalf("error = %v, want reserved DNS cycle rejection", err)
+			}
+			if dns["listen"] != addresses[0] {
+				t.Fatal("rejection must preserve the original listener")
+			}
+		})
+	}
+}
+
+func TestGeneralResolverSelfEndpointIsPreservedWhenExternalSocketOwnsIt(t *testing.T) {
+	external, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer external.Close()
+	port := external.LocalAddr().(*net.UDPAddr).Port
+	fallbackPort := freeLoopbackDNSPort(t, preferredEnhancedDNSPort, port)
+	dns := map[string]interface{}{
+		"listen":     net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
+		"nameserver": []interface{}{net.JoinHostPort("127.0.0.1", strconv.Itoa(port))},
+	}
+	if err := alignEnhancedDNSListenWith(dns, func(candidate int) bool {
+		if candidate == port {
+			return checkDNSPortAvailable(candidate)
+		}
+		return candidate == fallbackPort
+	}, func() (int, error) {
+		return fallbackPort, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	servers := dns["nameserver"].([]interface{})
+	if servers[0] != net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) {
+		t.Fatalf("external local resolver changed to %v", servers[0])
+	}
+	wantListen := net.JoinHostPort("127.0.0.1", strconv.Itoa(fallbackPort))
+	if dns["listen"] != wantListen {
+		t.Fatalf("DNS listener = %v, want fallback port", dns["listen"])
+	}
+}
+
+func TestDeclaredProxyBootstrapRetargetsAwayFromReservedOriginalListener(t *testing.T) {
+	dns := map[string]interface{}{
+		"listen":                  "127.0.0.1:7890",
+		"proxy-server-nameserver": []interface{}{"udp://127.0.0.1:7890"},
+	}
+	if err := alignEnhancedDNSListenWithReserved(dns, []int{7890}, func(port int) bool {
+		return port == preferredEnhancedDNSPort
+	}, func() (int, error) {
+		t.Fatal("preferred DNS port should be available")
+		return 0, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if dns["listen"] != "127.0.0.1:7874" {
+		t.Fatalf("DNS listener = %v, want preferred fallback 127.0.0.1:7874", dns["listen"])
+	}
+	servers := dns["proxy-server-nameserver"].([]interface{})
+	if servers[0] != "udp://127.0.0.1:7874" {
+		t.Fatalf("declared bootstrap = %v, want retargeted resolver", servers[0])
+	}
+}
+
+func TestDeclaredLegacyBootstrapFollowsListenerFallback(t *testing.T) {
+	dns := map[string]interface{}{
+		"listen":                  "127.0.0.1:7874",
+		"proxy-server-nameserver": []interface{}{"udp://127.0.0.1:7874"},
+	}
+	if err := alignEnhancedDNSListenWith(dns, func(port int) bool { return port == 63385 }, func() (int, error) {
+		return 63385, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if dns["listen"] != "127.0.0.1:63385" {
+		t.Fatalf("DNS listen = %v, want fallback port", dns["listen"])
+	}
+	servers := dns["proxy-server-nameserver"].([]interface{})
+	if servers[0] != "udp://127.0.0.1:63385" {
+		t.Fatalf("declared plain bootstrap did not follow listener fallback = %v", servers)
+	}
+	if dnsHasReferenceAtPort(dns, 63385, declaredProxyDNSBootstrapReferences(map[string]interface{}{
+		"listen":                  "127.0.0.1:63385",
+		"proxy-server-nameserver": servers,
+	})) {
+		t.Fatal("declared proxy bootstrap was classified as a true DNS cycle")
+	}
+}
+
+func TestDeclaredProxyBootstrapRequiresExactPlainProfileEndpoint(t *testing.T) {
+	tests := []struct {
+		name string
+		dns  map[string]interface{}
+		want int
+	}{
+		{
+			name: "matching plain address",
+			dns: map[string]interface{}{
+				"listen":                  "127.0.0.1:7874",
+				"proxy-server-nameserver": []interface{}{"127.0.0.1:7874"},
+			},
+			want: 1,
+		},
+		{
+			name: "matching TCP address",
+			dns: map[string]interface{}{
+				"listen":                  "127.0.0.1:7874",
+				"proxy-server-nameserver": []interface{}{"tcp://127.0.0.1:7874"},
+			},
+			want: 1,
+		},
+		{
+			name: "listener absent",
+			dns:  map[string]interface{}{"proxy-server-nameserver": []interface{}{"127.0.0.1:7874"}},
+			want: 0,
+		},
+		{
+			name: "listener differs",
+			dns: map[string]interface{}{
+				"listen":                  "127.0.0.1:5353",
+				"proxy-server-nameserver": []interface{}{"127.0.0.1:7874"},
+			},
+			want: 0,
+		},
+		{
+			name: "DoH same port stays external",
+			dns: map[string]interface{}{
+				"listen":                  "127.0.0.1:7874",
+				"proxy-server-nameserver": []interface{}{"https://127.0.0.1:7874/dns-query"},
+			},
+			want: 0,
+		},
+		{
+			name: "DoT same port stays external",
+			dns: map[string]interface{}{
+				"listen":                  "127.0.0.1:7874",
+				"proxy-server-nameserver": []interface{}{"tls://127.0.0.1:7874"},
+			},
+			want: 0,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := len(declaredProxyDNSBootstrapReferences(test.dns)); got != test.want {
+				t.Fatalf("bootstrap reference count = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
+func TestEnhancedDNSSelectionAvoidsReservedPorts(t *testing.T) {
+	reserved := []int{preferredEnhancedDNSPort, enhancedControllerPort, 7890, 1080, 11053}
+	chosen, err := chooseEnhancedDNSPort(map[string]interface{}{}, reserved, func(int) bool { return true }, func() (int, error) {
+		return 7890, nil
+	})
+	if chosen != 0 || err == nil || !strings.HasPrefix(err.Error(), "[port_conflict] service=dns_listener ") {
+		t.Fatalf("DNS selection = %d, %v; want conflict after all reserved candidates", chosen, err)
+	}
+}
+
+func TestEnhancedDNSPreflightChecksTCPListeners(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	port := listener.Addr().(*net.TCPAddr).Port
+	if checkDNSPortAvailable(port) {
+		t.Fatalf("DNS port %d reported available while another process owns its TCP socket", port)
+	}
+}
+
+func TestCloseBuiltinDNSListenerReleasesLoopbackTCPAndUDP(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := probe.Addr().(*net.TCPAddr).Port
+	if err := probe.Close(); err != nil {
+		t.Fatal(err)
+	}
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	if !checkDNSPortAvailable(port) {
+		t.Skipf("loopback DNS fixture port %d became occupied before setup", port)
+	}
+
+	resolvers := mihomoDNS.NewResolver(mihomoDNS.Config{})
+	mapper := mihomoDNS.NewEnhancer(mihomoDNS.EnhancerConfig{EnhancedMode: C.DNSNormal})
+	mihomoDNS.ReCreateServer(address, mihomoDNS.NewService(resolvers.Resolver, mapper))
+	t.Cleanup(closeBuiltinDNSListener)
+
+	waitForMihomoDNSReady(t, address)
+
+	closeBuiltinDNSListener()
+	deadline := time.Now().Add(2 * time.Second)
+	for !checkDNSPortAvailable(port) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !checkDNSPortAvailable(port) {
+		t.Fatalf("Mihomo DNS server still owns TCP or UDP port %d after suspension", port)
+	}
+}
+
+func TestMihomoProxyBootstrapUsesGeneralLocalResolverAfterFallback(t *testing.T) {
+	upstreamPacket, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstreamHits := make(chan struct{}, 1)
+	upstream := &miekgDNS.Server{
+		PacketConn: upstreamPacket,
+		Handler: miekgDNS.HandlerFunc(func(w miekgDNS.ResponseWriter, request *miekgDNS.Msg) {
+			select {
+			case upstreamHits <- struct{}{}:
+			default:
+			}
+			response := new(miekgDNS.Msg)
+			response.SetReply(request)
+			for _, question := range request.Question {
+				if question.Qtype != miekgDNS.TypeA {
+					continue
+				}
+				record, err := miekgDNS.NewRR(question.Name + " 30 IN A 203.0.113.17")
+				if err == nil {
+					response.Answer = append(response.Answer, record)
+				}
+			}
+			_ = w.WriteMsg(response)
+		}),
+	}
+	go func() { _ = upstream.ActivateAndServe() }()
+	t.Cleanup(func() { _ = upstream.Shutdown() })
+
+	oldPort := freeLoopbackDNSPort(t, preferredEnhancedDNSPort)
+	newPort := freeLoopbackDNSPort(t, preferredEnhancedDNSPort, oldPort)
+	oldAddress := net.JoinHostPort("127.0.0.1", strconv.Itoa(oldPort))
+	dnsProfile := map[string]interface{}{
+		"listen":                  oldAddress,
+		"nameserver":              []interface{}{"udp://" + upstreamPacket.LocalAddr().String()},
+		"proxy-server-nameserver": []interface{}{oldAddress},
+	}
+	if err := alignEnhancedDNSListenWith(dnsProfile, func(candidate int) bool { return candidate == newPort }, func() (int, error) {
+		return newPort, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if dnsProfile["listen"] != net.JoinHostPort("127.0.0.1", strconv.Itoa(newPort)) {
+		t.Fatalf("aligned DNS listener = %v", dnsProfile["listen"])
+	}
+	proxyServer := dnsProfile["proxy-server-nameserver"].([]interface{})[0].(string)
+	if proxyServer != dnsProfile["listen"] {
+		t.Fatalf("declared proxy bootstrap = %q, want listener %q", proxyServer, dnsProfile["listen"])
+	}
+
+	mainServers, err := mihomoDNS.ParseNameServer([]string{dnsProfile["nameserver"].([]interface{})[0].(string)})
+	if err != nil {
+		t.Fatalf("parse profile general nameserver: %v", err)
+	}
+	proxyServers, err := mihomoDNS.ParseNameServer([]string{proxyServer})
+	if err != nil {
+		t.Fatalf("parse profile proxy nameserver: %v", err)
+	}
+	resolvers := mihomoDNS.NewResolver(mihomoDNS.Config{Main: mainServers, ProxyServer: proxyServers})
+	if resolvers.ProxyResolver == nil {
+		t.Fatal("Mihomo did not create the proxy resolver")
+	}
+	mapper := mihomoDNS.NewEnhancer(mihomoDNS.EnhancerConfig{EnhancedMode: C.DNSNormal})
+	mihomoDNS.ReCreateServer(dnsProfile["listen"].(string), mihomoDNS.NewService(resolvers.Resolver, mapper))
+	t.Cleanup(closeBuiltinDNSListener)
+
+	waitForMihomoDNSReady(t, dnsProfile["listen"].(string))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	answers, err := resolvers.ProxyResolver.LookupIPv4(ctx, "bootstrap.fixture.test")
+	if err != nil {
+		t.Fatalf("proxy DNS bootstrap through the core general resolver failed: %v", err)
+	}
+	if len(answers) != 1 || answers[0].String() != "203.0.113.17" {
+		t.Fatalf("bootstrap answers = %v, want [203.0.113.17]", answers)
+	}
+	select {
+	case <-upstreamHits:
+	default:
+		t.Fatal("proxy bootstrap did not reach the configured local general resolver")
+	}
+}
+
+func freeLoopbackDNSPort(t *testing.T, excluded ...int) int {
+	t.Helper()
+	for attempt := 0; attempt < 8; attempt++ {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := listener.Addr().(*net.TCPAddr).Port
+		if containsInt(excluded, port) {
+			_ = listener.Close()
+			continue
+		}
+		packet, err := net.ListenPacket("udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err != nil {
+			_ = listener.Close()
+			continue
+		}
+		_ = packet.Close()
+		_ = listener.Close()
+		return port
+	}
+	t.Fatal("could not allocate a free loopback DNS fixture port")
+	return 0
+}
+
+func waitForMihomoDNSReady(t *testing.T, address string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	query := new(miekgDNS.Msg)
+	query.SetQuestion(miekgDNS.Fqdn("readiness.fixture.test"), miekgDNS.TypeA)
+	client := &miekgDNS.Client{Net: "udp", Timeout: 100 * time.Millisecond}
+	for time.Now().Before(deadline) {
+		tcp, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
+		if err == nil {
+			_ = tcp.Close()
+			if response, _, queryErr := client.Exchange(query, address); queryErr == nil && response != nil {
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("Mihomo DNS server did not answer TCP and UDP on %s", address)
+}
+
+func TestConfiguredProxyListenerPortsAreReserved(t *testing.T) {
+	got := configuredProxyListenerPorts(map[string]interface{}{
+		"port":        8080,
+		"socks-port":  "1080",
+		"mixed-port":  7890,
+		"redir-port":  int64(7892),
+		"tproxy-port": 7893,
+		"listeners": []interface{}{
+			map[string]interface{}{"port": 7894},
+		},
+	})
+	want := []int{8080, 1080, 7890, 7892, 7893, 7894}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("reserved proxy ports = %v, want %v", got, want)
 	}
 }

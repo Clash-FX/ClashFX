@@ -532,6 +532,16 @@ final class TerminationCleanupPolicyTests: XCTestCase {
 }
 
 final class ClaudeProxyLockPolicyTests: XCTestCase {
+    func testPersistedLockRequiresTunnelEvenIfAnEarlierFailureClearedPreference() {
+        XCTAssertTrue(ClaudeProxyLockPolicy.requiresEnhancedMode(lockEnabled: true, preferredEnhancedMode: false))
+        XCTAssertTrue(ClaudeProxyLockPolicy.requiresEnhancedMode(lockEnabled: true, preferredEnhancedMode: true))
+    }
+
+    func testDisablingLockPreservesExistingTunnelPreference() {
+        XCTAssertTrue(ClaudeProxyLockPolicy.requiresEnhancedMode(lockEnabled: false, preferredEnhancedMode: true))
+        XCTAssertFalse(ClaudeProxyLockPolicy.requiresEnhancedMode(lockEnabled: false, preferredEnhancedMode: false))
+    }
+
     func testRulesCoverClaudeProcessesAndOfficialDomains() {
         XCTAssertEqual(ClaudeProxyLockPolicy.rules(target: "IPRoyal Korea"), [
             "PROCESS-NAME-REGEX,^claude( helper.*)?$,IPRoyal Korea",
@@ -2933,7 +2943,7 @@ final class CoreLogGuardTests: XCTestCase {
             answerCount: 1,
             hasResponseFlag: true
         )
-        XCTAssertEqual(healthy, .upstreamHealthy)
+        XCTAssertEqual(healthy, .answerAvailable)
         XCTAssertEqual(
             EnhancedModeDNSReadinessPolicy.classify(responseCode: 0, answerCount: 1, hasResponseFlag: false),
             .invalidResponse

@@ -649,7 +649,7 @@
 "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "新核心未能建立配置的代理監聽連接埠：%@。請查看核心診斷日誌了解詳情。";
 "Direct fallback (no proxy nodes)" = "直連後備（無代理節點）";
 
-"Benchmark result with historical marker" = "%@（歷史）";
+"Benchmark result with historical marker" = "%@ · 舊";
 
 "Benchmark cancelled: core changed" = "測速已取消：核心切換";
 
@@ -665,8 +665,6 @@
 
 "Latency First" = "延遲優先";
 
-"Benchmark options" = "測速選項";
-
 "Quick (2.5 s)" = "快速測速（2.5 秒）";
 
 "Complete (5 s)" = "完整測速（5 秒）";
@@ -675,17 +673,11 @@
 
 "Benchmarking %d/%d" = "測速中 %d/%d";
 
+"Succeeded: %d, timed out: %d, failed: %d, unavailable: %d, reused: %d" = "成功%d，逾時%d，失敗%d，無法使用%d，重用%d";
+
 "Testing automatic group" = "策略組複測中…";
 
 "Testing selected automatic group" = "所選策略組複測中…";
-
-"Quick: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "快速：成功%d 逾時%d 失敗%d 無法使用%d 重用%d";
-
-"Done: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "完成：成功%d 逾時%d 失敗%d 無法使用%d 重用%d";
-
-"Quick benchmark timed out after %d ms. %d succeeded, %d timed out, %d failed, %d unavailable, %d reused. Select Complete mode for nodes that need more time." = "快速測速等待上限為 %d 毫秒。成功%d、逾時%d、失敗%d、無法使用%d，其中重用%d。需要更多時間的節點可選完整測速。";
-
-"Benchmark summary: %d succeeded, %d timed out, %d failed, %d unavailable, %d reused" = "測速彙總：成功%d、逾時%d、失敗%d、無法使用%d，其中重用%d";
 
 "No failed nodes to retry" = "沒有可重測的失敗節點";
 
@@ -895,3 +887,7 @@
 "ClashFX is already running. This copy will close to protect the active proxy." = "ClashFX 已在執行。此副本將關閉，以保護目前的代理。";
 "ClashFX could not obtain exclusive runtime control." = "ClashFX 無法取得獨佔執行控制權。";
 "System Proxy recovery paused after repeated conflicts. Click to retry." = "系統代理恢復因持續衝突已暫停。按一下可重試。";
+
+"Enhanced Mode config preparation timed out" = "增強模式設定準備逾時";
+
+"Helper installation failed. Please try again or check the logs." = "輔助程式安裝失敗，請重試。詳細原因請查看日誌。";

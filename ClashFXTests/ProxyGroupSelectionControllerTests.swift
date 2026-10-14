@@ -225,12 +225,12 @@ final class ProxyGroupSelectionControllerTests: XCTestCase {
         XCTAssertFalse(ProxyGroupSelectionController.isAnyOperationInProgress)
     }
 
-    func testSelectionAndRestoreAreSerializedAcrossGroupsAndRowsRefreshImmediately() {
+    func testSelectionAndRestoreAreSerializedAcrossGroupsAndRowsRefreshImmediately() throws {
         let firstSnapshot = snapshot(type: .select, now: "A")
         let firstHarness = Harness()
         let firstController = makeController(firstSnapshot, harness: firstHarness)
         let firstRows = registerRows(on: firstController, snapshot: firstSnapshot)
-        let benchmarkAction = ProxyGroupSpeedTestMenuItem(group: firstSnapshot.proxiesMap["Group"]!)
+        let benchmarkAction = try ProxyGroupSpeedTestMenuItem(group: XCTUnwrap(firstSnapshot.proxiesMap["Group"]))
         AppDelegate.shared.cancel()
 
         let otherSnapshot = snapshot(type: .fallback, now: "A", fixed: "B", groupName: "Other")
@@ -305,7 +305,7 @@ final class ProxyGroupSelectionControllerTests: XCTestCase {
         harness.refreshCompletion?(snapshot(type: .select, now: "B"))
         waitUntil("selection settled before reload") { !controller.isOperationInProgress }
 
-        XCTAssertEqual(harness.remembered.map { $0.1 }, ["B"])
+        XCTAssertEqual(harness.remembered.map(\.1), ["B"])
         XCTAssertEqual(harness.closeCount, 1)
         XCTAssertTrue(harness.errors.isEmpty)
     }
@@ -368,13 +368,13 @@ final class ProxyGroupSelectionControllerTests: XCTestCase {
         weak var weakController = controller
         autoreleasepool {
             controller?.select(group: "Group", name: "B")
-    
+
             ProxyGroupSelectionController.invalidateAll()
             XCTAssertTrue(ProxyGroupSelectionController.isAnyOperationInProgress)
             XCTAssertTrue(weakController?.isOperationInProgress == true)
             controller = nil
             XCTAssertNotNil(weakController, "An in-flight mutation must retain its invalidated controller")
-    
+
             harness.selectCompletion?(true)
             waitUntil("invalidated mutation callback drained") {
                 !ProxyGroupSelectionController.isAnyOperationInProgress
@@ -503,9 +503,9 @@ final class ProxyGroupSelectionControllerTests: XCTestCase {
         let restore = try XCTUnwrap(controller.restoreAutomaticItem)
         menu.addItem(restore)
         for name in ["A", "B"] {
-            let item = ProxyMenuItem(proxy: try XCTUnwrap(initial.proxiesMap[name]),
-                                     group: try XCTUnwrap(initial.proxiesMap["Group"]),
-                                     action: #selector(ProxyGroupSelectionController.selectProxy(sender:)))
+            let item = try ProxyMenuItem(proxy: XCTUnwrap(initial.proxiesMap[name]),
+                                         group: XCTUnwrap(initial.proxiesMap["Group"]),
+                                         action: #selector(ProxyGroupSelectionController.selectProxy(sender:)))
             item.target = controller
             menu.addItem(item)
             controller.register(candidateItem: item)
