@@ -176,6 +176,21 @@ def require_command_success(command, timeout=8):
     return result.stdout
 
 
+def metadata_attribute_names(path):
+    # CPython's os xattr API is Linux-only; use the native macOS tool.
+    output = require_command_success(["/usr/bin/xattr", "-s", str(path)], 8)
+    return set(output.splitlines())
+
+
+def metadata_attribute_write(path, name, value):
+    require_command_success(["/usr/bin/xattr", "-w", "-x", "-s", name, value.hex(), str(path)], 8)
+
+
+def metadata_attribute_read(path, name):
+    output = require_command_success(["/usr/bin/xattr", "-p", "-x", "-s", name, str(path)], 8)
+    return bytes.fromhex(output)
+
+
 def validate_build_inputs(raw_helper, raw_core, runner_temp):
     helper_path = Path(raw_helper).expanduser().resolve(strict=True)
     core_path = Path(raw_core).expanduser().resolve(strict=True)
@@ -697,13 +712,13 @@ class AcceptanceHarness:
         for path, attributes in decorations.items():
             if path.is_symlink() or not path.exists():
                 raise RuntimeError(f"metadata test target is missing or is a symlink: {path}")
-            existing = set(os.listxattr(path, follow_symlinks=False))
+            existing = metadata_attribute_names(path)
             collisions = sorted(existing.intersection(attributes))
             if collisions:
                 raise RuntimeError(f"refusing to overwrite preexisting test xattrs on {path}: {collisions}")
             for name, value in attributes.items():
-                os.setxattr(path, name, value, follow_symlinks=False)
-            observed = {name: os.getxattr(path, name, follow_symlinks=False)
+                metadata_attribute_write(path, name, value)
+            observed = {name: metadata_attribute_read(path, name)
                         for name in attributes}
             if observed != attributes:
                 raise RuntimeError(f"metadata decorations did not round-trip on {path}")
@@ -1138,7 +1153,7 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
             for name, expected_hex in attributes.items():
                 try:
                     source_metadata_unchanged = (source_metadata_unchanged and
-                        os.getxattr(path, name, follow_symlinks=False).hex() == expected_hex)
+                        metadata_attribute_read(path, name).hex() == expected_hex)
                 except OSError:
                     source_metadata_unchanged = False
         self.assertion("production staging strips only FinderInfo and ResourceFork from its private app copy",
