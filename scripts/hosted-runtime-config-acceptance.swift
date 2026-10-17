@@ -94,10 +94,56 @@ private final class Acceptance {
         return root
     }
 
+    func dnsAAnswerMatchesRange(_ packet: [UInt8], range: String) -> Bool {
+        let cidr = range.split(separator: "/", omittingEmptySubsequences: false)
+        guard cidr.count == 2, let prefix = Int(cidr[1]), (0 ... 32).contains(prefix) else { return false }
+        let components = cidr[0].split(separator: ".", omittingEmptySubsequences: false)
+        let octets = components.compactMap { UInt32($0) }
+        guard components.count == 4, octets.count == 4, octets.allSatisfy({ $0 <= 255 }) else { return false }
+        let network = octets.reduce(UInt32(0)) { ($0 << 8) | $1 }
+        let mask = prefix == 0 ? UInt32(0) : UInt32.max << (32 - prefix)
+        guard packet.count >= 12, packet[2] & 0x80 != 0, packet[2] & 0x02 == 0,
+              packet[3] & 0x0f == 0 else { return false }
+        func word(_ offset: Int) -> Int { Int(packet[offset]) * 256 + Int(packet[offset + 1]) }
+        func skipName(_ offset: inout Int) -> Bool {
+            while offset < packet.count {
+                let length = Int(packet[offset]); offset += 1
+                if length == 0 { return true }
+                if length & 0xc0 == 0xc0 {
+                    guard offset < packet.count else { return false }
+                    let target = ((length & 0x3f) << 8) | Int(packet[offset])
+                    offset += 1
+                    return target < packet.count
+                }
+                guard length <= 63, offset + length <= packet.count else { return false }
+                offset += length
+            }
+            return false
+        }
+        var offset = 12
+        for _ in 0 ..< word(4) {
+            guard skipName(&offset), offset + 4 <= packet.count else { return false }
+            offset += 4
+        }
+        for _ in 0 ..< word(6) {
+            guard skipName(&offset), offset + 10 <= packet.count else { return false }
+            let kind = word(offset), recordClass = word(offset + 2), length = word(offset + 8)
+            offset += 10
+            guard offset + length <= packet.count else { return false }
+            if kind == 1, recordClass == 1, length == 4 {
+                let address = packet[offset ..< offset + 4].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+                if (address & mask) == (network & mask) { return true }
+            }
+            offset += length
+        }
+        return false
+    }
+
     func probeDNS(_ expected: [String: Any]) -> Bool {
         guard let dns = expected["dns"] as? [String: Any], let listen = dns["listen"] as? String,
               let address = URLComponents(string: "udp://" + listen), let port = address.port,
-              let host = EnhancedDNSProbeTargetPolicy.host(from: listen) else { return false }
+              let host = EnhancedDNSProbeTargetPolicy.host(from: listen),
+              let range = dns["fake-ip-range"] as? String else { return false }
         let transaction: [UInt8] = [0xca, 0xfe]
         var question = transaction + [0x01, 0, 0, 1, 0, 0, 0, 0, 0, 0]
         let domain = "hosted-" + UUID().uuidString.lowercased() + ".example.com"
@@ -107,11 +153,7 @@ private final class Acceptance {
             guard let response = BoundedDNSProbe.query(host: host, port: port, type: transport,
                                                        payload: question, timeout: 2) else { return false }
             let bytes = Array(response)
-            guard bytes.count >= 16, Array(bytes.prefix(2)) == transaction, bytes[2] & 0x80 != 0,
-                  bytes[3] & 0x0f == 0, Int(bytes[6]) * 256 + Int(bytes[7]) > 0 else { return false }
-            // The fixture asks one A question; Mihomo fake-IP supplies one A answer.
-            let address = Array(bytes.suffix(4))
-            guard address[0] == 198, address[1] == 18 else { return false }
+            guard Array(bytes.prefix(2)) == transaction, dnsAAnswerMatchesRange(bytes, range: range) else { return false }
         }
         return true
     }
@@ -243,13 +285,21 @@ private final class Acceptance {
             root["log-level"] = index % 2 == 0 ? "warning" : "info"
             let outcome = try submit(JSONSerialization.data(withJSONObject: root))
             guard case let .applied(receipt) = outcome else { throw Failure.check("continuous configuration switch \(index)") }
-            try check(receipt.dataPlane == .healthy, "switch \(index): metadata, TCP listener and UDP/TCP DNS confirmed")
+            try check(receipt.dataPlane == .healthy, "switch \(index): mode/log-level/ports, TUN enable, proxy forwarding and UDP/TCP DNS confirmed")
             try check(RuntimeConfigReadbackPolicy.port(try readback()["mixed-port"]) == initialPort, "switch \(index): confirmed proxy port reused")
         }
-        let beforeInvalid = applyCount
-        let invalid = try submit(Data("tun: [\n".utf8))
-        guard case .rejected = invalid else { throw Failure.check("semantic invalid config was not rejected") }
-        try check(applyCount == beforeInvalid, "invalid semantic config rejected before runtime mutation")
+        var invalidSemantic = root
+        invalidSemantic["rules"] = ["MATCH,clashfx-missing-policy-for-semantic-validation"]
+        let invalidInputs: [(String, Data)] = [
+            ("syntax", Data("tun: [\n".utf8)),
+            ("semantic missing rule target", try JSONSerialization.data(withJSONObject: invalidSemantic)),
+        ]
+        for (kind, input) in invalidInputs {
+            let beforeInvalid = applyCount
+            let invalid = try submit(input)
+            guard case .rejected = invalid else { throw Failure.check("\(kind) config was not rejected") }
+            try check(applyCount == beforeInvalid, "\(kind) rejected before runtime mutation")
+        }
         for transport in [SOCK_STREAM, SOCK_DGRAM] {
             let (blocker, port) = try reserve(transport)
             defer { close(blocker) }
