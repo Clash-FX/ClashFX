@@ -94,7 +94,12 @@ private final class Acceptance {
         return root
     }
 
-    func dnsAAnswerMatchesRange(_ packet: [UInt8], range: String) -> Bool {
+    func dnsAAnswerMatchesRange(_ packet: [UInt8], range: String, question: [UInt8]) -> Bool {
+        // A fake address only proves this lookup when the response echoes the
+        // exact single A/IN question sent on this owned socket.
+        guard question.count >= 17, question[4] == 0, question[5] == 1,
+              packet.count >= question.count, packet[4] == 0, packet[5] == 1,
+              Array(packet[12 ..< question.count]) == Array(question[12...]) else { return false }
         let cidr = range.split(separator: "/", omittingEmptySubsequences: false)
         guard cidr.count == 2, let prefix = Int(cidr[1]), (0 ... 32).contains(prefix) else { return false }
         let components = cidr[0].split(separator: ".", omittingEmptySubsequences: false)
@@ -153,7 +158,7 @@ private final class Acceptance {
             guard let response = BoundedDNSProbe.query(host: host, port: port, type: transport,
                                                        payload: question, timeout: 2) else { return false }
             let bytes = Array(response)
-            guard Array(bytes.prefix(2)) == transaction, dnsAAnswerMatchesRange(bytes, range: range) else { return false }
+            guard Array(bytes.prefix(2)) == transaction, dnsAAnswerMatchesRange(bytes, range: range, question: question) else { return false }
         }
         return true
     }

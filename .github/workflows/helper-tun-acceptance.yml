@@ -70,6 +70,7 @@ jobs:
       - name: Startup, API lifecycle and PATCH regressions in the disposable guest
         shell: bash
         run: |
+          python3 scripts/verify-hosted-runtime-dns-parser.py
           python3 ClashFX/goClash/run_core_tests.py \
             --run 'TestFailedEmbeddedStartup|TestFailedStartup|TestCacheDBLifecycle|TestStaleSuspend|TestRuntimeManagementEndpointLifecycle' \
             --runtime-http
