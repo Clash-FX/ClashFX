@@ -212,11 +212,48 @@ private final class Acceptance {
         return received > 0 && String(decoding: response.prefix(received), as: UTF8.self).hasPrefix("HTTP/1.1 204 ")
     }
 
+    func diagnoseRejectedSnapshot(_ file: URL, completion: @escaping () -> Void) {
+        DispatchQueue.global().async {
+            let directory = URL(fileURLWithPath: self.manifest.homeDir).appendingPathComponent("diagnostic-" + UUID().uuidString)
+            var detail = ""
+            var candidate = ""
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+                defer { try? FileManager.default.removeItem(at: directory) }
+                candidate = try String(contentsOf: file).replacingOccurrences(of: self.manifest.secret, with: "<redacted>")
+                let process = Process(), pipe = Pipe()
+                process.executableURL = URL(fileURLWithPath: self.manifest.coreBinary)
+                process.arguments = ["-t", "-d", directory.path, "-f", file.path]
+                process.currentDirectoryURL = directory
+                process.environment = ["HOME": directory.path, "TMPDIR": directory.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                                       "SAFE_PATHS": URL(fileURLWithPath: self.manifest.configPath).deletingLastPathComponent().path]
+                process.standardOutput = pipe; process.standardError = pipe
+                try process.run()
+                let deadline = Date().addingTimeInterval(5)
+                while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+                if process.isRunning { process.terminate(); Thread.sleep(forTimeInterval: 0.1) }
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                process.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                detail = "exit=\(process.terminationStatus): " + String(decoding: data.prefix(8192), as: UTF8.self)
+            } catch { detail = String(describing: error) }
+            let safeDetail = detail.replacingOccurrences(of: self.manifest.secret, with: "<redacted>")
+            let safeCandidate = candidate
+            DispatchQueue.main.async {
+                self.observations.append(["phase": "rejected-snapshot-diagnostic", "parseOnlyOutput": safeDetail,
+                                          "candidateJSON": safeCandidate])
+                completion()
+            }
+        }
+    }
+
     func client() -> RuntimeConfigTransactionController.Client {
         RuntimeConfigTransactionController.Client(validate: { file, done in
             _ = self.validator.validate(file: file) { error in
                 self.observations.append(["phase": "validation", "error": (error ?? "").replacingOccurrences(of: self.manifest.secret, with: "<redacted>")])
-                done(error)
+                if error != nil && self.applyCount == 0 {
+                    self.diagnoseRejectedSnapshot(file) { done(error) }
+                } else { done(error) }
             }
         }, apply: { file, done in
             self.applyCount += 1
