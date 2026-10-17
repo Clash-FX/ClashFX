@@ -898,10 +898,14 @@ acceptanceUnrelated=$(/usr/bin/xattr -p {shlex.quote(UNRELATED_TEST_XATTR)} "$st
 [ "$acceptanceUnrelated" = {shlex.quote(UNRELATED_TEST_XATTR_VALUE.decode())} ] || exit 74
 printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained":true}}' > {shlex.quote(str(self.metadata_stage_report))}
 '''
-        marker = "        # Check filesystem flag support while the existing service is still intact.\n"
-        if script.count(marker) != 1:
+        # Swift multiline strings strip their source indentation. Match the
+        # exact semantic marker while preserving its generated whitespace.
+        markers = list(re.finditer(
+            r"(?m)^[ \t]*# Check filesystem flag support while the existing service is still intact\.\n", script))
+        if len(markers) != 1:
             raise RuntimeError("production installer staging marker changed; cannot add metadata read assertion")
-        instrumented = script.replace(marker, observation + marker, 1)
+        offset = markers[0].start()
+        instrumented = script[:offset] + observation + script[offset:]
         self.instrumented_install_script.write_text(instrumented, encoding="utf-8")
         os.chmod(self.instrumented_install_script, 0o700)
         self.instrumented_install_script_sha256 = hashlib.sha256(instrumented.encode()).hexdigest()
