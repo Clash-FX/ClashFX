@@ -12,6 +12,12 @@ private struct Manifest: Decodable {
 
 private enum Failure: Error { case check(String) }
 
+// Mihomo's YAML reader does not accept JSON's optional \/ escape. The App
+// writes YAML; this JSON fixture must keep URLs and CIDRs YAML-compatible.
+private func yamlCompatibleJSON(_ object: [String: Any]) throws -> Data {
+    try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
+}
+
 private final class Acceptance {
     let manifest: Manifest
     let output: URL
@@ -339,13 +345,13 @@ private final class Acceptance {
         guard let baseline = RuntimeConfigReadbackPolicy.refreshedConfirmedRoot(root, actual: actual) else { throw Failure.check("baseline readback") }
         root = baseline
         try check(probeDNS(root), "initial real TUN core serves UDP and TCP fake-IP DNS")
-        let baselineData = try JSONSerialization.data(withJSONObject: root)
+        let baselineData = try yamlCompatibleJSON(root)
         _ = try controller.adoptConfirmed(data: baselineData, scope: scope)
         let initialPort = RuntimeConfigReadbackPolicy.port(root["mixed-port"])
         for index in 0 ..< 6 {
             root["mode"] = index % 2 == 0 ? "direct" : "rule"
             root["log-level"] = index % 2 == 0 ? "warning" : "info"
-            let outcome = try submit(JSONSerialization.data(withJSONObject: root))
+            let outcome = try submit(yamlCompatibleJSON(root))
             guard case let .applied(receipt) = outcome else { throw Failure.check("continuous configuration switch \(index): \(outcomeName(outcome))") }
             try check(receipt.dataPlane == .healthy, "switch \(index): mode/log-level/ports, TUN enable, proxy forwarding and UDP/TCP DNS confirmed")
             try check(RuntimeConfigReadbackPolicy.port(try readback()["mixed-port"]) == initialPort, "switch \(index): confirmed proxy port reused")
@@ -354,7 +360,7 @@ private final class Acceptance {
         invalidSemantic["rules"] = ["MATCH,clashfx-missing-policy-for-semantic-validation"]
         let invalidInputs: [(String, Data)] = [
             ("syntax", Data("tun: [\n".utf8)),
-            ("semantic missing rule target", try JSONSerialization.data(withJSONObject: invalidSemantic)),
+            ("semantic missing rule target", try yamlCompatibleJSON(invalidSemantic)),
         ]
         for (kind, input) in invalidInputs {
             let beforeInvalid = applyCount
@@ -368,7 +374,7 @@ private final class Acceptance {
             let oldID = controller.confirmed!.id
             var conflict = root
             conflict["mixed-port"] = port
-            let outcome = try submit(JSONSerialization.data(withJSONObject: conflict))
+            let outcome = try submit(yamlCompatibleJSON(conflict))
             guard case let .rolledBack(receipt, _) = outcome else { throw Failure.check("actual port failure did not rollback") }
             try check(receipt.id == oldID && receipt.dataPlane == .healthy, "\(transport): rollback confirms old receipt and live DNS/listener")
             try check(RuntimeConfigReadbackPolicy.port(try readback()["mixed-port"]) == initialPort, "\(transport): old port restored")

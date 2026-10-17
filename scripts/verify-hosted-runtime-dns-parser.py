@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pure wire-format regressions for the hosted acceptance DNS oracle; no network."""
+"""Pure regressions for the hosted DNS oracle and YAML-compatible JSON; no network."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -27,6 +27,12 @@ precondition(!parser.dnsAAnswerMatchesRange(otherQuestion,range:"198.19.0.0/16",
 var wrongType=valid;wrongType[16]=28
 precondition(!parser.dnsAAnswerMatchesRange(wrongType,range:"198.19.0.0/16",question:query))
 print("Question count/name/type matching checks passed")
+let fixture:[String:Any] = ["cidr":"198.18.0.1/16","url":"https://example.com/dns-query"]
+let encoded = try yamlCompatibleJSON(fixture)
+precondition(!String(decoding:encoded,as:UTF8.self).contains("\\/"))
+let decoded = try JSONSerialization.jsonObject(with:encoded) as! [String:String]
+precondition(decoded["cidr"] == "198.18.0.1/16" && decoded["url"] == "https://example.com/dns-query")
+print("YAML-compatible JSON keeps CIDR/URL slashes and roundtrips unchanged")
 '''
 
 
@@ -35,9 +41,12 @@ def main():
     start = source.index("    func dnsAAnswerMatchesRange(")
     end = source.index("    func probeDNS(", start)
     parser = source[start:end]
+    encoding_start = source.index("private func yamlCompatibleJSON(")
+    encoding_end = source.index("private final class Acceptance", encoding_start)
+    encoding = source[encoding_start:encoding_end]
     with tempfile.TemporaryDirectory(prefix="clashfx-hosted-dns-parser-") as directory:
         test = Path(directory) / "main.swift"
-        test.write_text("import Foundation\nstruct Parser {\n" + parser + "\n}\n" + HARNESS)
+        test.write_text("import Foundation\nstruct Parser {\n" + parser + "\n}\n" + encoding + HARNESS)
         subprocess.run(["swift", str(test)], check=True, timeout=60)
 
 if __name__ == "__main__":
