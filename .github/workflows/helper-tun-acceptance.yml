@@ -43,7 +43,7 @@ jobs:
             --identifier com.clashfx.app.Helper \
             "$RUNNER_TEMP/clashfx-acceptance-build/com.clashfx.app.Helper"
           python3 - <<'PY'
-          import os, subprocess, sys, time
+          import os, shutil, subprocess, sys, time
           from pathlib import Path
           root = Path.cwd()
           sys.path.insert(0, str(root / 'ClashFX/goClash'))
@@ -61,6 +61,7 @@ jobs:
                                       '-buildmode=c-archive', '-o', str(output.parent / 'goClash.a')],
                                      cwd=root / 'ClashFX/goClash',
                                      env=dict(os.environ, CGO_ENABLED='1', GOMAXPROCS='2'), check=True, timeout=600)
+                      shutil.copy2(root / 'ClashFX/goClash/UIHelper.h', output.parent / 'UIHelper.h')
                   break
               except subprocess.CalledProcessError:
                   if attempt == 2:
