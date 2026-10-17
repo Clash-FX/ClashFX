@@ -96,6 +96,15 @@ struct SystemProxyOperationPolicy {
         return false
     }
 
+    /// Readback must verify enabled protocols and loopback hosts as well as ports.
+    /// Disabled residual ports and a PAC/auto-discovery override are not success.
+    static func matchesActiveSystemProxy(_ settings: [String: Any], httpPort: Int, socksPort: Int) -> Bool {
+        guard httpPort > 0, socksPort > 0,
+              !bool(settings["ProxyAutoConfigEnable"]),
+              !bool(settings["ProxyAutoDiscoveryEnable"]) else { return false }
+        return isClashFXOwnedSnapshot(["active": settings], httpPort: httpPort, socksPort: socksPort)
+    }
+
     private static func bool(_ value: Any?) -> Bool {
         return (value as? NSNumber)?.boolValue ?? false
     }

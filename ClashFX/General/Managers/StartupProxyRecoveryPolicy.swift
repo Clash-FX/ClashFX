@@ -51,7 +51,7 @@ enum RuntimeDataPlaneProbeOutcome {
     case baselineUnavailable
 }
 
-enum EnhancedModeRuntimeFailureKind {
+enum EnhancedModeRuntimeFailureKind: Equatable {
     case apiUnavailable
     case tunDisabled
     case tunInterfaceUnavailable
@@ -67,13 +67,66 @@ final class EnhancedModeLifecycleCoordinator {
     private(set) var generation: UInt64 = 0
     private(set) var launchID: UUID?
     private(set) var closeID: UUID?
+    private(set) var isLaunchPending = false
+    private(set) var restoreGeneration: UInt64 = 0
+    private(set) var isRestorePending = false
+
+    var isTransitionInProgress: Bool {
+        isLaunchPending || closeID != nil || isRestorePending
+    }
 
     @discardableResult
     func beginLaunch() -> UInt64 {
+        cancelRestore()
+        return beginLaunchTransaction()
+    }
+
+    @discardableResult
+    func beginRestoredLaunch(restoreGeneration expectedRestoreGeneration: UInt64) -> UInt64? {
+        guard isCurrentRestore(expectedRestoreGeneration, isTerminating: false) else { return nil }
+        return beginLaunchTransaction()
+    }
+
+    private func beginLaunchTransaction() -> UInt64 {
         generation &+= 1
         launchID = UUID()
         closeID = nil
+        isLaunchPending = true
         return generation
+    }
+
+    func finishLaunch(generation expectedGeneration: UInt64) {
+        guard generation == expectedGeneration else { return }
+        isLaunchPending = false
+    }
+
+    func finishFailedLaunch(generation expectedGeneration: UInt64, launchID expectedLaunchID: UUID) {
+        guard generation == expectedGeneration else { return }
+        isLaunchPending = false
+        if launchID == expectedLaunchID {
+            launchID = nil
+        }
+    }
+
+    @discardableResult
+    func beginRestore() -> UInt64 {
+        restoreGeneration &+= 1
+        isRestorePending = true
+        return restoreGeneration
+    }
+
+    func cancelRestore() {
+        restoreGeneration &+= 1
+        isRestorePending = false
+    }
+
+    func finishRestore(generation expectedGeneration: UInt64) {
+        guard restoreGeneration == expectedGeneration else { return }
+        isRestorePending = false
+    }
+
+    func isCurrentRestore(_ expectedGeneration: UInt64, isTerminating: Bool) -> Bool {
+        !isTerminating && isRestorePending && restoreGeneration == expectedGeneration
     }
 
     @discardableResult
@@ -86,6 +139,8 @@ final class EnhancedModeLifecycleCoordinator {
     func beginClose() -> (generation: UInt64, id: UUID) {
         generation &+= 1
         launchID = nil
+        isLaunchPending = false
+        cancelRestore()
         let id = UUID()
         closeID = id
         return (generation, id)
@@ -96,6 +151,8 @@ final class EnhancedModeLifecycleCoordinator {
         generation &+= 1
         launchID = nil
         closeID = nil
+        isLaunchPending = false
+        cancelRestore()
         return generation
     }
 
@@ -159,6 +216,14 @@ enum EnhancedModeLifecyclePolicy {
         !isTerminating && identity.generation == generation && identity.launchID == launchID
     }
 
+    static func shouldApplyLifecycleCompletion(
+        generation: UInt64,
+        currentGeneration: UInt64,
+        isTerminating: Bool
+    ) -> Bool {
+        !isTerminating && generation == currentGeneration
+    }
+
     static func shouldContinueWaiting(deadline: Date, now: Date) -> Bool {
         now < deadline
     }
@@ -182,11 +247,19 @@ enum EnhancedModeLifecyclePolicy {
 
 enum DNSReadiness: Equatable {
     case protocolResponding
-    case upstreamHealthy
+    case answerAvailable
     case invalidResponse
 }
 
 enum EnhancedModeDNSReadinessPolicy {
+    static func matchesExpectedCoreBinary(_ actualPath: String?, bundlePath: String, approvedPath: String) -> Bool {
+        guard let actualPath, !actualPath.isEmpty else { return false }
+        let actual = URL(fileURLWithPath: actualPath).standardizedFileURL.path
+        return [bundlePath, approvedPath].contains {
+            actual == URL(fileURLWithPath: $0).standardizedFileURL.path
+        }
+    }
+
     struct Response {
         let responseCode: UInt8
         let answerCount: Int
@@ -238,9 +311,34 @@ enum EnhancedModeDNSReadinessPolicy {
         let helperIsRunning: Bool
         let processID: Int
         let helperConfigPath: String?
-        let launchLog: String
         let tcpListenPorts: [Int]
         let udpListenPorts: [Int]
+        let tcpListenPortsState: HelperListenerPortsState
+        let udpListenPortsState: HelperListenerPortsState
+
+        init(
+            helperIsRunning: Bool,
+            processID: Int,
+            helperConfigPath: String?,
+            tcpListenPorts: [Int],
+            udpListenPorts: [Int],
+            tcpListenPortsState: HelperListenerPortsState = .known,
+            udpListenPortsState: HelperListenerPortsState = .known
+        ) {
+            self.helperIsRunning = helperIsRunning
+            self.processID = processID
+            self.helperConfigPath = helperConfigPath
+            self.tcpListenPorts = tcpListenPorts
+            self.udpListenPorts = udpListenPorts
+            self.tcpListenPortsState = tcpListenPortsState
+            self.udpListenPortsState = udpListenPortsState
+        }
+    }
+
+    enum HelperListenerPortsState: String, Equatable {
+        case known
+        case unknown
+        case notRunning
     }
 
     struct ExpectedListeners {
@@ -256,14 +354,14 @@ enum EnhancedModeDNSReadinessPolicy {
     ) -> Bool {
         guard observed.helperIsRunning, observed.processID > 0,
               observed.helperConfigPath == expected.expectedConfigPath,
+              observed.tcpListenPortsState == .known,
+              observed.udpListenPortsState == .known,
               expected.apiPort > 0, expected.port > 0 else { return false }
-        let suffix = ":\(expected.port)"
-        let hasUDPBind = observed.launchLog.contains("DNS server(UDP) listening at: 127.0.0.1\(suffix)") ||
-            observed.launchLog.contains("DNS server(UDP) listening at: 0.0.0.0\(suffix)")
-        let hasTCPBind = observed.launchLog.contains("DNS server(TCP) listening at: 127.0.0.1\(suffix)") ||
-            observed.launchLog.contains("DNS server(TCP) listening at: 0.0.0.0\(suffix)")
-        return hasUDPBind && hasTCPBind &&
-            observed.tcpListenPorts.contains(expected.port) && observed.udpListenPorts.contains(expected.port) &&
+        // Listener ownership is runtime evidence. INFO-level bind messages may
+        // be suppressed by the profile's log level, or the log may be unreadable.
+        // Neither changes whether this launch owns its sockets. A separate
+        // UDP/TCP DNS probe must still pass before the launch is accepted.
+        return observed.tcpListenPorts.contains(expected.port) && observed.udpListenPorts.contains(expected.port) &&
             observed.tcpListenPorts.contains(expected.apiPort) &&
             expected.proxyPorts.allSatisfy(observed.tcpListenPorts.contains)
     }
@@ -272,9 +370,10 @@ enum EnhancedModeDNSReadinessPolicy {
         guard hasResponseFlag else { return .invalidResponse }
         // A DNS daemon can be correctly bound and answer SERVFAIL while its
         // upstream is transiently unavailable. That is protocol readiness,
-        // but not proof of a healthy upstream.
+        // but not proof of a healthy upstream. Likewise an A answer can be a
+        // local fake-IP or cached answer; only a data-plane probe tests egress.
         guard responseCode == 0, answerCount > 0 else { return .protocolResponding }
-        return .upstreamHealthy
+        return .answerAvailable
     }
 
     static func launchProtocolReady(
@@ -302,59 +401,85 @@ enum EnhancedModeDNSReadinessPolicy {
         return (Int(prefix[0]) << 8) | Int(prefix[1])
     }
 
-    static func retargetLoopbackServers(_ value: Any, to port: Int) -> Any {
-        let replacement = { (server: String) -> String in
-            guard let expression = try? NSRegularExpression(
-                pattern: #"(127\.0\.0\.1:|localhost:|\[::1\]:)\d+"#
-            ) else { return server }
-            let range = NSRange(server.startIndex ..< server.endIndex, in: server)
-            return expression.stringByReplacingMatches(
-                in: server,
-                range: range,
-                withTemplate: "$1\(port)"
-            )
-        }
-        if let server = value as? String {
-            return replacement(server)
-        }
-        if let servers = value as? [String] {
-            return servers.map(replacement)
-        }
-        if let servers = value as? [Any] {
-            return servers.map { retargetLoopbackServers($0, to: port) }
-        }
-        if let policy = value as? [String: Any] {
-            return policy.mapValues { retargetLoopbackServers($0, to: port) }
-        }
-        return value
-    }
 
-    static func preserveDNSListenPort(in config: inout [String: Any], port: Int) -> Bool {
-        guard port > 0, var dns = config["dns"] as? [String: Any] else { return false }
-        dns["listen"] = "127.0.0.1:\(port)"
-        for key in ["nameserver", "default-nameserver", "fallback", "proxy-server-nameserver", "nameserver-policy"] {
-            if let value = dns[key] {
-                dns[key] = retargetLoopbackServers(value, to: port)
-            }
-        }
-        config["dns"] = dns
-        return true
-    }
 }
 
 enum EnhancedModeRuntimeRecoveryPolicy {
     static func shouldRecover(
         from failure: EnhancedModeRuntimeFailureKind,
-        trafficIsFlowing: Bool
+        trafficIsFlowing: Bool,
+        sustainedAPIFailureCount: Int = 0,
+        sustainedAPIFailureDuration: TimeInterval = 0,
+        apiFailureAttemptLimit: Int = 6,
+        apiFailureDeadline: TimeInterval = 90
     ) -> Bool {
         switch failure {
         case .tunDisabled, .tunInterfaceUnavailable:
             return true
         case .apiUnavailable:
-            return !trafficIsFlowing
+            return !trafficIsFlowing ||
+                sustainedAPIFailureCount >= apiFailureAttemptLimit ||
+                sustainedAPIFailureDuration >= apiFailureDeadline
         case .physicalNetworkUnavailable:
             return false
         }
+    }
+}
+
+enum StartupCoreCleanupEvidence: Equatable {
+    case confirmedAbsent
+    case confirmedStopped
+    case unknown
+    case failed(String)
+}
+
+enum StartupCoreHandoffPolicy {
+    static func mayStartBuiltInCore(after evidence: StartupCoreCleanupEvidence) -> Bool {
+        switch evidence {
+        case .confirmedAbsent, .confirmedStopped:
+            return true
+        case .unknown, .failed:
+            return false
+        }
+    }
+}
+
+enum EnhancedModeMenuAvailabilityPolicy {
+    static func shouldEnableToggle(
+        isTransitioning: Bool,
+        isTerminating: Bool,
+        isRestarting: Bool,
+        coreIsRunning: Bool,
+        ownershipRetryAvailable: Bool,
+        startupCleanupRetryAvailable: Bool,
+        builtInResumeRetryAvailable: Bool
+    ) -> Bool {
+        !isTransitioning && !isTerminating && !isRestarting &&
+            (coreIsRunning || ownershipRetryAvailable || startupCleanupRetryAvailable ||
+                builtInResumeRetryAvailable)
+    }
+}
+
+enum EnhancedModeOwnershipPolicy {
+    static func matchesExpectedLaunch(
+        running: Bool,
+        observedConfigPath: String?,
+        observedLaunchID: String?,
+        expectedConfigPath: String,
+        expectedLaunchID: String?
+    ) -> Bool {
+        guard running,
+              observedConfigPath == expectedConfigPath,
+              let observedLaunchID,
+              !observedLaunchID.isEmpty else { return false }
+        guard let expectedLaunchID else { return true }
+        return observedLaunchID == expectedLaunchID
+    }
+}
+
+enum EnhancedModeCleanupPolicy {
+    static func isRequired(enhancedModeActive: Bool, ownershipBlocked: Bool) -> Bool {
+        enhancedModeActive || ownershipBlocked
     }
 }
 

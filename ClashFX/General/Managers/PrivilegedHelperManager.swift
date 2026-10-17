@@ -7,10 +7,34 @@
 //
 
 import AppKit
+import CommonCrypto
+import Darwin
 import RxCocoa
 import RxSwift
 import Security
 import ServiceManagement
+
+struct PrivilegedHelperTrustMaterial {
+    let clientCDHash: String
+    let approvedSourcePath: String
+    let coreSHA256: String
+    let helperSHA256: String
+}
+
+struct PrivilegedHelperTrustAssessment {
+    let material: PrivilegedHelperTrustMaterial?
+    let installedCoreSHA256: String?
+    let hasApprovedInstalledCore: Bool
+    let currentClientApproved: Bool
+    let currentBuildApproved: Bool
+    let currentClientUsesAdHocSignature: Bool
+}
+
+private enum PendingDNSRecoverySnapshot {
+    case none
+    case ready(base64: String)
+    case invalid(String)
+}
 
 class PrivilegedHelperManager {
     let isHelperCheckFinished = BehaviorRelay<Bool>(value: false)
@@ -20,14 +44,23 @@ class PrivilegedHelperManager {
     private var authRef: AuthorizationRef?
     private var connection: NSXPCConnection?
     private let connectionLock = NSLock()
+    private let trustMaterialLock = NSLock()
+    private var cachedTrustMaterial: PrivilegedHelperTrustMaterial?
+    private var cachedTrustAssessment: PrivilegedHelperTrustAssessment?
+    private var pendingDNSSnapshotJSONBase64: String?
+    private var pendingDNSJournalError: String?
+    private var activeTrustInstallRequestID: UUID?
+    private var activeTrustInstallSettlement: ManagedOperationSettlement<String?>?
     static let machServiceName = "com.clashfx.app.Helper"
     static let shared = PrivilegedHelperManager()
+    static let approvedCorePath = "/Library/PrivilegedHelperTools/com.clashfx.app.Helper.mihomo_core"
+    static let trustReceiptPath = "/Library/PrivilegedHelperTools/com.clashfx.app.Helper.trust.plist"
+    static let trustReceiptSchemaVersion = 1
     // Keep this longer than the helper's initial connection grace period so
     // the app cannot reinstall a helper that is still waiting for launchd to
     // deliver the XPC request.
     private static let installedHelperResponseTimeout: TimeInterval = 75
     private static let missingHelperResponseTimeout: TimeInterval = 5
-    private static let adHocSignatureFlag: UInt32 = 0x2
 
     init() {
         initAuthorizationRef()
@@ -36,6 +69,7 @@ class PrivilegedHelperManager {
     // MARK: - Public
 
     func checkInstall() {
+        guard AppDelegate.shared.ownsRuntimeControl else { return }
         Logger.log("checkInstall", level: .debug)
         getHelperStatus { [weak self] status in
             Logger.log("check result: \(status)", level: .debug)
@@ -71,6 +105,11 @@ class PrivilegedHelperManager {
                 }
             case .installed:
                 self.isHelperCheckFinished.accept(true)
+            case .unresponsive:
+                // A lost reply does not prove the daemon or its core is gone.
+                // Reinstalling here can strand the old core and its cache lock.
+                self.resetConnection()
+                Logger.log("Installed helper is not responding; leaving core ownership unchanged", level: .error)
             }
         }
     }
@@ -86,6 +125,48 @@ class PrivilegedHelperManager {
         staleConnection?.invalidate()
     }
 
+    /// Refresh a stale readiness hint without installing or stopping anything.
+    /// Startup retries must ask the daemon again after an earlier lost reply.
+    func refreshReadiness(timeout: TimeInterval, completion: @escaping (Bool) -> Void) {
+        let settlement = ManagedOperationSettlement<Bool> { [weak self] ready in
+            DispatchQueue.main.async {
+                if ready {
+                    self?.isHelperCheckFinished.accept(true)
+                }
+                completion(ready)
+            }
+        }
+        let bundled = Bundle.main.bundleURL.appendingPathComponent(
+            "Contents/Library/LaunchServices/" + Self.machServiceName
+        )
+        let installed = "/Library/PrivilegedHelperTools/" + Self.machServiceName
+        settlement.scheduleTimeout(after: timeout, outcome: { false })
+        guard FileManager.default.fileExists(atPath: installed) else {
+            _ = settlement.finish(false)
+            return
+        }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self,
+                  FileManager.default.contentsEqual(atPath: bundled.path, andPath: installed),
+                  self.installedTrustArtifactsMatchCurrentApp() else {
+                _ = settlement.finish(false)
+                return
+            }
+            DispatchQueue.main.async {
+                guard let helper = self.helper(failture: { _ = settlement.finish(false) }) else {
+                    _ = settlement.finish(false)
+                    return
+                }
+                let invocation: Void? = helper.getHelperProtocolVersion? { version in
+                    _ = settlement.finish(version == UInt(CLASHFX_HELPER_PROTOCOL_VERSION))
+                }
+                if invocation == nil {
+                    _ = settlement.finish(false)
+                }
+            }
+        }
+    }
+
     private func initAuthorizationRef() {
         // Create an empty AuthorizationRef
         let status = AuthorizationCreate(nil, nil, AuthorizationFlags(), &authRef)
@@ -96,31 +177,195 @@ class PrivilegedHelperManager {
     }
 
     private func currentAppUsesAdHocSignature() -> Bool {
-        var staticCode: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(
-            Bundle.main.bundleURL as CFURL,
-            [],
-            &staticCode
-        ) == errSecSuccess, let staticCode else {
-            return false
+        currentProcessTrustIdentity()?.isAdHoc ?? false
+    }
+
+    private func currentProcessTrustIdentity() -> (clientCDHash: String, isAdHoc: Bool)? {
+        guard let details = ClashFXCurrentProcessSigningDetails() as? [String: Any],
+              let clientCDHash = details["CDHash"] as? String,
+              Self.isLowercaseHexDigest(clientCDHash, length: 40),
+              let isAdHoc = details["AdHoc"] as? NSNumber else {
+            return nil
+        }
+        return (clientCDHash, isAdHoc.boolValue)
+    }
+
+    func trustMaterialForCurrentApp() -> PrivilegedHelperTrustMaterial? {
+        let helperURL = Bundle.main.bundleURL.appendingPathComponent(
+            "Contents/Library/LaunchServices/" + Self.machServiceName
+        )
+        guard let coreURL = Bundle.main.url(forResource: "mihomo_core", withExtension: nil),
+              let processIdentity = currentProcessTrustIdentity(),
+              let coreSHA256 = Self.sha256Hex(at: coreURL),
+              let helperSHA256 = Self.sha256Hex(at: helperURL) else {
+            return nil
+        }
+        let material = PrivilegedHelperTrustMaterial(
+            clientCDHash: processIdentity.clientCDHash,
+            approvedSourcePath: coreURL.standardizedFileURL.path,
+            coreSHA256: coreSHA256,
+            helperSHA256: helperSHA256
+        )
+        trustMaterialLock.lock()
+        cachedTrustMaterial = material
+        trustMaterialLock.unlock()
+        return material
+    }
+
+    func cachedTrustMaterialForCurrentApp() -> PrivilegedHelperTrustMaterial? {
+        trustMaterialLock.lock()
+        defer { trustMaterialLock.unlock() }
+        return cachedTrustMaterial
+    }
+
+    private func installedTrustArtifactsMatchCurrentApp() -> Bool {
+        trustAssessmentForCurrentApp().currentBuildApproved
+    }
+
+    func trustAssessmentForCurrentApp() -> PrivilegedHelperTrustAssessment {
+        let material = trustMaterialForCurrentApp()
+        let adHocSignature = currentAppUsesAdHocSignature()
+        var installedCoreHash: String?
+        var approvedCore = false
+        var clientApproved = false
+
+        if Self.trustDirectoriesAreSafe(),
+           Self.trustFileIsSafe(Self.approvedCorePath, executable: true),
+           Self.trustFileIsSafe(Self.trustReceiptPath, executable: false),
+           let coreHash = Self.sha256Hex(at: URL(fileURLWithPath: Self.approvedCorePath)),
+           let receiptData = try? Data(contentsOf: URL(fileURLWithPath: Self.trustReceiptPath)),
+           receiptData.count <= 64 * 1024,
+           let receipt = (try? PropertyListSerialization.propertyList(
+               from: receiptData,
+               options: [],
+               format: nil
+           )) as? [String: Any],
+           (receipt["SchemaVersion"] as? NSNumber)?.intValue == Self.trustReceiptSchemaVersion,
+           let entries = receipt["ApprovedClients"] as? [[String: Any]] {
+            installedCoreHash = coreHash
+            approvedCore = entries.contains { entry in
+                let sourcePath = entry["ApprovedSourcePath"] as? String
+                return entry["BundleIdentifier"] as? String == "com.clashfx.app" &&
+                    entry["CoreSHA256"] as? String == coreHash &&
+                    Self.isLowercaseHexDigest(entry["CoreSHA256"] as? String, length: 64) &&
+                    sourcePath?.hasPrefix("/") == true
+            }
+            if let material {
+                clientApproved = entries.contains { entry in
+                    entry["BundleIdentifier"] as? String == Bundle.main.bundleIdentifier &&
+                        entry["ClientCDHash"] as? String == material.clientCDHash &&
+                        entry["ApprovedSourcePath"] as? String == material.approvedSourcePath &&
+                        entry["CoreSHA256"] as? String == coreHash
+                }
+            }
         }
 
-        var signingInfo: CFDictionary?
-        guard SecCodeCopySigningInformation(
-            staticCode,
-            SecCSFlags(rawValue: kSecCSSigningInformation),
-            &signingInfo
-        ) == errSecSuccess,
-            let info = signingInfo as? [String: Any],
-            let flags = info[kSecCodeInfoFlags as String] as? NSNumber else {
-            return false
-        }
+        let assessment = PrivilegedHelperTrustAssessment(
+            material: material,
+            installedCoreSHA256: installedCoreHash,
+            hasApprovedInstalledCore: approvedCore,
+            currentClientApproved: clientApproved,
+            currentBuildApproved: clientApproved && installedCoreHash == material?.coreSHA256,
+            currentClientUsesAdHocSignature: adHocSignature
+        )
+        trustMaterialLock.lock()
+        cachedTrustAssessment = assessment
+        trustMaterialLock.unlock()
+        return assessment
+    }
 
-        return flags.uint32Value & Self.adHocSignatureFlag != 0
+    func cachedTrustAssessmentForCurrentApp() -> PrivilegedHelperTrustAssessment? {
+        trustMaterialLock.lock()
+        defer { trustMaterialLock.unlock() }
+        return cachedTrustAssessment
+    }
+
+    private func loadPendingDNSRecoverySnapshot() -> PendingDNSRecoverySnapshot {
+        let journalURL = URL(fileURLWithPath: kConfigFolderPath)
+            .appendingPathComponent(".tun_dns_snapshot.json")
+        let snapshot = TunDNSSnapshotStore(defaults: .standard, journalURL: journalURL).load()
+        guard !snapshot.isEmpty else { return .none }
+        if let error = snapshot["error"] as? String {
+            return .invalid(error)
+        }
+        guard JSONSerialization.isValidJSONObject(snapshot),
+              let data = try? JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys]),
+              data.count <= 1_048_576 else {
+            return .invalid("DNS recovery snapshot cannot be safely passed to the helper installer")
+        }
+        return .ready(base64: data.base64EncodedString())
+    }
+
+    private func cachePendingDNSRecoverySnapshot(_ snapshot: PendingDNSRecoverySnapshot) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        switch snapshot {
+        case .none:
+            pendingDNSSnapshotJSONBase64 = nil
+            pendingDNSJournalError = nil
+        case let .ready(base64):
+            pendingDNSSnapshotJSONBase64 = base64
+            pendingDNSJournalError = nil
+        case let .invalid(error):
+            pendingDNSSnapshotJSONBase64 = nil
+            pendingDNSJournalError = error
+        }
+    }
+
+    private static func hasPendingDNSSnapshot(_ snapshot: PendingDNSRecoverySnapshot) -> Bool {
+        if case .ready = snapshot { return true }
+        return false
+    }
+
+    private static func isLowercaseHexDigest(_ value: String?, length: Int) -> Bool {
+        guard let value, value.count == length else { return false }
+        return value.unicodeScalars.allSatisfy { scalar in
+            (scalar.value >= 48 && scalar.value <= 57) || (scalar.value >= 97 && scalar.value <= 102)
+        }
+    }
+
+    private static func sha256Hex(at url: URL) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: url.path) else { return nil }
+        defer { handle.closeFile() }
+        var context = CC_SHA256_CTX()
+        guard CC_SHA256_Init(&context) == 1 else { return nil }
+        while true {
+            let data = handle.readData(ofLength: 64 * 1024)
+            if data.isEmpty { break }
+            let updateStatus = data.withUnsafeBytes { bytes -> Int32 in
+                guard let baseAddress = bytes.baseAddress else { return 0 }
+                return CC_SHA256_Update(&context, baseAddress, CC_LONG(data.count))
+            }
+            guard updateStatus == 1 else { return nil }
+        }
+        var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        guard CC_SHA256_Final(&digest, &context) == 1 else { return nil }
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func trustDirectoriesAreSafe() -> Bool {
+        ["/", "/Library", "/Library/PrivilegedHelperTools"].allSatisfy { path in
+            var info = Darwin.stat()
+            guard path.withCString({ lstat($0, &info) }) == 0 else { return false }
+            return info.st_uid == 0 && info.st_gid == 0 &&
+                (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) &&
+                (info.st_mode & mode_t(S_IWGRP | S_IWOTH)) == 0
+        }
+    }
+
+    private static func trustFileIsSafe(_ path: String, executable: Bool) -> Bool {
+        var info = Darwin.stat()
+        guard path.withCString({ lstat($0, &info) }) == 0 else { return false }
+        let accessBit = executable ? mode_t(S_IXUSR) : mode_t(S_IRUSR)
+        return info.st_uid == 0 && info.st_gid == 0 &&
+            (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) &&
+            (info.st_mode & mode_t(S_IWUSR | S_IWGRP | S_IWOTH)) == 0 &&
+            (info.st_mode & accessBit) != 0 &&
+            (info.st_flags & UInt32(UF_IMMUTABLE)) != 0
     }
 
     /// Install new helper daemon
     private func installHelperDaemon() -> DaemonInstallResult {
+        guard AppDelegate.shared.ownsRuntimeControl else { return .authorizationFail }
         Logger.log("installHelperDaemon", level: .info)
 
         defer {
@@ -167,7 +412,44 @@ class PrivilegedHelperManager {
         return .success
     }
 
+    private func installApprovedCoreTrustArtifacts(completion: @escaping (String?) -> Void) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard activeTrustInstallRequestID == nil else {
+            completion("An approved core trust installation is already in progress")
+            return
+        }
+        resetConnection()
+        let requestID = UUID()
+        let settlement = ManagedOperationSettlement<String?> { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self, self.activeTrustInstallRequestID == requestID else { return }
+                self.activeTrustInstallRequestID = nil
+                self.activeTrustInstallSettlement = nil
+                completion(error)
+            }
+        }
+        activeTrustInstallRequestID = requestID
+        activeTrustInstallSettlement = settlement
+        settlement.scheduleTimeout(
+            after: 90,
+            outcome: { "Timed out while installing the approved Mihomo core and trust receipt" }
+        )
+        guard let helper = helper(failture: {
+            _ = settlement.finish("Installed helper did not accept the trust installation request")
+        }) else {
+            _ = settlement.finish("Installed helper is unavailable for trust installation")
+            return
+        }
+        let invocation: Void? = helper.installApprovedMihomoCore? { error in
+            _ = settlement.finish(error)
+        }
+        if invocation == nil {
+            _ = settlement.finish("Installed helper does not support approved core installation")
+        }
+    }
+
     func helper(failture: (() -> Void)? = nil) -> ProxyConfigRemoteProcessProtocol? {
+        guard AppDelegate.shared.ownsRuntimeControl else { failture?(); return nil }
         connectionLock.lock()
         let activeConnection: NSXPCConnection
         if let connection {
@@ -177,9 +459,9 @@ class PrivilegedHelperManager {
                 machServiceName: PrivilegedHelperManager.machServiceName,
                 options: .privileged
             )
-            newConnection.remoteObjectInterface = NSXPCInterface(
-                with: ProxyConfigRemoteProcessProtocol.self
-            )
+            let remoteInterface = NSXPCInterface(with: ProxyConfigRemoteProcessProtocol.self)
+            ClashFXConfigureHelperXPCInterface(remoteInterface)
+            newConnection.remoteObjectInterface = remoteInterface
             connection = newConnection
             newConnection.invalidationHandler = { [weak self, weak newConnection] in
                 Logger.log("XPC Connection Invalidated", level: .warning)
@@ -223,6 +505,7 @@ class PrivilegedHelperManager {
         case installed
         case noFound
         case needUpdate
+        case unresponsive
     }
 
     private static let firstHelperProtocolVersion = "1.0.38.1"
@@ -267,64 +550,132 @@ class PrivilegedHelperManager {
         )
         let helperFileExists = FileManager.default.fileExists(atPath: installedHelperURL.path)
         if !helperFileExists {
-            finish(.noFound)
-            return
-        }
-        if !FileManager.default.contentsEqual(
-            atPath: helperURL.path,
-            andPath: installedHelperURL.path
-        ) {
-            Logger.log("Installed helper differs from bundled helper; update required")
-            finish(.needUpdate)
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                _ = self?.trustAssessmentForCurrentApp()
+                let dnsSnapshot = self?.loadPendingDNSRecoverySnapshot() ?? .none
+                DispatchQueue.main.async {
+                    self?.cachePendingDNSRecoverySnapshot(dnsSnapshot)
+                    if case let .invalid(reason) = dnsSnapshot {
+                        Logger.log("Cannot safely refresh helper with pending DNS recovery: \(reason)", level: .error)
+                        finish(.unresponsive)
+                    } else {
+                        finish(.noFound)
+                    }
+                }
+            }
             return
         }
         let timeout = helperFileExists
             ? Self.installedHelperResponseTimeout
             : Self.missingHelperResponseTimeout
-        let time = Date()
-
-        timer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
-            Logger.log("check helper timeout time: \(timeout)")
-            finish(.noFound)
+        let scheduleTimeout = { [weak self] in
+            self?.timer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
+                Logger.log("check helper timeout time: \(timeout)")
+                finish(.unresponsive)
+            }
+        }
+        if Thread.isMainThread {
+            scheduleTimeout()
+        } else {
+            DispatchQueue.main.sync(execute: scheduleTimeout)
         }
 
-        guard let h = helper() else {
-            finish(.noFound)
-            return
-        }
-        h.getVersion { [weak self] installedHelperVersion in
-            Logger.log("helper version \(installedHelperVersion ?? "nil") require version \(helperVersion)", level: .debug)
-            Logger.log("check helper using time: \(Date().timeIntervalSince(time))")
-            guard let installedHelperVersion else {
-                finish(.needUpdate)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else {
+                finish(.unresponsive)
                 return
             }
-            let cmp = Self.compareVersion(installedHelperVersion, Self.firstHelperProtocolVersion)
-            guard cmp != .orderedAscending else {
-                Logger.log("old helper \(installedHelperVersion) predates protocol versioning; needUpdate", level: .debug)
-                self?.resetConnection()
-                finish(.needUpdate)
-                return
-            }
-            h.getHelperProtocolVersion? { [weak self] installedProtocolVersion in
-                let expected = UInt(CLASHFX_HELPER_PROTOCOL_VERSION)
-                Logger.log("helper protocol v\(installedProtocolVersion) expect v\(expected)", level: .debug)
-                guard installedProtocolVersion != expected else {
-                    finish(.installed)
+            let trustAssessment = self.trustAssessmentForCurrentApp()
+            let dnsSnapshot = self.loadPendingDNSRecoverySnapshot()
+            let needsBinaryUpdate = !FileManager.default.contentsEqual(
+                atPath: helperURL.path,
+                andPath: installedHelperURL.path
+            )
+            DispatchQueue.main.async {
+                self.cachePendingDNSRecoverySnapshot(dnsSnapshot)
+                if case let .invalid(reason) = dnsSnapshot {
+                    Logger.log("Cannot safely refresh helper with pending DNS recovery: \(reason)", level: .error)
+                    finish(.unresponsive)
                     return
                 }
+                guard trustAssessment.currentBuildApproved else {
+                    Logger.log(
+                        "Helper trust receipt or approved core is missing or outdated; requesting an authorized refresh",
+                        level: .info
+                    )
+                    finish(.needUpdate)
+                    return
+                }
+                self.checkInstalledHelper(
+                    helperURL: helperURL,
+                    installedHelperURL: installedHelperURL,
+                    helperVersion: helperVersion,
+                    needsBinaryUpdate: needsBinaryUpdate,
+                    dnsSnapshotPending: Self.hasPendingDNSSnapshot(dnsSnapshot),
+                    finish: finish
+                )
+            }
+        }
+    }
 
-                // A running legacy helper keeps its old executable and XPC
-                // interface even after the on-disk tool is replaced. Stop its
-                // managed core and release the connection before installing
-                // the new protocol version so launchd can start the new helper.
-                h.stopMihomoCore { error in
+    private func checkInstalledHelper(
+        helperURL: URL,
+        installedHelperURL: URL,
+        helperVersion: String,
+        needsBinaryUpdate: Bool,
+        dnsSnapshotPending: Bool,
+        finish: @escaping (HelperStatus) -> Void
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let time = Date()
+        guard let helper = helper(failture: { finish(.unresponsive) }) else {
+            finish(.unresponsive)
+            return
+        }
+        let stopBeforeUpgrade = { [weak self] in
+            if dnsSnapshotPending {
+                Logger.log("Pending DNS recovery will run through the staged helper before replacement", level: .info)
+                finish(.needUpdate)
+                return
+            }
+            AppDelegate.shared.restoreDNSBeforePrivilegedHelperUpdate { dnsError in
+                if let dnsError {
+                    Logger.log("Failed to restore TUN DNS before helper upgrade: \(dnsError)", level: .warning)
+                    finish(.unresponsive)
+                    return
+                }
+                helper.stopMihomoCore { error in
                     if let error {
                         Logger.log("Failed to stop core before helper upgrade: \(error)", level: .warning)
+                        finish(.unresponsive)
+                        return
                     }
                     self?.resetConnection()
                     finish(.needUpdate)
                 }
+            }
+        }
+        helper.getVersion { installedHelperVersion in
+            Logger.log("helper version \(installedHelperVersion ?? "nil") require version \(helperVersion)", level: .debug)
+            Logger.log("check helper using time: \(Date().timeIntervalSince(time))")
+            guard let installedHelperVersion else {
+                finish(.unresponsive)
+                return
+            }
+            let comparison = Self.compareVersion(installedHelperVersion, Self.firstHelperProtocolVersion)
+            guard comparison != .orderedAscending else {
+                Logger.log("old helper \(installedHelperVersion) predates protocol versioning; needUpdate", level: .debug)
+                stopBeforeUpgrade()
+                return
+            }
+            helper.getHelperProtocolVersion? { installedProtocolVersion in
+                let expected = UInt(CLASHFX_HELPER_PROTOCOL_VERSION)
+                Logger.log("helper protocol v\(installedProtocolVersion) expect v\(expected)", level: .debug)
+                guard installedProtocolVersion != expected || needsBinaryUpdate else {
+                    finish(.installed)
+                    return
+                }
+                stopBeforeUpgrade()
             }
         }
     }
@@ -338,24 +689,38 @@ extension PrivilegedHelperManager {
             return
         }
 
-        if useLegacyInstall || currentAppUsesAdHocSignature() {
+        if useLegacyInstall || currentAppUsesAdHocSignature() || pendingDNSSnapshotJSONBase64 != nil {
             useLegacyInstall = false
             Logger.log(
-                "Using legacy helper installation for an ad-hoc signed app",
+                pendingDNSSnapshotJSONBase64 == nil
+                    ? "Using legacy helper installation for an ad-hoc signed app"
+                    : "Using staged-helper DNS recovery before authorized helper replacement",
                 level: .info
             )
-            legacyInstallHelper()
-            if !cancelInstallCheck {
-                checkInstall()
+            let installed = legacyInstallHelper(dnsSnapshotJSONBase64: pendingDNSSnapshotJSONBase64)
+            if installed, !cancelInstallCheck {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.checkInstall()
+                }
+            } else if !installed {
+                NSAlert.alert(with: NSLocalizedString("Helper installation failed. Please try again or check the logs.", comment: ""))
             }
             return
         }
 
         let result = installHelperDaemon()
         if case .success = result {
-            if !cancelInstallCheck {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    self?.checkInstall()
+            installApprovedCoreTrustArtifacts { [weak self] error in
+                DispatchQueue.main.async {
+                    guard let self, !self.cancelInstallCheck else { return }
+                    if let error {
+                        Logger.log("Failed to install approved helper core trust: \(error)", level: .error)
+                        NSAlert.alert(with: error)
+                        return
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self.checkInstall()
+                    }
                 }
             }
             return
@@ -366,9 +731,11 @@ extension PrivilegedHelperManager {
         // User already consented to installation above.
         if result.shouldRetryLegacyWay() {
             Logger.log("SMJobBless failed, falling back to legacy install: \(result.alertContent)", level: .warning)
-            legacyInstallHelper()
-            if !cancelInstallCheck {
+            let installed = legacyInstallHelper(dnsSnapshotJSONBase64: pendingDNSSnapshotJSONBase64)
+            if installed, !cancelInstallCheck {
                 checkInstall()
+            } else if !installed {
+                NSAlert.alert(with: NSLocalizedString("Helper installation failed. Please try again or check the logs.", comment: ""))
             }
             return
         }

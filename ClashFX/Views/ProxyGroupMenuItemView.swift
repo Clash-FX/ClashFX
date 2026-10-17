@@ -118,7 +118,7 @@ enum AutomaticGroupBenchmarkPresentationStore {
             switch current.rowState {
             case .testing:
                 replacement = .testing(displayName: displayName(groupName: group.name, finalLeaf: finalLeaf))
-            case .measured, .failed, .unavailable:
+            case .measured, .failed, .timedOut, .unavailable:
                 Logger.log(
                     "[Proxy Delay] Automatic group '\(group.name)' changed its selected path without current-run evidence",
                     level: .warning
@@ -172,6 +172,7 @@ enum AutomaticGroupBenchmarkPresentationStore {
 
 class ProxyGroupMenuItemView: MenuItemBaseView {
     private let groupName: ClashProxyName
+    private var latestGroup: ClashProxy
     private var latestSnapshot: ClashProxyResp?
     private let groupNameLabel: NSTextField
     private let selectProxyLabel: NSTextField
@@ -199,6 +200,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
 
     init(proxyGroup: ClashProxy, targetProxy: ClashProxyName, hasLeftPadding: Bool) {
         groupName = proxyGroup.name
+        latestGroup = proxyGroup
         latestSnapshot = proxyGroup.enclosingResp
         groupNameLabel = VibrancyTextField(labelWithString: proxyGroup.name)
         selectProxyLabel = VibrancyTextField(labelWithString: targetProxy)
@@ -226,12 +228,13 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         effectView.addSubview(delayLabel)
         delayLabel.rightAnchor.constraint(equalTo: effectView.rightAnchor, constant: -30).isActive = true
         delayLabel.centerYAnchor.constraint(equalTo: effectView.centerYAnchor).isActive = true
-        delayLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        delayLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         delayLabel.setContentHuggingPriority(.required, for: .horizontal)
         delaySpacingConstraint = delayLabel.leftAnchor.constraint(equalTo: selectProxyLabel.rightAnchor)
         delaySpacingConstraint?.isActive = true
         selectProxyLabel.centerYAnchor.constraint(equalTo: effectView.centerYAnchor).isActive = true
-        selectProxyLabel.lineBreakMode = .byTruncatingHead
+        delayLabel.lineBreakMode = .byTruncatingTail
+        selectProxyLabel.lineBreakMode = .byTruncatingMiddle
         selectProxyLabel.leftAnchor.constraint(greaterThanOrEqualTo: groupNameLabel.rightAnchor, constant: 20).isActive = true
 
         effectView.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
@@ -247,10 +250,16 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
         selectProxyLabel.textColor = NSColor.secondaryLabelColor
         delayLabel.textColor = NSColor.secondaryLabelColor
 
+        NotificationCenter.default.addObserver(self, selector: #selector(selectionDisplayDidChange), name: Settings.proxyMenuSelectionDisplayDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(proxyInfoDidUpdate(note:)), name: .proxyUpdate(for: proxyGroup.name), object: nil)
-        if !showMissingCandidates(proxyGroup), proxyGroup.type.isAutoGroup,
-           let presentation = AutomaticGroupBenchmarkPresentationStore.reconcile(group: proxyGroup) {
-            render(presentation)
+        if !showMissingCandidates(proxyGroup) {
+            if let selection = selectionPresentation(for: proxyGroup) {
+                renderSelection(selection)
+            }
+            if proxyGroup.type.isAutoGroup,
+               let presentation = AutomaticGroupBenchmarkPresentationStore.reconcile(group: proxyGroup) {
+                render(presentation)
+            }
         }
         if #available(macOS 11, *) {
             updateLeftMenuPadding(show: hasLeftPadding)
@@ -259,6 +268,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
     }
 
     private func updateLeftMenuPadding(show: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
         leftPaddingConstraint?.constant = show ? leftPadding : 10
     }
 
@@ -280,6 +290,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
             return
         }
         guard let info = note.object as? ClashProxy, info.name == groupName else { return }
+        latestGroup = info
         latestSnapshot = info.enclosingResp
         if showMissingCandidates(info) { return }
         if info.type.isAutoGroup,
@@ -287,47 +298,77 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
             render(presentation)
             return
         }
-        selectProxyLabel.stringValue = info.now ?? ""
         clearBenchmarkDetails()
+        if let selection = selectionPresentation(for: info) {
+            renderSelection(selection)
+        } else {
+            renderLegacySelection(info.now ?? "")
+        }
+    }
+
+    @objc private func selectionDisplayDidChange() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.selectionDisplayDidChange() }
+            return
+        }
+        if showMissingCandidates(latestGroup) { return }
+        if let presentation = selectionPresentation(for: latestGroup) {
+            renderSelection(presentation)
+        }
     }
 
     private func render(_ presentation: AutomaticGroupBenchmarkPresentation) {
+        dispatchPrecondition(condition: .onQueue(.main))
         clearBenchmarkDetails()
         effectView.alphaValue = 1
-        let leaf = presentation.finalLeaf ?? presentation.rowState.presentationName
-        if presentation.selectedPath.contains("COMPATIBLE")
-            || latestSnapshot?.proxiesMap[leaf].map(ClashProxyType.isCompatibilityFallback) == true {
-            selectProxyLabel.stringValue = NSLocalizedString("Direct fallback (no proxy nodes)", comment: "")
-            return
+        let group = latestSnapshot?.proxiesMap[groupName] ?? latestGroup
+        if showMissingCandidates(group) { return }
+
+        let selection = selectionPresentation(for: group)
+        let leaf: ClashProxyName
+        if let selection {
+            renderSelection(selection)
+            guard selection.isResolved else { return }
+            guard let resolvedLeaf = selection.leaf else { return }
+            leaf = resolvedLeaf
+        } else {
+            guard let latestSnapshot,
+                  case let .resolved(_, resolvedLeaf) = latestSnapshot.resolveSelectedPath(from: groupName) else { return }
+            leaf = resolvedLeaf.name
+            renderLegacySelection("\(leaf) ·")
         }
         let conditions = BenchmarkConditions(url: presentation.identity.benchmarkURL,
                                              expectedStatus: presentation.identity.expectedStatus)
         let proxy = latestSnapshot?.proxiesMap[leaf]
         let cached = proxy.flatMap { GlobalLeafBenchmarkPresentationStore.presentation(for: $0, conditions: conditions) }
+        let benchmarkMatchesRoute = presentation.finalLeaf == leaf && presentation.isValid(for: group)
+        let benchmarkEvidence: BenchmarkRowResolver.Evidence? = benchmarkMatchesRoute
+            ? BenchmarkRowResolver.Evidence(state: presentation.rowState, measuredAt: presentation.publishedAt)
+            : nil
         let resolved = BenchmarkRowResolver.resolve(
             name: leaf, core: conditions.expectedStatus == nil ? proxy?.testState(for: conditions.url) : nil,
             cached: cached.map { .init(state: $0.rowState, measuredAt: $0.publishedAt) },
-            contextual: .init(state: presentation.rowState, measuredAt: presentation.publishedAt),
-            activity: .init(state: presentation.rowState, measuredAt: presentation.publishedAt)
+            contextual: benchmarkEvidence,
+            activity: benchmarkEvidence
         )
-        let suffix = resolved.isHistorical ? " *" : ""
-        selectProxyLabel.stringValue = "\(leaf) ·"
-        delayLabel.stringValue = "\(resolved.state.delayDisplay ?? "")\(suffix)"
+        delayLabel.stringValue = BenchmarkRowDelayPresentation.applyingHistoryMarker(
+            to: resolved.state.delayDisplay,
+            isHistorical: resolved.isHistorical,
+            localizedFormat: NSLocalizedString(
+                "Benchmark result with historical marker",
+                value: "%@ · old",
+                comment: "Format for a benchmark result that is historical"
+            )
+        ) ?? ""
+        delayLabel.textColor = ProxyBenchmarkDelayColorCategory.labelColor(for: resolved.state.rawDelay)
         delaySpacingConstraint?.constant = 4
-        var details = [conditions.url]
-        if let date = resolved.measuredAt {
-            details.append(String(format: NSLocalizedString("Measured at: %@", comment: ""),
-                                  DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)))
-        }
-        if resolved.isHistorical { details.append(NSLocalizedString("Historical benchmark result", comment: "")) }
-        if resolved.lastAttemptUnavailable {
-            details.append(NSLocalizedString("Latest benchmark unavailable; showing the last measurement", comment: ""))
-        }
+        let details = BenchmarkFailurePresentation.details(for: resolved, conditions: conditions, proxy: proxy)
         if case .testing = resolved.state { return }
-        delayLabel.toolTip = resolved.measuredAt == nil ? nil : details.joined(separator: "\n")
+        delayLabel.toolTip = resolved.measuredAt == nil ? nil : details
     }
 
     private func clearBenchmarkDetails() {
+        dispatchPrecondition(condition: .onQueue(.main))
         toolTip = nil
         delayLabel.toolTip = nil
         delayLabel.stringValue = ""
@@ -335,7 +376,7 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
     }
 
     private func showMissingCandidates(_ group: ClashProxy) -> Bool {
-        guard let snapshot = group.enclosingResp else { return false }
+        guard let snapshot = group.enclosingResp ?? latestSnapshot else { return false }
         let isFallback: Bool
         if case .unavailable(_, .compatibilityFallback) = snapshot.resolveSelectedPath(from: group.name) {
             isFallback = true
@@ -343,9 +384,71 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
             isFallback = false
         }
         guard isFallback || !snapshot.hasBenchmarkCandidates(in: group.name) else { return false }
-        selectProxyLabel.stringValue = NSLocalizedString(isFallback ? "Direct fallback (no proxy nodes)" : "No testable proxy nodes", comment: "")
+        renderLegacySelection(NSLocalizedString(isFallback ? "Direct fallback (no proxy nodes)" : "No testable proxy nodes", comment: ""))
         clearBenchmarkDetails()
         return true
+    }
+
+    private func selectionPresentation(for group: ClashProxy) -> ProxyGroupSelectionPresentation? {
+        return ProxyGroupSelectionPresentation(group: group, snapshot: latestSnapshot)
+    }
+
+    private func renderSelection(_ presentation: ProxyGroupSelectionPresentation) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let modeTitle: String
+        switch presentation.mode {
+        case .manual:
+            modeTitle = ""
+        case .automatic:
+            modeTitle = NSLocalizedString("Automatic Selection", value: "Auto", comment: "Short menu label for automatic selection")
+        case .manualPriority:
+            modeTitle = NSLocalizedString("Manual Priority", value: "Priority", comment: "Short menu label for manual priority")
+        case .unknownAutomatic:
+            modeTitle = NSLocalizedString("Core-managed Selection", value: "Core choice", comment: "Short menu label when selection mode is unknown")
+        }
+        let target = Settings.showFinalProxyNodeInMenu ? presentation.leaf : presentation.selectedTarget
+        let label = target.map { modeTitle.isEmpty ? $0 : "\(modeTitle) · \($0)" } ?? modeTitle
+        selectProxyLabel.stringValue = label
+        selectProxyLabel.setAccessibilityLabel(label)
+
+        var details = [String]()
+        if presentation.isResolved, !presentation.path.isEmpty {
+            details.append(String(
+                format: NSLocalizedString(
+                    "Actual route: %@",
+                    value: "Actual route: %@",
+                    comment: "Tooltip and accessibility route for a proxy group"
+                ),
+                presentation.path.joined(separator: " → ")
+            ))
+        }
+        if let preferredTarget = presentation.preferredTarget {
+            details.append(String(
+                format: NSLocalizedString(
+                    "Preferred node: %@",
+                    value: "Preferred node: %@",
+                    comment: "Configured preferred node for a proxy group"
+                ),
+                preferredTarget
+            ))
+        }
+        if !presentation.isResolved {
+            details.append(NSLocalizedString(
+                "Actual route could not be fully resolved",
+                value: "Actual route could not be fully resolved",
+                comment: "Accessibility status when the core route is incomplete"
+            ))
+        }
+        let help = details.isEmpty ? nil : details.joined(separator: "\n")
+        selectProxyLabel.toolTip = help
+        selectProxyLabel.setAccessibilityHelp(help)
+    }
+
+    private func renderLegacySelection(_ title: String) {
+        selectProxyLabel.stringValue = title
+        selectProxyLabel.toolTip = nil
+        selectProxyLabel.setAccessibilityLabel(title)
+        selectProxyLabel.setAccessibilityHelp(nil)
     }
 
     @objc private func showLeftPaddingUpdate(note: NSNotification) {

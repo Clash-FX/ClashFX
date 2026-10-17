@@ -56,7 +56,7 @@ class SSIDSuspendTool: NSObject {
                 if pause {
                     SystemProxyManager.shared.disableProxy()
                 } else {
-                    SystemProxyManager.shared.enableProxy()
+                    AppDelegate.shared.requestSystemProxyAutoRecovery(afterWake: true)
                 }
             }.disposed(by: disposeBag)
 
@@ -69,10 +69,10 @@ class SSIDSuspendTool: NSObject {
         }
         if #available(macOS 14, *) {
             if Settings.disableSSIDList.isEmpty { return }
+            locationManager.delegate = self
             if locationManager.authorizationStatus == .notDetermined {
                 Logger.log("request location permission")
                 locationManager.desiredAccuracy = kCLLocationAccuracyReduced
-                locationManager.delegate = self
                 locationManager.requestAlwaysAuthorization()
             } else if locationManager.authorizationStatus != .authorized {
                 if showNoticeOnNotPermission {
@@ -93,6 +93,7 @@ class SSIDSuspendTool: NSObject {
     }
 
     func shouldSuspend() -> Bool {
+        guard !Settings.disableSSIDList.isEmpty else { return false }
         if let currentSSID = getCurrentSSID() {
             return Settings.disableSSIDList.contains(currentSSID)
         } else {
@@ -103,13 +104,7 @@ class SSIDSuspendTool: NSObject {
     private func getCurrentSSID() -> String? {
         if #available(macOS 14, *) {
             if locationManager.authorizationStatus != .authorized {
-                let info = Command(cmd: "/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport", args: ["-I"]).run()
-                return info.components(separatedBy: "\n")
-                    .lazy
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .first { $0.starts(with: "SSID:") }?
-                    .components(separatedBy: ":")
-                    .last?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return nil
             }
         }
         return CWWiFiClient.shared().interface()?.ssid()
@@ -124,11 +119,15 @@ class SSIDSuspendTool: NSObject {
 
 extension SSIDSuspendTool: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
-        Logger.log("Location status: \(status.rawValue)")
-        if status != .authorized, showNoticeOnNotPermission {
-            openLocationSettings()
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            Logger.log("Location status: \(status.rawValue)")
+            if !Settings.disableSSIDList.isEmpty, status != .authorized, self.showNoticeOnNotPermission {
+                self.openLocationSettings()
+            }
+            self.showNoticeOnNotPermission = false
+            self.update()
         }
-        showNoticeOnNotPermission = false
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {}

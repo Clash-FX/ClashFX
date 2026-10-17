@@ -89,7 +89,9 @@ class NetworkChangeNotifier {
         if looser {
             return http == currentPort || https == currentPort || socks == currentSocks
         } else {
-            return http == currentPort && https == currentPort && socks == currentSocks
+            return SystemProxyOperationPolicy.matchesActiveSystemProxy(
+                getRawProxySetting(), httpPort: currentPort, socksPort: currentSocks
+            )
         }
     }
 

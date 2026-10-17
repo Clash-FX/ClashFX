@@ -101,8 +101,14 @@ enum AppLogoTool {
     static func applyLogo() -> Bool {
         let bundlePath = Bundle.main.bundlePath
         let didSetIcon: Bool
-        let baseIcon = loadSelectedLogo() ?? originalDefaultIcon
-        let finalIcon = AutoUpgradeManager.shouldShowLabBadge ? addLabBadge(to: baseIcon) : loadSelectedLogo()
+        let selectedLogo = loadSelectedLogo()
+        let finalIcon: NSImage?
+        if AutoUpgradeManager.shouldShowLabBadge {
+            finalIcon = selectedLogo.flatMap { BundleIconImage.make(from: $0, addingLabBadge: true) }
+                ?? BundleIconImage.make(from: originalDefaultIcon, addingLabBadge: true)
+        } else {
+            finalIcon = selectedLogo.flatMap { BundleIconImage.make(from: $0, addingLabBadge: false) }
+        }
 
         if let finalIcon {
             NSApp.applicationIconImage = finalIcon
@@ -119,32 +125,6 @@ enum AppLogoTool {
         refreshIconAppearanceCache()
         NotificationCenter.default.post(name: .appLogoDidChange, object: nil)
         return didSetIcon
-    }
-
-    private static func addLabBadge(to icon: NSImage) -> NSImage {
-        let canvas = NSSize(width: 1024, height: 1024)
-        let result = NSImage(size: canvas)
-        result.lockFocus()
-        defer { result.unlockFocus() }
-
-        icon.draw(in: NSRect(origin: .zero, size: canvas))
-
-        let dotDiameter: CGFloat = 112
-        let inset: CGFloat = 142
-        let dotRect = NSRect(
-            x: canvas.width - inset - dotDiameter,
-            y: canvas.height - inset - dotDiameter,
-            width: dotDiameter,
-            height: dotDiameter
-        )
-        let dot = NSBezierPath(ovalIn: dotRect)
-        NSColor.systemOrange.setFill()
-        dot.fill()
-        NSColor.white.setStroke()
-        dot.lineWidth = 24
-        dot.stroke()
-
-        return result
     }
 
     private static func refreshIconAppearanceCache() {

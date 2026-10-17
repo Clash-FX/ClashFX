@@ -23,6 +23,10 @@ final class IsolatedSystemProxyTests: XCTestCase {
         var events = [String]()
         var readbackOverride: [String: Any]?
         var restoreError: String?
+        var enableError: String?
+        var disableRestoreProxy = false
+        var restoreArguments: (httpPort: Int32, socksPort: Int32, filterInterface: Bool)?
+        var lastRestoreSnapshot: [String: Any]?
         var holdCapture = false
         var holdEnable = false
         var holdRestore = false
@@ -54,16 +58,18 @@ final class IsolatedSystemProxyTests: XCTestCase {
                         self.current = [SystemProxyOperationPolicy.capturedServiceIDsKey: ["wifi"],
                                         "wifi": ["HTTPEnable": 1, "HTTPPort": port, "SOCKSPort": socks]]
                         if self.holdEnable { self.enableReply = reply; return }
-                        reply(nil)
-                        if self.duplicateReplies { reply(nil) }
+                        reply(self.enableError)
+                        if self.duplicateReplies { reply(self.enableError) }
                     }
                 },
                 disable: { _, reply in
                     DispatchQueue.main.async { self.record("disable"); reply(nil) }
                 },
-                restore: { _, _, info, _, reply in
+                restore: { port, socks, info, filterInterface, reply in
                     DispatchQueue.main.async {
                         self.record("restore")
+                        self.restoreArguments = (port, socks, filterInterface)
+                        self.lastRestoreSnapshot = info
                         if self.restoreError == nil { self.current = info }
                         if self.holdRestore { self.restoreReply = reply; return }
                         reply(self.restoreError)
@@ -76,7 +82,9 @@ final class IsolatedSystemProxyTests: XCTestCase {
 
     private func environment(_ helper: Helper, timeout: TimeInterval = 1,
                              unavailable: Bool = false,
-                             liveSystemPointsToClashFX: Bool = false) throws -> (SystemProxyManager, UserDefaults) {
+                             liveSystemPointsToClashFX: Bool = false,
+                             canControlRuntime: @escaping () -> Bool = { true },
+                             shouldSuspend: @escaping () -> Bool = { false }) throws -> (SystemProxyManager, UserDefaults) {
         let suite = "com.clashfx.isolated-tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         suites.append((defaults, suite))
@@ -86,10 +94,206 @@ final class IsolatedSystemProxyTests: XCTestCase {
                 if unavailable { failure(); return nil }
                 return helper.client
             }, currentPorts: { (7890, 7891) },
-            shouldSuspend: { false }, disableRestoreProxy: { false }, filterInterface: { true },
-            proxyIgnoreList: { [] }, liveSystemPointsToClashFX: { liveSystemPointsToClashFX }, stageTimeout: timeout
+            shouldSuspend: shouldSuspend, disableRestoreProxy: { helper.disableRestoreProxy }, filterInterface: { true },
+            proxyIgnoreList: { [] }, liveSystemPointsToClashFX: { liveSystemPointsToClashFX }, stageTimeout: timeout,
+            canControlRuntime: canControlRuntime
         )
         return (SystemProxyManager(dependencies: dependencies), defaults)
+    }
+
+    func testActiveReadbackRejectsDisabledResidualPortsForeignHostsAndPACOverrides() {
+        let active: [String: Any] = [
+            "HTTPEnable": 1, "HTTPSEnable": 1, "SOCKSEnable": 1,
+            "HTTPPort": 7890, "HTTPSPort": 7890, "SOCKSPort": 7891,
+            "HTTPProxy": "127.0.0.1", "HTTPSProxy": "127.0.0.1", "SOCKSProxy": "127.0.0.1"
+        ]
+        XCTAssertTrue(SystemProxyOperationPolicy.matchesActiveSystemProxy(active, httpPort: 7890, socksPort: 7891))
+        for (key, value) in [("HTTPEnable", 0 as Any), ("HTTPSEnable", 0 as Any),
+                             ("SOCKSEnable", 0 as Any), ("HTTPSProxy", "proxy.example.test" as Any),
+                             ("ProxyAutoConfigEnable", 1 as Any), ("ProxyAutoDiscoveryEnable", 1 as Any)] {
+            var altered = active
+            altered[key] = value
+            XCTAssertFalse(SystemProxyOperationPolicy.matchesActiveSystemProxy(altered, httpPort: 7890, socksPort: 7891), key)
+        }
+        XCTAssertFalse(SystemProxyOperationPolicy.matchesActiveSystemProxy(active, httpPort: 7088, socksPort: 7088))
+    }
+
+    func testRejectedRuntimeCannotCaptureEnableDisableOrChangeSavedSnapshot() throws {
+        let helper = Helper()
+        let (manager, defaults) = try environment(helper, canControlRuntime: { false })
+        defaults.set(original, forKey: SystemProxyOperationPolicy.savedSnapshotKey)
+        defaults.set(true, forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey)
+        let capture = try captureCheckpoint(manager)
+        if case .success = capture { XCTFail("Unowned runtime captured a checkpoint") }
+        let enabled = expectation(description: "unowned enable rejected")
+        let disabled = expectation(description: "unowned disable rejected")
+        manager.enableProxy { success in XCTAssertFalse(success); enabled.fulfill() }
+        manager.disableProxy(forceDisable: true, result: { success in XCTAssertFalse(success); disabled.fulfill() })
+        wait(for: [enabled, disabled], timeout: 2)
+        XCTAssertTrue(helper.events.isEmpty)
+        XCTAssertTrue(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+        XCTAssertEqual(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey) as NSDictionary?, original as NSDictionary)
+    }
+
+    func testOwnershipLostDuringCaptureDoesNotEnableOrSaveSnapshot() throws {
+        let helper = Helper()
+        helper.holdCapture = true
+        var ownsRuntime = true
+        let (manager, defaults) = try environment(helper, canControlRuntime: { ownsRuntime })
+        let captured = expectation(description: "capture started")
+        let finished = expectation(description: "ownership loss finishes request")
+        helper.onEvent = { event in
+            if event == "capture" { captured.fulfill() }
+        }
+        manager.enableProxy { success in XCTAssertFalse(success); finished.fulfill() }
+        wait(for: [captured], timeout: 2)
+        ownsRuntime = false
+        helper.captureReply?(helper.current)
+        wait(for: [finished], timeout: 2)
+        XCTAssertEqual(helper.events, ["capture"])
+        XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+        XCTAssertNil(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+    }
+
+    func testPauseDuringCapturePreventsLateEnable() throws {
+        let helper = Helper()
+        helper.holdCapture = true
+        var paused = false
+        let (manager, _) = try environment(helper, shouldSuspend: { paused })
+        let captured = expectation(description: "capture started")
+        let finished = expectation(description: "pause finishes request")
+        helper.onEvent = { event in if event == "capture" { captured.fulfill() } }
+        manager.enableProxy { success in XCTAssertFalse(success); finished.fulfill() }
+        wait(for: [captured], timeout: 2)
+        paused = true
+        helper.captureReply?(helper.current)
+        wait(for: [finished], timeout: 2)
+        XCTAssertEqual(helper.events, ["capture"])
+    }
+
+    func testAutomaticEnableRechecksEligibilityAfterCaptureBeforeSavingOrWriting() throws {
+        let helper = Helper()
+        helper.holdCapture = true
+        let (manager, defaults) = try environment(helper)
+        var isCurrent = true
+        var eligibilityChecks = 0
+        let captured = expectation(description: "automatic capture started")
+        let finished = expectation(description: "stale automatic request rejected")
+        helper.onEvent = { if $0 == "capture" { captured.fulfill() } }
+
+        manager.enableProxy(port: 7890, socksPort: 7891, isCurrent: {
+            XCTAssertTrue(Thread.isMainThread)
+            eligibilityChecks += 1
+            return isCurrent
+        }, complete: { success in
+            XCTAssertFalse(success)
+            finished.fulfill()
+        })
+        wait(for: [captured], timeout: 2)
+        let finishCapture = helper.captureReply
+        isCurrent = false
+        helper.holdCapture = false
+        finishCapture?(original)
+
+        wait(for: [finished], timeout: 2)
+        XCTAssertEqual(eligibilityChecks, 2)
+        XCTAssertEqual(helper.events, ["capture"])
+        XCTAssertNil(defaults.object(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+    }
+
+    func testQueuedAutomaticEnableIsVetoedBeforeLockCheckpointRuns() throws {
+        let helper = Helper()
+        helper.holdCapture = true
+        let (manager, _) = try environment(helper)
+        let firstCaptureStarted = expectation(description: "explicit enable capture started")
+        helper.onEvent = { if $0 == "capture" { firstCaptureStarted.fulfill() } }
+        let explicitEnableFinished = expectation(description: "explicit enable finished")
+        manager.enableProxy { success in
+            XCTAssertTrue(success)
+            explicitEnableFinished.fulfill()
+        }
+        wait(for: [firstCaptureStarted], timeout: 2)
+        let finishExplicitCapture = helper.captureReply
+        helper.onEvent = nil
+
+        let capturedProxySelectionGeneration: UInt64 = 4
+        var proxySelectionGeneration = capturedProxySelectionGeneration
+        var lockIsActive = false
+        let automaticEnableFinished = expectation(description: "queued automatic enable rejected")
+        manager.enableProxy(port: 7892, socksPort: 7893, isCurrent: {
+            XCTAssertTrue(Thread.isMainThread)
+            return proxySelectionGeneration == capturedProxySelectionGeneration && !lockIsActive
+        }, complete: { success in
+            XCTAssertFalse(success)
+            automaticEnableFinished.fulfill()
+        })
+
+        let checkpointFinished = expectation(description: "lock checkpoint captured after queued enable")
+        manager.captureCheckpoint { result in
+            guard case .success = result else {
+                XCTFail("Lock checkpoint capture failed")
+                checkpointFinished.fulfill()
+                return
+            }
+            checkpointFinished.fulfill()
+        }
+        proxySelectionGeneration += 1
+        lockIsActive = true
+        helper.holdCapture = false
+        finishExplicitCapture?(original)
+
+        wait(for: [explicitEnableFinished, automaticEnableFinished, checkpointFinished], timeout: 2)
+        XCTAssertEqual(helper.events, ["capture", "enable", "capture"])
+    }
+
+    func testTimedOutHelperWriteQuarantinesCheckpointAndLaterWritesUntilActualReply() throws {
+        let helper = Helper()
+        helper.holdEnable = true
+        let (manager, _) = try environment(helper, timeout: 0.03)
+        let timedOut = expectation(description: "enable caller times out")
+        timedOut.assertForOverFulfill = true
+        manager.enableProxy { success in XCTAssertFalse(success); timedOut.fulfill() }
+        wait(for: [timedOut], timeout: 2)
+        XCTAssertEqual(helper.events, ["capture", "enable"])
+        if case .success = try captureCheckpoint(manager) { XCTFail("Unknown helper write allowed a lock checkpoint") }
+        let rejected = expectation(description: "following disable does not overlap unknown write")
+        manager.disableProxy(forceDisable: true, result: { success in XCTAssertFalse(success); rejected.fulfill() })
+        wait(for: [rejected], timeout: 2)
+        XCTAssertEqual(helper.events, ["capture", "enable"])
+        helper.enableReply?(nil)
+        if case .failure = try captureCheckpoint(manager) { XCTFail("Actual helper reply should release quarantine") }
+        XCTAssertEqual(helper.events, ["capture", "enable", "capture"])
+    }
+
+    private func captureCheckpoint(_ manager: SystemProxyManager) throws -> Result<SystemProxyCheckpoint, Error> {
+        let completed = expectation(description: "checkpoint capture completed")
+        completed.assertForOverFulfill = true
+        var result: Result<SystemProxyCheckpoint, Error>?
+        manager.captureCheckpoint { value in
+            XCTAssertTrue(Thread.isMainThread)
+            result = value
+            completed.fulfill()
+        }
+        wait(for: [completed], timeout: 2)
+        return try XCTUnwrap(result)
+    }
+
+    private func restoreCheckpoint(
+        _ checkpoint: SystemProxyCheckpoint,
+        with manager: SystemProxyManager,
+        isCurrent: @escaping () -> Bool = { true }
+    ) -> Bool {
+        let completed = expectation(description: "checkpoint restore completed")
+        completed.assertForOverFulfill = true
+        var succeeded = false
+        manager.restoreCheckpoint(checkpoint, isCurrent: isCurrent) { value in
+            XCTAssertTrue(Thread.isMainThread)
+            succeeded = value
+            completed.fulfill()
+        }
+        wait(for: [completed], timeout: 2)
+        return succeeded
     }
 
     private func enable(_ manager: SystemProxyManager) {
@@ -298,6 +502,175 @@ final class IsolatedSystemProxyTests: XCTestCase {
         XCTAssertEqual(helper.events, ["capture", "enable", "enable", "restore", "capture"])
         XCTAssertTrue(NSDictionary(dictionary: original).isEqual(to: helper.current))
     }
+
+    func testCheckpointCapturePreservesExistingSavedSnapshotAndValidity() throws {
+        let helper = Helper()
+        let (manager, defaults) = try environment(helper)
+        let previousSaved: [String: Any] = [
+            "legacy-service": ["ProxyAutoConfigEnable": 1, "ProxyAutoConfigURLString": "https://saved.test/config.pac"]
+        ]
+        defaults.set(previousSaved, forKey: SystemProxyOperationPolicy.savedSnapshotKey)
+        defaults.set(false, forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey)
+
+        let result = try captureCheckpoint(manager)
+        let checkpoint = try result.get()
+
+        XCTAssertTrue(NSDictionary(dictionary: original).isEqual(to: checkpoint.liveSnapshot))
+        XCTAssertTrue(NSDictionary(dictionary: previousSaved).isEqual(to: checkpoint.savedSnapshot))
+        XCTAssertFalse(checkpoint.savedSnapshotValid)
+        XCTAssertEqual(checkpoint.httpPort, 7890)
+        XCTAssertEqual(checkpoint.socksPort, 7891)
+        XCTAssertTrue(try NSDictionary(dictionary: previousSaved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        ))
+        XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+        XCTAssertEqual(helper.events, ["capture"])
+    }
+
+    func testPartialEnableFailureRestoresCheckpointIncludingPACAndSavedValidity() throws {
+        let helper = Helper()
+        helper.duplicateReplies = true
+        let (manager, defaults) = try environment(helper)
+        let previousSaved: [String: Any] = [
+            "legacy-service": ["HTTPEnable": 0, "ProxyAutoConfigEnable": 1,
+                               "ProxyAutoConfigURLString": "https://saved.test/config.pac"]
+        ]
+        defaults.set(previousSaved, forKey: SystemProxyOperationPolicy.savedSnapshotKey)
+        defaults.set(false, forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey)
+        let checkpoint = try captureCheckpoint(manager).get()
+
+        helper.enableError = "simulated partial enable failure"
+        let enableFailed = expectation(description: "partial enable failed")
+        manager.enableProxy { success in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertFalse(success)
+            enableFailed.fulfill()
+        }
+        wait(for: [enableFailed], timeout: 2)
+        XCTAssertTrue(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+        XCTAssertFalse(NSDictionary(dictionary: original).isEqual(to: helper.current))
+
+        helper.disableRestoreProxy = true
+        XCTAssertTrue(restoreCheckpoint(checkpoint, with: manager))
+
+        XCTAssertTrue(NSDictionary(dictionary: original).isEqual(to: helper.current))
+        XCTAssertTrue(try NSDictionary(dictionary: original).isEqual(to: XCTUnwrap(helper.lastRestoreSnapshot)))
+        XCTAssertTrue(try NSDictionary(dictionary: previousSaved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        ))
+        XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+        XCTAssertEqual(helper.restoreArguments?.httpPort, 7890)
+        XCTAssertEqual(helper.restoreArguments?.socksPort, 7891)
+        XCTAssertEqual(helper.restoreArguments?.filterInterface, false)
+        XCTAssertEqual(helper.events, ["capture", "capture", "enable", "restore", "capture"])
+    }
+
+    func testCheckpointCaptureRejectsCaptureErrorsAndInvalidPropertyLists() throws {
+        let helper = Helper()
+        let (manager, defaults) = try environment(helper)
+        let previousSaved: [String: Any] = ["saved": ["HTTPEnable": 0]]
+        defaults.set(previousSaved, forKey: SystemProxyOperationPolicy.savedSnapshotKey)
+        defaults.set(true, forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey)
+
+        helper.readbackOverride = [SystemProxyOperationPolicy.captureErrorKey: "simulated capture error"]
+        guard case .failure = try captureCheckpoint(manager) else {
+            return XCTFail("capture error must reject checkpoint")
+        }
+        helper.readbackOverride = ["wifi": ["unsupported": NSObject()]]
+        guard case .failure = try captureCheckpoint(manager) else {
+            return XCTFail("non-property-list value must reject checkpoint")
+        }
+
+        XCTAssertTrue(try NSDictionary(dictionary: previousSaved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        ))
+        XCTAssertTrue(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+        XCTAssertEqual(helper.events, ["capture", "capture"])
+    }
+
+    func testCheckpointRestoreTimeoutAndLateReplySettleOnlyOnce() throws {
+        let helper = Helper()
+        helper.holdRestore = true
+        let (manager, defaults) = try environment(helper, timeout: 0.2)
+        let checkpoint = try captureCheckpoint(manager).get()
+        let saved: [String: Any] = ["saved": ["HTTPEnable": 1]]
+        defaults.set(saved, forKey: SystemProxyOperationPolicy.savedSnapshotKey)
+        defaults.set(true, forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey)
+
+        XCTAssertFalse(restoreCheckpoint(checkpoint, with: manager))
+        helper.restoreReply?(nil)
+
+        XCTAssertTrue(try NSDictionary(dictionary: saved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        ))
+        XCTAssertTrue(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+        XCTAssertEqual(helper.events, ["capture", "restore"])
+    }
+
+    func testCheckpointCaptureTimeoutAndLateReplyDoNotChangeSavedDefaults() throws {
+        let helper = Helper()
+        helper.holdCapture = true
+        let (manager, defaults) = try environment(helper, timeout: 0.2)
+        let saved: [String: Any] = ["saved": ["ProxyAutoConfigEnable": 1]]
+        defaults.set(saved, forKey: SystemProxyOperationPolicy.savedSnapshotKey)
+        defaults.set(false, forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey)
+
+        guard case .failure = try captureCheckpoint(manager) else {
+            return XCTFail("checkpoint capture must time out")
+        }
+        helper.captureReply?(original)
+
+        XCTAssertTrue(try NSDictionary(dictionary: saved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        ))
+        XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+        XCTAssertEqual(helper.events, ["capture"])
+    }
+
+    func testCheckpointRestoreMismatchDoesNotRestoreSavedDefaults() throws {
+        let helper = Helper()
+        let (manager, defaults) = try environment(helper)
+        defaults.set(original, forKey: SystemProxyOperationPolicy.savedSnapshotKey)
+        defaults.set(true, forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey)
+        let checkpoint = try captureCheckpoint(manager).get()
+        let changedSaved: [String: Any] = ["changed": ["HTTPEnable": 0]]
+        defaults.set(changedSaved, forKey: SystemProxyOperationPolicy.savedSnapshotKey)
+        defaults.set(false, forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey)
+        helper.readbackOverride = [
+            SystemProxyOperationPolicy.capturedServiceIDsKey: ["wifi"],
+            "wifi": ["HTTPEnable": 1]
+        ]
+
+        XCTAssertFalse(restoreCheckpoint(checkpoint, with: manager))
+
+        XCTAssertTrue(try NSDictionary(dictionary: changedSaved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        ))
+        XCTAssertFalse(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+        XCTAssertEqual(helper.events, ["capture", "restore", "capture"])
+    }
+
+    func testStaleCheckpointRestoreDoesNotInvokeHelper() throws {
+        let helper = Helper()
+        let (manager, defaults) = try environment(helper)
+        let saved: [String: Any] = ["saved": ["HTTPEnable": 0]]
+        defaults.set(saved, forKey: SystemProxyOperationPolicy.savedSnapshotKey)
+        defaults.set(true, forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey)
+        let checkpoint = try captureCheckpoint(manager).get()
+        var tokenWasReadOnMain = false
+
+        XCTAssertFalse(restoreCheckpoint(checkpoint, with: manager, isCurrent: {
+            tokenWasReadOnMain = Thread.isMainThread
+            return false
+        }))
+
+        XCTAssertTrue(tokenWasReadOnMain)
+        XCTAssertEqual(helper.events, ["capture"])
+        XCTAssertTrue(try NSDictionary(dictionary: saved).isEqual(
+            to: XCTUnwrap(defaults.dictionary(forKey: SystemProxyOperationPolicy.savedSnapshotKey))
+        ))
+        XCTAssertTrue(defaults.bool(forKey: SystemProxyOperationPolicy.savedSnapshotValidityKey))
+    }
 }
 
 final class IsolatedSelectorExecutionTests: XCTestCase {
@@ -383,7 +756,7 @@ final class IsolatedSelectorExecutionTests: XCTestCase {
         transport.drain()
         wait(for: [complete], timeout: 2)
         XCTAssertEqual(transport.now, 1500)
-        XCTAssertEqual(transport.peak, 12)
+        XCTAssertEqual(transport.peak, 10)
         XCTAssertEqual(transport.requested.count, 24)
         XCTAssertEqual(Set(transport.requested).count, 24)
         XCTAssertEqual(transport.results.count, 24)
@@ -396,7 +769,7 @@ final class IsolatedSelectorExecutionTests: XCTestCase {
         transport.drain()
         wait(for: [complete], timeout: 2)
         XCTAssertEqual(transport.now, 15000) // exactly three windows, not retry windows
-        XCTAssertEqual(transport.peak, 8)
+        XCTAssertEqual(transport.peak, 10)
         XCTAssertEqual(transport.requested.count, 24)
         XCTAssertEqual(transport.results.count, 24)
         XCTAssertTrue(transport.results.values.allSatisfy { $0 == 0 })
@@ -432,7 +805,7 @@ final class IsolatedSelectorExecutionTests: XCTestCase {
         transport.queue.sync { transport.cancelled = true }
         transport.drain()
         wait(for: [complete], timeout: 2)
-        XCTAssertEqual(transport.requested.count, 8)
+        XCTAssertEqual(transport.requested.count, 10)
         XCTAssertTrue(transport.results.isEmpty)
     }
 
