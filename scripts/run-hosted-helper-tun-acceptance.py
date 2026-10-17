@@ -1719,6 +1719,7 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
             completed = subprocess.run(
                 [str(self.runtime_config_executable), "--manifest", str(self.runtime_config_manifest)],
                 cwd=str(self.temp_root), check=False, capture_output=True, text=True,
+                env=dict(os.environ, TMPDIR=str(Path(os.environ["RUNNER_TEMP"]).resolve(strict=True))),
                 timeout=RUNTIME_CONFIG_ACCEPTANCE_TIMEOUT,
             )
         except subprocess.TimeoutExpired as error:

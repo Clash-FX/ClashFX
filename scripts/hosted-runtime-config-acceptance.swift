@@ -18,6 +18,7 @@ private final class Acceptance {
     let session: URLSession
     var assertions = [[String: Any]]()
     var applyCount = 0
+    var observations = [[String: Any]]()
     let scope = "hosted-runtime-acceptance-\(UUID().uuidString)"
     var controller: RuntimeConfigTransactionController!
     var validator: RuntimeConfigValidationRunner!
@@ -213,7 +214,10 @@ private final class Acceptance {
 
     func client() -> RuntimeConfigTransactionController.Client {
         RuntimeConfigTransactionController.Client(validate: { file, done in
-            _ = self.validator.validate(file: file, completion: done)
+            _ = self.validator.validate(file: file) { error in
+                self.observations.append(["phase": "validation", "error": (error ?? "").replacingOccurrences(of: self.manifest.secret, with: "<redacted>")])
+                done(error)
+            }
         }, apply: { file, done in
             self.applyCount += 1
             self.request("PUT", "/configs?force=true", ["path": file.path]) { _, status, error in
@@ -242,8 +246,22 @@ private final class Acceptance {
         })
     }
 
+    func outcomeName(_ outcome: RuntimeConfigTransactionController.Outcome) -> String {
+        switch outcome {
+        case .applied: return "applied"
+        case let .rejected(error): return "rejected: " + error
+        case let .rolledBack(_, error): return "rolled back: " + error
+        case let .unknown(error): return "unknown: " + error
+        case .cancelled: return "cancelled"
+        }
+    }
+
     func submit(_ data: Data) throws -> RuntimeConfigTransactionController.Outcome {
-        try wait { done in controller.submit(data: data, scope: scope, isCurrent: { true }, client: client(), completion: done) }
+        let outcome: RuntimeConfigTransactionController.Outcome = try wait {
+            done in controller.submit(data: data, scope: scope, isCurrent: { true }, client: client(), completion: done)
+        }
+        observations.append(["phase": "transaction", "outcome": outcomeName(outcome).replacingOccurrences(of: manifest.secret, with: "<redacted>")])
+        return outcome
     }
 
     func reserve(_ transport: Int32) throws -> (Int32, Int) {
@@ -275,6 +293,8 @@ private final class Acceptance {
     }
 
     func run() throws {
+        observations.append(["phase": "temporary-directory", "path": FileManager.default.temporaryDirectory.path,
+                             "exists": FileManager.default.fileExists(atPath: FileManager.default.temporaryDirectory.path)])
         try startOrigin()
         let initial = try Data(contentsOf: URL(fileURLWithPath: manifest.configPath))
         guard var root = try JSONSerialization.jsonObject(with: initial) as? [String: Any] else { throw Failure.check("initial JSON") }
@@ -289,7 +309,7 @@ private final class Acceptance {
             root["mode"] = index % 2 == 0 ? "direct" : "rule"
             root["log-level"] = index % 2 == 0 ? "warning" : "info"
             let outcome = try submit(JSONSerialization.data(withJSONObject: root))
-            guard case let .applied(receipt) = outcome else { throw Failure.check("continuous configuration switch \(index)") }
+            guard case let .applied(receipt) = outcome else { throw Failure.check("continuous configuration switch \(index): \(outcomeName(outcome))") }
             try check(receipt.dataPlane == .healthy, "switch \(index): mode/log-level/ports, TUN enable, proxy forwarding and UDP/TCP DNS confirmed")
             try check(RuntimeConfigReadbackPolicy.port(try readback()["mixed-port"]) == initialPort, "switch \(index): confirmed proxy port reused")
         }
@@ -339,7 +359,7 @@ private final class Acceptance {
             "execution": "automated backend acceptance in disposable hosted macOS; GUI not exercised",
             "coverage": ["continuousRuntimeSwitches": error == nil, "runtimeConfigRollback": error == nil,
                          "patchFailureRollback": error == nil, "stableRuntimeEndpoints": error == nil],
-            "assertions": assertions, "applyCount": applyCount,
+            "assertions": assertions, "observations": observations, "applyCount": applyCount,
             "error": error.map { String(describing: $0) } ?? ""]
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: output.appendingPathComponent("report.json"))
