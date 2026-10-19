@@ -649,4 +649,252 @@
 "Not tested" = "Not tested";
 
 "No testable proxy nodes" = "No testable proxy nodes";
+"Core switching…" = "Core switching…";
+"Proxy core unavailable. Please try again shortly." = "Proxy core unavailable. Please try again shortly.";
+"Proxy core is changing. Please try again shortly." = "Proxy core is changing. Please try again shortly.";
+"Proxy group is no longer available. Refresh and try again." = "Proxy group is no longer available. Refresh and try again.";
+"The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details.";
 "Direct fallback (no proxy nodes)" = "Direct fallback (no proxy nodes)";
+
+"Benchmark result with historical marker" = "%@ · old";
+
+"Benchmark cancelled: core changed" = "Benchmark cancelled: core changed";
+
+"Benchmark cancelled: configuration changed" = "Benchmark cancelled: configuration changed";
+
+"The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch." = "The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch.";
+
+"The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload." = "The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload.";
+
+"Display Order" = "Display Order";
+
+"Configuration Order" = "Configuration Order";
+
+"Latency First" = "Latency First";
+
+"Quick (2.5 s)" = "Quick (2.5 s)";
+
+"Complete (5 s)" = "Complete (5 s)";
+
+"Retry failed nodes" = "Retry failed nodes";
+
+"Benchmarking %d/%d" = "Benchmarking %d/%d";
+
+"Succeeded: %d, timed out: %d, failed: %d, unavailable: %d, reused: %d" = "Succeeded: %d, timed out: %d, failed: %d, unavailable: %d, reused: %d";
+
+"Testing automatic group" = "Testing automatic group";
+
+"Testing selected automatic group" = "Testing selected automatic group";
+
+"No failed nodes to retry" = "No failed nodes to retry";
+
+"Only failed or timed-out nodes from the latest benchmark can be retried." = "Only failed or timed-out nodes from the latest benchmark can be retried.";
+
+"Group %d succeeded · %d failed" = "Group %d succeeded · %d failed";
+
+"Group timed out" = "Group timed out";
+
+"Group unavailable" = "Group unavailable";
+
+"Selected automatic group response: %d succeeded, %d failed" = "Selected automatic group response: %d succeeded, %d failed";
+
+"Selected automatic group request timed out" = "Selected automatic group request timed out";
+
+"Selected automatic group returned no results" = "Selected automatic group returned no results";
+
+"Selected automatic group was unavailable" = "Selected automatic group was unavailable";
+
+"Quick" = "Quick";
+
+"Complete" = "Complete";
+
+"Cloudflare HTTPS" = "Cloudflare HTTPS";
+
+"Google HTTPS" = "Google HTTPS";
+
+"Custom" = "Custom";
+
+"Follow Configuration" = "Follow Configuration";
+
+"Unified" = "Unified";
+
+"Connection" = "Connection";
+
+"Benchmark Mode:" = "Benchmark Mode:";
+
+"Benchmark Target:" = "Benchmark Target:";
+
+"Measurement Method:" = "Measurement Method:";
+
+"Display Order:" = "Display Order:";
+
+"The previous proxy state was restored." = "The previous proxy state was restored.";
+
+"Restoring the previous proxy state also failed: %@" = "Restoring the previous proxy state also failed: %@";
+
+"Manual Selection" = "Manual";
+
+"Automatic Selection" = "Auto";
+
+"Manual Priority" = "Priority";
+
+"Core-managed Selection" = "Core choice";
+
+"Actual route: %@" = "Actual route: %@";
+
+"Preferred node: %@" = "Preferred node: %@";
+
+"Actual route could not be fully resolved" = "The actual route is unavailable.";
+
+"Restore Automatic Selection" = "Restore Auto";
+
+"Selected path unavailable" = "Could not confirm the current selection.";
+
+"This core did not report fixed state." = "This core does not report manual-priority state; selection is read-only.";
+
+"Preferred node" = "Preferred node";
+
+"Click to prefer this node; the core may choose a fallback." = "Click to prefer this node; the core may choose a fallback.";
+
+"A proxy selection is already in progress." = "A selection is already in progress.";
+
+"Proxy core is changing." = "The proxy core is changing. Please try again shortly.";
+
+"Selection is unavailable during a benchmark." = "Wait for the benchmark to finish before selecting a node.";
+
+"Proxy selection timed out." = "Selection timed out; the core state could not be confirmed.";
+
+"Proxy selection failed." = "Could not change the selection.";
+
+"The core did not retain the requested selection." = "The core did not retain this preference. The actual route is shown.";
+
+"Proxy Selection Failed" = "Could Not Change Selection";
+
+"Wait for the proxy selection to finish." = "Wait for the selection to finish.";
+
+"Benchmark timed out" = "Timed out";
+
+"Attempted at: %@" = "Attempted at: %@";
+
+"Previous successful measurement: %@ (%@)" = "Previous successful measurement: %@ (%@)";
+
+"Latest recorded probe: %@" = "Latest recorded probe: %@";
+
+"Probe timeout: %d ms; elapsed: %d ms" = "Probe timeout: %d ms; elapsed: %d ms";
+
+"Core API response: %d" = "Core API response: %d";
+
+"Single-node Benchmark Diagnostic…" = "Single-node Benchmark Diagnostic…";
+
+"Single-node Benchmark Diagnostic" = "Single-node Benchmark Diagnostic";
+
+"Test one node without setting manual priority. Automatic groups still follow the core." = "Test one node without setting manual priority. Automatic groups still follow the core.";
+
+"Run Diagnostic" = "Run Diagnostic";
+
+"Copy Diagnostic Report" = "Copy Diagnostic Report";
+
+"Node:" = "Node:";
+
+"Benchmark URL:" = "Benchmark URL:";
+
+"Probe timeout:" = "Probe timeout:";
+
+"Could not load nodes for a diagnostic probe." = "Could not load nodes for a diagnostic probe.";
+
+"Enter a valid HTTP or HTTPS benchmark URL." = "Enter a valid HTTP or HTTPS benchmark URL.";
+
+"The probe completed, but its diagnostic record could not be confirmed." = "The probe completed, but its diagnostic record could not be confirmed.";
+
+"benchmark_probe_detail_node" = "Node";
+
+"benchmark_probe_detail_identity" = "Identity scope";
+
+"benchmark_probe_detail_provider" = "Provider";
+
+"benchmark_probe_detail_url" = "Test URL";
+
+"benchmark_probe_detail_timeout" = "Core timeout";
+
+"benchmark_probe_detail_request_deadline" = "request deadline";
+
+"benchmark_probe_detail_started" = "Started";
+
+"benchmark_probe_detail_completed" = "Completed";
+
+"benchmark_probe_detail_elapsed" = "Elapsed";
+
+"benchmark_probe_detail_status" = "Core API response";
+
+"benchmark_probe_detail_result" = "Current result";
+
+"benchmark_probe_detail_failure_kind" = "Failure category";
+
+"benchmark_probe_detail_failure_code" = "Diagnostic code";
+
+"benchmark_probe_detail_cause" = "Cause";
+
+"benchmark_probe_result_success" = "Success (%d ms)";
+
+"benchmark_probe_result_failed" = "Failed";
+
+"benchmark_probe_result_timed_out" = "Timed out";
+
+"benchmark_probe_result_unavailable" = "Could not confirm the result";
+
+"benchmark_probe_result_cancelled" = "Cancelled";
+
+"benchmark_probe_status_unknown" = "Unknown";
+
+"benchmark_probe_invalid_url" = "Invalid URL";
+
+"benchmark_probe_identity_leaf" = "Node identity";
+
+"benchmark_probe_identity_name_only" = "Node name only";
+
+"benchmark_probe_failure_none" = "No failure was reported.";
+
+"benchmark_probe_failure_authentication_failed" = "Proxy authentication was rejected.";
+
+"benchmark_probe_failure_dial_failed" = "The proxy connection could not be established.";
+
+"benchmark_probe_failure_controller_unavailable" = "The network or core API could not confirm the result.";
+
+"benchmark_probe_failure_dns_resolution_failed" = "DNS resolution failed.";
+
+"benchmark_probe_failure_dns_timeout" = "DNS resolution timed out.";
+
+"benchmark_probe_failure_http_request_failed" = "The HTTP probe request failed.";
+
+"benchmark_probe_failure_invalid_result" = "The core API returned an invalid probe result.";
+
+"benchmark_probe_failure_unspecified_core_failure" = "The core probe failed, but no specific reason was provided.";
+
+"benchmark_probe_failure_node_reported_failure" = "The core probe failed, but no specific reason was provided.";
+
+"benchmark_probe_failure_probe_failed" = "The probe failed; no more specific cause could be identified.";
+
+"benchmark_probe_failure_probe_timeout" = "The probe exceeded the core time limit.";
+
+"benchmark_probe_failure_quic_handshake_failed" = "The QUIC handshake failed.";
+
+"benchmark_probe_failure_tls_expired" = "The TLS certificate has expired.";
+
+"benchmark_probe_failure_tls_failure" = "The TLS connection failed.";
+
+"benchmark_probe_failure_tls_name_mismatch" = "The TLS certificate name did not match.";
+
+"benchmark_probe_failure_tls_unknown_authority" = "The TLS certificate is not trusted.";
+
+"benchmark_probe_failure_unexpected_response" = "The core API could not confirm the probe result.";
+
+"benchmark_probe_failure_zero_delay" = "The core did not produce a positive delay.";
+
+/* Runtime ownership and bounded System Proxy recovery */
+"ClashFX is already running. This copy will close to protect the active proxy." = "ClashFX is already running. This copy will close to protect the active proxy.";
+"ClashFX could not obtain exclusive runtime control." = "ClashFX could not obtain exclusive runtime control.";
+"System Proxy recovery paused after repeated conflicts. Click to retry." = "System Proxy recovery paused after repeated conflicts. Click to retry.";
+
+/* Proxy menu selection display */
+"Show Final Node in Proxy Menu" = "Show Final Node in Proxy Menu";
+"By default, shows the selected node or group (such as Proxies). Enable to show the final node." = "By default, shows the selected node or group (such as Proxies). Enable to show the final node.";

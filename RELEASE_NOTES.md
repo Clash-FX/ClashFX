@@ -1,3 +1,162 @@
+<!-- Unreleased: startup, DNS recovery and benchmark settings -->
+
+### Automatic Recovery Safety (Unreleased)
+
+- Keep the retry menu enabled after automatic recovery exhausts its retries, including a retained selection checkpoint with a stopped core.
+- Preserve custom IPv6 DNS bind addresses and zones during reload; retarget owned bootstrap references, distinguish mapped IPv4 aliases, and validate dual-stack conflicts without treating special resolver schemes as socket endpoints.
+- Drain validation output with bounded nonblocking reads before classifying failures, retaining sanitized errors without waiting for inherited writers to close.
+- Keep recovered Selector choices safe across provider updates: synchronize selected state and reject traffic if the chosen node disappears, while allowing reinsertion and explicit DIRECT selections. Preserve ordinary selector defaults.
+- Fence retry-only recovery failures and keep explicit retries usable even when a reload was queued. Preserve valid fresh selections when stale saved nodes disappear, and keep automatic-group results authoritative.
+- Apply the same source DNS cycle validation to cold and preferred-port startup while preserving independent resolvers and valid TCP/UDP port sharing.
+- Freeze profile-scoped Selector choices before rebuilding a core, apply them before routing starts, and confirm readback before committing. Keep the checkpoint and report failure instead of falling back to bypass or the built-in default.
+- Preserve shared DNS reference handling across startup and reload. Add a separate bounded event journal for recovery stages and DNS port changes.
+
+### 代理菜单显示
+
+- 外层代理菜单默认显示当前所选节点或策略组（如 Proxies），与子菜单勾选保持一致；通用设置可开启“代理菜单显示最终节点”。悬停及辅助功能说明保留完整路径，切换显示方式即时生效。
+
+### Proxy Menu Display
+
+- Show the directly selected node or group (such as Proxies) by default, matching the submenu checkmark. General settings can enable final-node display; route tooltips and accessibility help retain the full path, and display changes apply immediately.
+
+### 启动与 DNS 恢复
+
+- 启动检查的暂时失败会有限重试；进程和监听检查改用原生接口，减少登录时对子进程的依赖。
+- 核心交接先释放旧代理、API 和 DNS 监听，再分配新端口；验证实际监听和系统 DNS 的 UDP/TCP 接管后才完成增强模式启动。
+- DNS 原始设置按网络服务完整保存并落盘，保留搜索域与原本未设置 DNS 的状态；恢复失败保留快照，用户后来修改的 DNS 不会被覆盖。
+- 保留外部本地 DNS 服务，仅跟随明确声明的内部节点解析引用调整端口，并识别真正的解析循环。
+- 快速／完整测速统一放在设置中切换，默认快速；菜单保持简洁，单节点诊断也使用同一设置。
+- 旧测速结果缩短为“延迟 · 旧”，保留悬停说明。
+- 收紧 Helper 签名与核心执行权限；配置准备增加截止时间，DNS 恢复保留未送达请求的前序事务，日志处理移到后台并限制大小。
+
+### Startup and DNS Recovery
+
+- Retry transient startup failures within a bounded window and inspect processes and listeners through native APIs.
+- Release old proxy, API and DNS listeners before allocating replacement endpoints; verify listener ownership and UDP/TCP system DNS takeover before completing Enhanced Mode startup.
+- Persist complete per-service DNS recovery snapshots, including absent original settings and search domains. Retain failed recovery evidence and preserve external DNS changes.
+- Preserve external local resolvers, retarget only explicitly declared internal proxy-bootstrap references, and detect resolver cycles.
+- Choose Quick or Complete benchmarks in Settings, with Quick as the default. Keep menus concise and share the preference with single-node diagnostics.
+- Use a compact “delay · old” marker for previous measurements, retaining explanatory tooltips.
+- Tighten helper client and executable authorization, bound config preparation, retain predecessor DNS transactions after undelivered requests, and limit journal processing on a background queue.
+
+---
+
+<!-- Unreleased: proxy feature interaction fixes -->
+
+### 交互与恢复一致性
+
+- 配置重载等待选择记忆恢复、模式确认和新鲜设置读回；记忆只恢复有效 Selector，不改变自动组的优先意图。
+- 同地址重载和控制实例切换使旧回调失效；在途选择保留互斥，切换与 Lock 弹窗提交检查原作用域。
+- 自动代理写入在执行前再次检查资格；未确认 Helper 写入阻止重叠操作。Rule 模式恢复也限制重试。
+- 批量测速和单节点诊断携带完整身份与固定作用域，防止显示另一轮、另一实例或不同延迟的诊断。
+
+### Consistent Proxy Interactions
+
+- Keep reloads gated through Selector memory restoration, mode acknowledgement and fresh config readback. Do not turn automatic-group history into manual priority.
+- Invalidate stale replies across same-address reloads and controller switches; retain selection exclusion until completion and verify Lock dialog scope.
+- Recheck automatic proxy writes before execution, quarantine unconfirmed helper writes, and bound Rule-mode recovery.
+- Bind batch and single-node diagnostics to complete identities, starting scope and matching measurements.
+
+验证见 [交叉检查记录](docs/proxy-feature-interaction-validation.md)。未安装或发布。
+
+---
+
+<!-- Unreleased: runtime ownership and probe diagnostics -->
+
+### 系统代理与测速诊断
+
+- 启动前取得跨进程运行控制权，发现已有 ClashFX 时关闭第二副本；被拒绝副本不修改代理、Helper、核心或共享设置。
+- 系统代理自动恢复合并通知、验证实际状态并限制重试；持续冲突或未确认写入时暂停恢复，可通过现有菜单重试。唤醒与 SSID 恢复共用同一保护。
+- 本轮失败、超时和不可用不再误标为历史；以前成功的测量只在悬停中作为参考。帮助菜单新增单节点测速诊断，可复制受控的失败原因和请求信息。
+- App 图标保存统一使用固定 bitmap，保留自定义图标和 Lab 标记，避免表示尺寸随显示器缩放变化。
+
+### System Proxy and Probe Diagnostics
+
+- Acquire runtime control before startup. Reject a second ClashFX copy without changing the active proxy, helper, core or shared preferences.
+- Coalesce automatic proxy recovery, verify actual settings, and bound retries. Suspend on persistent conflicts or unconfirmed writes; retry through the existing menu. Wake and SSID recovery share the same protection.
+- Show current failures, timeouts and unavailable results accurately. Keep previous successful measurements as hover references. Add single-node diagnostics with controlled failure reasons and copyable request details.
+- Normalize saved app icons to a fixed bitmap while preserving custom images and the Lab badge.
+
+验证记录：[运行控制与自动恢复](docs/system-proxy-ownership-recovery-validation.md)、[issue 236 测速诊断](docs/issue-236-probe-diagnostics-validation.md)。未安装、启动或发布构建产物。
+
+---
+
+<!-- Unreleased: issue 257 selection clarity -->
+
+### 节点选择与实际选路
+
+- 现有节点显示区以简短的手动、自动或优先提示区分策略；悬停显示核心报告的完整选路与优先目标。不同策略组的选择保持独立。
+- 自动选择和故障转移组可以点击节点设为手动优先，并通过一行“恢复自动”撤销。勾选始终表示核心当前使用的节点；优先节点不可用时，界面显示实际回退结果。
+- 切换结果通过新鲜核心快照确认，处理失败、超时和过期回调；切换与测速互斥。旧核心未报告优先状态时保留只读提示。
+
+### Selection and Actual Routes
+
+- Distinguish Manual, Auto and Priority in the existing node label; show the complete core-reported route and preferred node on hover. Groups retain independent selection state.
+- Click a URLTest/Fallback candidate to prefer it, and use Restore Auto to clear the preference. Checkmarks follow the core's actual node, including fallback from an unavailable preference.
+- Confirm changes with fresh core snapshots, handle failures/timeouts/stale replies, and prevent selection from overlapping benchmarks. Cores without reported priority state remain read-only.
+
+验证及兼容性边界见 [issue 257 验证记录](docs/issue-257-selection-validation.md)。未安装或发布。
+
+---
+
+<!-- Unreleased: issues 255 and 258 -->
+
+### Proxy Lock 与菜单修复
+
+- Claude Proxy Lock 在 Enhanced 已运行时直接重载配置，避免额外的核心端口交接。锁定设置在核心和系统代理均成功后才保存；失败时恢复旧运行配置和逐网络服务的系统代理，并明确报告恢复失败。
+- 校验锁定节点、嵌套策略组、provider 继承及全部节点展开的拨号依赖；拒绝循环或无法确认的依赖，不再仅依赖 YAML 的 `now`。
+- 测速模式和显示顺序统一放到设置，移除菜单中的两个子菜单及挂载时插入逻辑；失败重试只在可重试时显示。测速进度、历史结果和打开菜单时的排序仍保留。
+
+### Proxy Lock and Menu Fixes
+
+- Apply Claude Proxy Lock by reloading an already running Enhanced core. Commit preferences after runtime and System Proxy success; on failure, restore the previous runtime and per-service proxy settings, and report recovery failures separately.
+- Validate dialer dependencies through nested groups, provider inheritance and include-all expansion. Reject cyclic or unresolved dependencies instead of relying on YAML `now`.
+- Keep benchmark mode and display order in Settings. Remove their menu submenus and view-mount insertion; show retry only when failed nodes can be retried.
+
+验证与边界见 [issue 255/258 验证记录](docs/issue-255-258-fix-validation.md)。未安装或发布新版本；真实 Helper/TUN 失败恢复及 macOS 10.14 运行验收仍待完成。
+
+---
+
+<!-- Unreleased: benchmark optimization -->
+
+### 测速改进
+
+- 快速（2.5 秒）与完整（5 秒）测速、可见进度和完成统计；核心超时与节点失败分别统计。
+- Selector 可仅重测最近失败或核心超时的节点，切换完整模式后保留成功结果；自动组仍由核心整组测试并确定选择。
+- 可选按延迟显示，重新打开菜单时才排序；不改变配置顺序或核心选路。成功结果按低于 300、300–799、800 ms 及以上显示绿、黄、橙色。
+- 默认固定 10 并发，移除根据失败率缩减并发的逻辑；新安装采用 Cloudflare HTTPS 与统一延迟，既有地址和测量语义保留。显式测量方式选择只作用于运行配置。
+- 修复 Mihomo 历史队列在测速与选路并发时的锁边界竞态。
+
+验证：213 项普通 XCTest、2 项隔离真实核心测试通过；Go 全套及连续三轮竞态检测通过，新核心 App/Helper 编译通过。40 节点的 8/10/12 并发对照见 [验证记录](docs/benchmark-optimization-validation-2026-10-02.md)。本次未安装或发布；macOS 10.14 实机及 live TUN 验收仍待完成。
+
+---
+
+<!-- Unreleased: core recovery hardening -->
+
+### Bug Fixes and Improvements
+
+- **Core switching finishes on helper failures** — Start and stop requests now have bounded waits and handle XPC errors. Unconfirmed core ownership stays isolated until cleanup is verified, with a retry path.
+- **Helper checks keep responding** — Listener probes run off the main queue with bounded process and pipe waits. An unconfirmed stop preserves ownership rather than allowing another core to start.
+- **Cache handoff recovers safely** — Cache reads, writes, close and reopen share a lifecycle gate. A cache lock conflict is reported before the built-in core opens its listeners.
+- **Sustained API failures trigger recovery** — Traffic can defer recovery briefly, with attempt and time limits plus a recovery cooldown.
+- **Benchmark cancellation explains the core switch** — The menu explains why unfinished measurements were cancelled, retains completed results across menu reopening, and clears the feedback when a new benchmark starts.
+- **Previous measurements are labelled clearly** — Historical results use an explicit localized label instead of an unexplained star. Fresh successful measurements remove that label; numeric delays and color thresholds are unchanged.
+
+### 修复
+
+- **助手失联时结束核心切换等待** — 启动与停止请求均有等待期限和 XPC 错误处理；核心归属未确认时保持隔离，并允许验证清理后重试。
+- **助手检查保持响应** — 监听端口探测移到后台，子进程和管道等待都有期限；停止未确认时保留归属，避免启动第二个核心。
+- **缓存交接可以安全恢复** — 缓存读写、关闭和重开共用生命周期锁；缓存被占用时，在内置核心建立监听前报告失败。
+- **持续 API 故障会触发恢复** — 有流量时仅短暂延后恢复，并设置次数、时间上限和恢复冷却。
+- **测速取消会说明核心切换原因** — 菜单解释未完成的测量为何被取消，重新打开菜单仍可查看原因并保留已完成结果；开始新测速后清除提示。
+- **历史测量使用明确标识** — 以本地化历史标签替代含义不直观的星号，新测速成功后移除标签；延迟数值保持核心原值。
+
+Benchmark validation: 192 isolated XCTest cases passed. A separate loopback-only Mihomo fixture verified menu values against the exact captured API responses for Selector leaves and automatic-group candidates, including low/high latency colors and selection changes. This does not establish the cause of high latency on a user's external network.
+
+Validation: isolated XCTest and Go cache race tests; local App/Helper compilation uses Xcode 27 with a command-line macOS 12 deployment override. Project deployment settings remain unchanged. macOS 10.14 and live GUI/TUN restoration require separate verification before release.
+
+---
+
 <!-- Lab 1.1.11.7 candidate -->
 
 ### Bug Fixes and Improvements

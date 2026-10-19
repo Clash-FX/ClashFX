@@ -25,11 +25,16 @@ NS_ASSUME_NONNULL_BEGIN
             filterInterface:(BOOL)filterInterface;
 + (NSMutableDictionary<NSString *, id> *)currentProxySettings;
 
-- (void)overrideDNSWithServers:(NSArray<NSString *> *)servers
-               filterInterface:(BOOL)filterInterface;
+- (NSDictionary *)captureDNSWithFilterInterface:(BOOL)filterInterface;
 
-- (void)restoreDNS:(NSDictionary *)savedInfo
-    filterInterface:(BOOL)filterInterface;
+- (nullable NSString *)applyDNSWithSnapshot:(NSDictionary *)snapshot
+                                    servers:(NSArray<NSString *> *)servers;
+
+- (nullable NSString *)overrideDNSWithServers:(NSArray<NSString *> *)servers
+                              filterInterface:(BOOL)filterInterface;
+
+- (nullable NSString *)restoreDNS:(NSDictionary *)savedInfo
+                  filterInterface:(BOOL)filterInterface;
 
 + (NSMutableDictionary<NSString *,NSDictionary *> *)currentDNSSettings;
 

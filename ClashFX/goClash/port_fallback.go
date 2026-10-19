@@ -3,9 +3,27 @@ package main
 import (
 	"fmt"
 	"strconv"
+
+	"github.com/metacubex/mihomo/log"
 )
 
 const defaultMixedPort = 7890
+
+// portConflictClassification is a stable prefix returned through the C ABI.
+// Swift callers can classify a port conflict without depending on localized
+// Mihomo error text.
+const portConflictClassification = "port_conflict"
+
+type portConflictError struct {
+	service string
+	address string
+	port    int
+	reason  string
+}
+
+func (e portConflictError) Error() string {
+	return fmt.Sprintf("[%s] service=%s address=%s port=%d reason=%s", portConflictClassification, e.service, e.address, e.port, e.reason)
+}
 
 // portValueOrZero coerces the value of a YAML port field (parsed by yaml.v3
 // into an `interface{}`) to an int. yaml.v3 normally yields `int` for integer
@@ -81,5 +99,12 @@ func resolveConfiguredMixedPort(port int, available func(int) bool) (int, error)
 	if available(port) {
 		return port, nil
 	}
-	return 0, fmt.Errorf("configured mixed-port %d is already in use", port)
+	conflict := portConflictError{
+		service: "proxy_listener",
+		address: "configured",
+		port:    port,
+		reason:  "configured_port_unavailable",
+	}
+	log.Errorln("%v", conflict)
+	return 0, conflict
 }

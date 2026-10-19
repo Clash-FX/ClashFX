@@ -1,0 +1,121 @@
+name: Isolated Helper and TUN Acceptance
+
+on:
+  push:
+    branches:
+      - 'codex/helper-tun-acceptance-*'
+
+permissions:
+  contents: read
+
+env:
+  GODEBUG: http2client=0
+
+concurrency:
+  group: helper-tun-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  helper-tun:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.1'
+          cache-dependency-path: ClashFX/goClash/go.sum
+      - name: Build candidate Helper and standalone core (no app or release package)
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/clashfx-acceptance-build"
+          clang -fmodules -fobjc-arc -O2 -mmacosx-version-min=12.0 \
+            -I ProxyConfigHelper \
+            ProxyConfigHelper/main.m ProxyConfigHelper/ProxyConfigHelper.m \
+            ProxyConfigHelper/ProxySettingTool.m ProxyConfigHelper/CommonUtils.m \
+            ProxyConfigHelper/ProxySettingRestorationPolicy.m \
+            -framework Foundation -framework AppKit -framework Security \
+            -framework SystemConfiguration -framework ServiceManagement \
+            -Wl,-sectcreate,__TEXT,__info_plist,ProxyConfigHelper/Helper-Info.plist \
+            -Wl,-sectcreate,__TEXT,__launchd_plist,ProxyConfigHelper/Helper-Launchd.plist \
+            -o "$RUNNER_TEMP/clashfx-acceptance-build/com.clashfx.app.Helper"
+          codesign --force --sign - --timestamp=none \
+            --identifier com.clashfx.app.Helper \
+            "$RUNNER_TEMP/clashfx-acceptance-build/com.clashfx.app.Helper"
+          python3 - <<'PY'
+          import os, shutil, subprocess, sys, time
+          from pathlib import Path
+          root = Path.cwd()
+          sys.path.insert(0, str(root / 'ClashFX/goClash'))
+          from core_overlay import core_modfile
+          output = Path(os.environ['RUNNER_TEMP']) / 'clashfx-acceptance-build/mihomo_core'
+          for attempt in range(3):
+              try:
+                  with core_modfile() as modfile:
+                      subprocess.run(['go', 'build', f'-modfile={modfile}', '-trimpath', '-tags', 'with_gvisor',
+                                      '-ldflags', '-X github.com/metacubex/mihomo/constant.Version=1.19.24',
+                                      '-o', str(output), './mihomo-bin/'],
+                                     cwd=root / 'ClashFX/goClash',
+                                     env=dict(os.environ, CGO_ENABLED='0', GOMAXPROCS='2'), check=True, timeout=600)
+                      subprocess.run(['go', 'build', f'-modfile={modfile}', '-trimpath', '-tags', 'with_gvisor',
+                                      '-buildmode=c-archive', '-o', str(output.parent / 'goClash.a')],
+                                     cwd=root / 'ClashFX/goClash',
+                                     env=dict(os.environ, CGO_ENABLED='1', GOMAXPROCS='2'), check=True, timeout=600)
+                      shutil.copy2(root / 'ClashFX/goClash/UIHelper.h', output.parent / 'UIHelper.h')
+                  break
+              except subprocess.CalledProcessError:
+                  if attempt == 2:
+                      raise
+                  time.sleep(5 * (attempt + 1))
+          PY
+      - name: Startup, API lifecycle and PATCH regressions in the disposable guest
+        shell: bash
+        run: |
+          python3 scripts/verify-hosted-runtime-dns-parser.py
+          python3 ClashFX/goClash/run_core_tests.py \
+            --run 'TestFailedEmbeddedStartup|TestFailedStartup|TestCacheDBLifecycle|TestStaleSuspend|TestRuntimeManagementEndpointLifecycle' \
+            --runtime-http
+          python3 scripts/verify-runtime-session-settings.py \
+            --bridge-directory "$RUNNER_TEMP/clashfx-acceptance-build"
+          python3 scripts/verify-enhanced-reload-port-conflicts.py \
+            --bridge-directory "$RUNNER_TEMP/clashfx-acceptance-build"
+      - name: Recovery selection, provider churn and custom IPv6 DNS regressions
+        shell: bash
+        run: |
+          python3 scripts/verify-automatic-recovery-core.py --core "$RUNNER_TEMP/clashfx-acceptance-build/mihomo_core"
+          python3 scripts/verify-custom-ipv6-dns-reload.py --core "$RUNNER_TEMP/clashfx-acceptance-build/mihomo_core" --bridge-directory "$RUNNER_TEMP/clashfx-acceptance-build"
+          python3 scripts/verify-automatic-recovery-selections.py
+          python3 scripts/verify-automatic-recovery-lifecycle.py
+          python3 scripts/verify-recovery-event-journal.py
+      - name: Real Helper, TUN and production rollback acceptance (disposable hosted guest only)
+        shell: bash
+        run: |
+          sudo -E python3 scripts/run-hosted-helper-tun-acceptance.py \
+            --helper "$RUNNER_TEMP/clashfx-acceptance-build/com.clashfx.app.Helper" \
+            --core "$RUNNER_TEMP/clashfx-acceptance-build/mihomo_core" \
+            --artifact-dir "$RUNNER_TEMP/clashfx-helper-tun-evidence"
+      - name: Require complete backend acceptance coverage
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ['RUNNER_TEMP']) / 'clashfx-helper-tun-evidence/report.json').read_text())
+          expected = ['productionHelperXPC', 'helperManagedCore', 'tunInterfaceAndRoutes',
+                      'systemProxyExactRestore', 'systemDNSExactRestore',
+                      'productionSystemProxyManager', 'ClaudeProxyLockTransactionRollback',
+                      'continuousRuntimeSwitches', 'runtimeConfigRollback', 'patchFailureRollback',
+                      'stableRuntimeEndpoints', 'rapidHelperCoreLifecycle', 'systemDNSResolverThroughTUN']
+          missing = [name for name in expected if report.get('coverage', {}).get(name) is not True]
+          assert report.get('status') == 'passed' and not missing, (report.get('status'), missing)
+          assert not report.get('failures'), report.get('failures')
+          print('Complete real Helper/TUN backend acceptance passed')
+          PYCODE
+      - name: Preserve acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helper-tun-acceptance-${{ github.sha }}
+          path: ${{ runner.temp }}/clashfx-helper-tun-evidence/
+          if-no-files-found: warn
+          retention-days: 7

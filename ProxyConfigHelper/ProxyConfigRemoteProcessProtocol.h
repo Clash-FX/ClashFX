@@ -13,7 +13,7 @@ typedef void(^boolReplyBlock)(BOOL);
 typedef void(^dictReplyBlock)(NSDictionary *);
 typedef void(^uintReplyBlock)(NSUInteger);
 
-#define CLASHFX_HELPER_PROTOCOL_VERSION 4
+#define CLASHFX_HELPER_PROTOCOL_VERSION 6
 
 @protocol ProxyConfigRemoteProcessProtocol <NSObject>
 @required
@@ -27,10 +27,22 @@ typedef void(^uintReplyBlock)(NSUInteger);
 - (void)getMihomoCoreStatusWithReply:(dictReplyBlock)reply
     NS_SWIFT_NAME(getMihomoCoreStatus(_:));
 
+- (void)installApprovedMihomoCoreWithReply:(stringReplyBlock)reply
+    NS_SWIFT_NAME(installApprovedMihomoCore(_:));
+
 - (void)captureMihomoCoreDiagnosticWithReason:(NSString *)reason
                                         reply:(stringReplyBlock)reply;
 
 - (void)restartMihomoCoreHostWithReply:(stringReplyBlock)reply;
+
+- (void)captureDNSWithFilterInterface:(BOOL)filterInterface
+                                reply:(dictReplyBlock)reply
+    NS_SWIFT_NAME(captureDNS(filterInterface:reply:));
+
+- (void)applyDNSWithSnapshot:(NSDictionary *)snapshot
+                     servers:(NSArray<NSString *> *)servers
+                       reply:(stringReplyBlock)reply
+    NS_SWIFT_NAME(applyDNS(snapshot:servers:reply:));
 
 @required
 
@@ -77,3 +89,60 @@ typedef void(^uintReplyBlock)(NSUInteger);
 
 - (void)flushDNSCacheWithReply:(stringReplyBlock)reply;
 @end
+
+static inline void ClashFXConfigureHelperXPCInterface(NSXPCInterface *interface) {
+    if (!interface) {
+        return;
+    }
+
+    NSSet *propertyListClasses = [NSSet setWithObjects:
+        [NSArray class],
+        [NSDictionary class],
+        [NSString class],
+        [NSNumber class],
+        [NSNull class],
+        nil
+    ];
+
+    [interface setClasses:propertyListClasses
+              forSelector:@selector(captureDNSWithFilterInterface:reply:)
+            argumentIndex:0
+                  ofReply:YES];
+    [interface setClasses:propertyListClasses
+              forSelector:@selector(applyDNSWithSnapshot:servers:reply:)
+            argumentIndex:0
+                  ofReply:NO];
+    [interface setClasses:propertyListClasses
+              forSelector:@selector(applyDNSWithSnapshot:servers:reply:)
+            argumentIndex:1
+                  ofReply:NO];
+    [interface setClasses:propertyListClasses
+              forSelector:@selector(restoreDNSWithSavedInfo:filterInterface:reply:)
+            argumentIndex:0
+                  ofReply:NO];
+    [interface setClasses:propertyListClasses
+              forSelector:@selector(overrideDNSWithServers:filterInterface:reply:)
+            argumentIndex:0
+                  ofReply:NO];
+    [interface setClasses:propertyListClasses
+              forSelector:@selector(getCurrentDNSSetting:)
+            argumentIndex:0
+                  ofReply:YES];
+
+    [interface setClasses:propertyListClasses
+              forSelector:@selector(getCurrentProxySetting:)
+            argumentIndex:0
+                  ofReply:YES];
+    [interface setClasses:propertyListClasses
+              forSelector:@selector(restoreProxyWithCurrentPort:socksPort:info:filterInterface:error:)
+            argumentIndex:2
+                  ofReply:NO];
+    [interface setClasses:propertyListClasses
+              forSelector:@selector(enableProxyWithPort:socksPort:pac:filterInterface:ignoreList:error:)
+            argumentIndex:4
+                  ofReply:NO];
+    [interface setClasses:propertyListClasses
+              forSelector:@selector(getMihomoCoreStatusWithReply:)
+            argumentIndex:0
+                  ofReply:YES];
+}

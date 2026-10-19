@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocationUsageDescription</key>
+	<string>ClashFX uses location info to detect your current WiFi network SSID name and provide the auto suspend services.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>ClashFX uses location info to detect your current WiFi network SSID name and provide the auto suspend services.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

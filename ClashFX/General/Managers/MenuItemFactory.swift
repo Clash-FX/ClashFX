@@ -16,6 +16,7 @@ class MenuItemFactory {
     private static var refreshCoordinator = ProxyMenuRefreshCoordinator()
     private static var benchmarkScope: String?
     private static var displayedBenchmarkURL: String?
+    private static var selectionControllerGeneration: UInt64 = 0
 
     static let useViewToRenderProxy: Bool = AppDelegate.isAboveMacOS152
 
@@ -27,6 +28,8 @@ class MenuItemFactory {
 
     static func recreateProxyMenuItems(coreReloaded: Bool = false) {
         let recreate = {
+            advanceSelectionControllerGeneration()
+            if coreReloaded { BenchmarkProbeDiagnosticsStore.clearAll() }
             // A mode change or reload of the same profile is not a new
             // benchmark scope. Validate retained evidence against the snapshot
             // below; changing profiles/controllers must clear every store.
@@ -110,8 +113,10 @@ class MenuItemFactory {
     }
 
     static func refreshMenuItems(mergedData proxyInfo: ClashProxyResp?) {
+        dispatchPrecondition(condition: .onQueue(.main))
         let leftPadding = AppDelegate.shared.hasMenuSelected()
         guard let proxyInfo = proxyInfo else { return }
+        advanceSelectionControllerGeneration()
         var menuItems = [NSMenuItem]()
         let visibleGroups = proxyInfo.proxyGroups.filter { !($0.hidden ?? false) }
         for proxy in sortedProxyGroupsForMenu(visibleGroups) {
@@ -137,11 +142,18 @@ class MenuItemFactory {
     private static func reconcileBenchmarkScope() {
         let scope = "\(RemoteControlManager.selectConfig?.uuid ?? ConfigManager.selectConfigName)\n\(ConfigManager.apiUrl)"
         guard benchmarkScope != scope else { return }
+        BenchmarkProbeDiagnosticsStore.clearAll()
         benchmarkScope = scope
         GlobalLeafBenchmarkPresentationStore.clearAll()
         AutomaticGroupBenchmarkPresentationStore.clearAll()
         AutomaticChildBenchmarkStore.clearAll()
         SelectorBenchmarkPresentationStore.clearAll()
+    }
+
+    private static func advanceSelectionControllerGeneration() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        selectionControllerGeneration &+= 1
+        ProxyGroupSelectionController.invalidateAll()
     }
 
     private static func sortedProxyGroupsForMenu(_ groups: [ClashProxy]) -> [ClashProxy] {
@@ -226,12 +238,15 @@ class MenuItemFactory {
             menu.view = ProxyGroupMenuItemView(proxyGroup: proxyGroup, targetProxy: selectedName, hasLeftPadding: leftPadding)
         }
         let groupName = proxyGroup.name
+        let controller = makeSelectionController(group: proxyGroup, snapshot: proxyInfo)
         let submenu = ProxyGroupMenu(title: groupName) { submenu in
             guard let snapshot = cachedProxyData,
                   let currentGroup = snapshot.proxiesMap[groupName],
-                  currentGroup.type == .select else { return }
-            populateSelectorSubmenu(submenu, proxyGroup: currentGroup, proxyInfo: snapshot)
+                  currentGroup.type == .select,
+                  controller.update(group: currentGroup, snapshot: snapshot) else { return }
+            populateSelectorSubmenu(submenu, proxyGroup: currentGroup, proxyInfo: snapshot, controller: controller)
         }
+        submenu.selectionController = controller
         menu.submenu = submenu
         return menu
     }
@@ -239,18 +254,20 @@ class MenuItemFactory {
     private static func populateSelectorSubmenu(
         _ submenu: ProxyGroupMenu,
         proxyGroup: ClashProxy,
-        proxyInfo: ClashProxyResp
+        proxyInfo: ClashProxyResp,
+        controller: ProxyGroupSelectionController
     ) {
         for proxy in proxyGroup.all ?? [] {
             guard let proxyModel = proxyInfo.proxiesMap[proxy] else { continue }
             let proxyItem = ProxyMenuItem(
                 proxy: proxyModel,
                 group: proxyGroup,
-                action: #selector(MenuItemFactory.actionSelectProxy(sender:))
+                action: #selector(ProxyGroupSelectionController.selectProxy(sender:))
             )
-            proxyItem.target = MenuItemFactory.self
+            proxyItem.target = controller
             submenu.add(delegate: proxyItem)
             submenu.addItem(proxyItem)
+            controller.register(candidateItem: proxyItem)
         }
 
         if proxyGroup.isSpeedTestable && useViewToRenderProxy {
@@ -268,12 +285,16 @@ class MenuItemFactory {
             menu.view = ProxyGroupMenuItemView(proxyGroup: proxyGroup, targetProxy: selectedName, hasLeftPadding: leftPadding)
         }
         let groupName = proxyGroup.name
+        let controller = makeSelectionController(group: proxyGroup, snapshot: proxyInfo)
+        controller.attachHeaderItem(menu)
         let submenu = ProxyGroupMenu(title: groupName) { submenu in
             guard let snapshot = cachedProxyData,
                   let currentGroup = snapshot.proxiesMap[groupName],
-                  currentGroup.type == .urltest || currentGroup.type == .fallback else { return }
-            populateAutomaticSubmenu(submenu, proxyGroup: currentGroup, proxyInfo: snapshot)
+                  currentGroup.supportsManualPriority,
+                  controller.update(group: currentGroup, snapshot: snapshot) else { return }
+            populateAutomaticSubmenu(submenu, proxyGroup: currentGroup, proxyInfo: snapshot, controller: controller)
         }
+        submenu.selectionController = controller
         menu.submenu = submenu
         return menu
     }
@@ -281,40 +302,112 @@ class MenuItemFactory {
     private static func populateAutomaticSubmenu(
         _ submenu: ProxyGroupMenu,
         proxyGroup: ClashProxy,
-        proxyInfo: ClashProxyResp
+        proxyInfo: ClashProxyResp,
+        controller: ProxyGroupSelectionController
     ) {
-        let selectedName = proxyGroup.now ?? ""
         for proxyName in proxyGroup.all ?? [] {
             guard let proxy = proxyInfo.proxiesMap[proxyName] else { continue }
-            let proxyMenuItem = ProxyMenuItem(proxy: proxy, group: proxyGroup, action: #selector(empty))
-            proxyMenuItem.target = MenuItemFactory.self
-            if proxy.name == selectedName {
-                proxyMenuItem.state = .on
-            }
-
-            proxyMenuItem.submenu = ProxyDelayHistoryMenu(
+            let proxyMenuItem = ProxyMenuItem(
                 proxy: proxy,
-                benchmarkURL: proxyGroup.effectiveBenchmarkURL(
-                    fallback: Settings.benchMarkUrl
-                )
+                group: proxyGroup,
+                action: #selector(ProxyGroupSelectionController.selectProxy(sender:))
             )
+            proxyMenuItem.target = controller
 
             submenu.add(delegate: proxyMenuItem)
             submenu.addItem(proxyMenuItem)
+            controller.register(candidateItem: proxyMenuItem)
         }
         if proxyGroup.isSpeedTestable && useViewToRenderProxy {
             submenu.minimumWidth = proxyGroup.maxProxyNameLength + ProxyItemView.fixedPlaceHolderWidth
         }
-        addSpeedTestMenuItem(submenu, proxyGroup: proxyGroup)
+        let hasBenchmarkActions = addSpeedTestMenuItem(submenu, proxyGroup: proxyGroup)
+        if let restoreItem = controller.restoreAutomaticItem {
+            if hasBenchmarkActions {
+                submenu.insertItem(restoreItem, at: min(2, submenu.numberOfItems))
+            } else {
+                submenu.addItem(restoreItem)
+            }
+        }
     }
 
-    private static func addSpeedTestMenuItem(_ menu: NSMenu, proxyGroup: ClashProxy) {
-        guard !proxyGroup.speedtestAble.isEmpty else { return }
+    private static func makeSelectionController(
+        group: ClashProxy,
+        snapshot: ClashProxyResp
+    ) -> ProxyGroupSelectionController {
+        let configName = ConfigManager.selectConfigName
+        let remoteControlID = RemoteControlManager.selectConfig?.uuid
+        let apiURL = ConfigManager.apiUrl
+        let coreGeneration = AppDelegate.shared.proxySelectionGeneration
+        let controllerGeneration = selectionControllerGeneration
+        let app = AppDelegate.shared
+
+        return ProxyGroupSelectionController(
+            group: group,
+            snapshot: snapshot,
+            dependencies: .init(
+                isCurrent: {
+                    ConfigManager.selectConfigName == configName
+                        && RemoteControlManager.selectConfig?.uuid == remoteControlID
+                        && ConfigManager.apiUrl == apiURL
+                        && AppDelegate.shared.proxySelectionGeneration == coreGeneration
+                        && selectionControllerGeneration == controllerGeneration
+                },
+                isCoreChanging: {
+                    app.isConfigUpdating
+                        || app.isEnhancedModeTransitionInProgress
+                        || app.isRestoringProxySelection
+                        || (RemoteControlManager.selectConfig == nil && !ConfigManager.shared.isRunning)
+                },
+                isBusyBenchmark: { app.isSpeedTesting },
+                isInteractionReserved: { app.isConfigUpdateQueued },
+                select: { groupName, name, complete in
+                    ApiRequest.updateProxyGroup(group: groupName, selectProxy: name, callback: complete)
+                },
+                reset: { groupName, complete in
+                    ApiRequest.resetProxyGroup(group: groupName, callback: complete)
+                },
+                refresh: { complete in
+                    let session = ApiRequest.BenchmarkSession()
+                    ApiRequest.getMergedProxyData(session: session, timeout: 10) { freshSnapshot in
+                        session.terminate()
+                        complete(freshSnapshot)
+                    }
+                },
+                publish: { freshSnapshot in
+                    applyRefreshResult(freshSnapshot, mode: .incremental)
+                },
+                rememberSelection: { groupName, name in
+                    let model = SavedProxyModel(group: groupName, selected: name, config: configName)
+                    ConfigManager.selectedProxyRecords.removeAll { $0.key == model.key }
+                    ConfigManager.selectedProxyRecords.append(model)
+                },
+                closeConnections: {
+                    ConnectionManager.closeAllConnection()
+                },
+                showError: { message in
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = NSLocalizedString("Proxy Selection Failed", comment: "")
+                    alert.informativeText = message
+                    alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
+                    alert.runModal()
+                },
+                stageTimeout: 10
+            )
+        )
+    }
+
+    @discardableResult
+    private static func addSpeedTestMenuItem(_ menu: NSMenu, proxyGroup: ClashProxy) -> Bool {
+        guard !proxyGroup.speedtestAble.isEmpty else { return false }
         let speedTestItem = ProxyGroupSpeedTestMenuItem(group: proxyGroup)
         let separator = NSMenuItem.separator()
         menu.insertItem(separator, at: 0)
+        menu.insertItem(speedTestItem.retryFailedNodesMenuItem, at: 0)
         menu.insertItem(speedTestItem, at: 0)
         (menu as? ProxyGroupMenu)?.add(delegate: speedTestItem)
+        return true
     }
 
     private static func generateLoadBalanceMenuItem(proxyGroup: ClashProxy, proxyInfo: ClashProxyResp, leftPadding: Bool) -> NSMenuItem? {
@@ -388,27 +481,17 @@ class MenuItemFactory {
 
 extension MenuItemFactory {
     @objc static func actionSelectProxy(sender: ProxyMenuItem) {
-        guard let proxyGroup = sender.menu?.title else { return }
-        let proxyName = sender.proxyName
-
-        ApiRequest.updateProxyGroup(group: proxyGroup, selectProxy: proxyName) { success in
-            if success {
-                for items in sender.menu?.items ?? [NSMenuItem]() {
-                    items.state = .off
-                }
-                sender.state = .on
-                // remember select proxy
-                let newModel = SavedProxyModel(group: proxyGroup, selected: proxyName, config: ConfigManager.selectConfigName)
-                ConfigManager.selectedProxyRecords.removeAll { model -> Bool in
-                    return model.key == newModel.key
-                }
-                ConfigManager.selectedProxyRecords.append(newModel)
-                // Close all active connections so selector changes take effect immediately.
-                ConnectionManager.closeAllConnection()
-                // refresh menu items
-                MenuItemFactory.refreshExistingMenuItems()
-            }
+        guard let menu = sender.menu as? ProxyGroupMenu else { return }
+        if let controller = menu.selectionController {
+            controller.selectProxy(sender: sender)
+            return
         }
+        guard let snapshot = cachedProxyData,
+              let group = snapshot.proxiesMap[menu.title] else { return }
+        let controller = makeSelectionController(group: group, snapshot: snapshot)
+        menu.selectionController = controller
+        controller.register(candidateItem: sender)
+        controller.selectProxy(sender: sender)
     }
 
     @objc static func actionSelectConfig(sender: NSMenuItem) {

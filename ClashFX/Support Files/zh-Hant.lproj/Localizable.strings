@@ -642,4 +642,256 @@
 "Not tested" = "未測速";
 
 "No testable proxy nodes" = "無可測速代理節點";
+"Core switching…" = "核心切換中…";
+"Proxy core unavailable. Please try again shortly." = "代理核心暫時無法使用，請稍後重試。";
+"Proxy core is changing. Please try again shortly." = "代理核心正在切換，請稍後重試。";
+"Proxy group is no longer available. Refresh and try again." = "代理群組目前無法使用，請重新整理後重試。";
+"The new core did not establish the configured proxy listener(s): %@. Check the core diagnostic log for details." = "新核心未能建立配置的代理監聽連接埠：%@。請查看核心診斷日誌了解詳情。";
 "Direct fallback (no proxy nodes)" = "直連後備（無代理節點）";
+
+"Benchmark result with historical marker" = "%@ · 舊";
+
+"Benchmark cancelled: core changed" = "測速已取消：核心切換";
+
+"Benchmark cancelled: configuration changed" = "測速已取消：設定變更";
+
+"The proxy core is switching, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after the switch." = "核心正在切換，尚未完成的測速請求已取消。已完成的結果會保留，切換結束後可重新測速。";
+
+"The configuration changed, so unfinished benchmark requests were cancelled. Completed results are kept. Run the benchmark again after reload." = "設定已變更，尚未完成的測速請求已取消。已完成的結果會保留，重新載入結束後可重新測速。";
+
+"Display Order" = "顯示順序";
+
+"Configuration Order" = "設定順序";
+
+"Latency First" = "延遲優先";
+
+"Quick (2.5 s)" = "快速測速（2.5 秒）";
+
+"Complete (5 s)" = "完整測速（5 秒）";
+
+"Retry failed nodes" = "重測失敗節點";
+
+"Benchmarking %d/%d" = "測速中 %d/%d";
+
+"Succeeded: %d, timed out: %d, failed: %d, unavailable: %d, reused: %d" = "成功%d，逾時%d，失敗%d，無法使用%d，重用%d";
+
+"Testing automatic group" = "策略組複測中…";
+
+"Testing selected automatic group" = "所選策略組複測中…";
+
+"No failed nodes to retry" = "沒有可重測的失敗節點";
+
+"Only failed or timed-out nodes from the latest benchmark can be retried." = "只重測上一批測速中失敗或逾時的節點。";
+
+"Group %d succeeded · %d failed" = "策略組：成功%d · 失敗%d";
+
+"Group timed out" = "策略組複測逾時";
+
+"Group unavailable" = "策略組複測無法使用";
+
+"Selected automatic group response: %d succeeded, %d failed" = "所選策略組結果：成功%d、失敗%d";
+
+"Selected automatic group request timed out" = "所選策略組請求逾時";
+
+"Selected automatic group returned no results" = "所選策略組未傳回結果";
+
+"Selected automatic group was unavailable" = "所選策略組無法使用";
+
+"Quick" = "快速";
+
+"Complete" = "完整";
+
+"Cloudflare HTTPS" = "Cloudflare HTTPS";
+
+"Google HTTPS" = "Google HTTPS";
+
+"Custom" = "自訂";
+
+"Follow Configuration" = "遵循設定";
+
+"Unified" = "統一延遲";
+
+"Connection" = "完整連線（含交握）";
+
+"Benchmark Mode:" = "測速模式：";
+
+"Benchmark Target:" = "測速目標：";
+
+"Measurement Method:" = "測量方式：";
+
+"Display Order:" = "顯示順序：";
+
+"The previous proxy state was restored." = "已恢復先前的代理狀態。";
+
+"Restoring the previous proxy state also failed: %@" = "恢復先前的代理狀態也失敗了：%@";
+
+"Manual Selection" = "手動";
+
+"Automatic Selection" = "自動";
+
+"Manual Priority" = "優先";
+
+"Core-managed Selection" = "自動組";
+
+"Actual route: %@" = "實際選路：%@";
+
+"Preferred node: %@" = "優先節點：%@";
+
+"Actual route could not be fully resolved" = "暫時無法確認完整選路。";
+
+"Restore Automatic Selection" = "恢復自動";
+
+"Selected path unavailable" = "無法確認目前選擇。";
+
+"This core did not report fixed state." = "此核心未回報手動優先狀態，暫不可修改。";
+
+"Preferred node" = "手動優先節點";
+
+"Click to prefer this node; the core may choose a fallback." = "按一下設為手動優先；不可用時由核心回退。";
+
+"A proxy selection is already in progress." = "正在切換節點，請稍候。";
+
+"Proxy core is changing." = "核心正在切換，請稍後重試。";
+
+"Selection is unavailable during a benchmark." = "請等待測速完成後再切換節點。";
+
+"Proxy selection timed out." = "切換逾時，無法確認核心目前狀態。";
+
+"Proxy selection failed." = "無法切換節點。";
+
+"The core did not retain the requested selection." = "核心未保留此優先選擇，已顯示目前實際選路。";
+
+"Proxy Selection Failed" = "切換節點未完成";
+
+"Wait for the proxy selection to finish." = "請等待節點切換完成。";
+
+"Benchmark timed out" = "逾時";
+
+"Attempted at: %@" = "探測時間：%@";
+
+"Previous successful measurement: %@ (%@)" = "上次成功測量：%@（%@）";
+
+"Latest recorded probe: %@" = "最近探測紀錄：%@";
+
+"Probe timeout: %d ms; elapsed: %d ms" = "核心逾時：%d ms；耗時：%d ms";
+
+"Core API response: %d" = "核心介面回應：%d";
+
+"Single-node Benchmark Diagnostic…" = "單節點測速診斷…";
+
+"Single-node Benchmark Diagnostic" = "單節點測速診斷";
+
+"Test one node without setting manual priority. Automatic groups still follow the core." = "只探測此節點，不設定手動優先；自動組選路仍由核心決定。";
+
+"Run Diagnostic" = "開始診斷";
+
+"Copy Diagnostic Report" = "複製診斷報告";
+
+"Node:" = "節點：";
+
+"Benchmark URL:" = "測試位址：";
+
+"Probe timeout:" = "探測逾時：";
+
+"Could not load nodes for a diagnostic probe." = "無法讀取節點清單，請確認核心介面可用。";
+
+"Enter a valid HTTP or HTTPS benchmark URL." = "請輸入有效的 HTTP 或 HTTPS 測試位址。";
+
+"The probe completed, but its diagnostic record could not be confirmed." = "探測已完成，但無法確認本次診斷紀錄。";
+
+"benchmark_probe_detail_node" = "節點";
+
+"benchmark_probe_detail_identity" = "身分範圍";
+
+"benchmark_probe_detail_provider" = "節點提供者";
+
+"benchmark_probe_detail_url" = "測試位址";
+
+"benchmark_probe_detail_timeout" = "核心逾時";
+
+"benchmark_probe_detail_request_deadline" = "請求期限";
+
+"benchmark_probe_detail_started" = "開始時間";
+
+"benchmark_probe_detail_completed" = "完成時間";
+
+"benchmark_probe_detail_elapsed" = "實際耗時";
+
+"benchmark_probe_detail_status" = "核心介面回應";
+
+"benchmark_probe_detail_result" = "本次結果";
+
+"benchmark_probe_detail_failure_kind" = "失敗類別";
+
+"benchmark_probe_detail_failure_code" = "診斷代碼";
+
+"benchmark_probe_detail_cause" = "原因";
+
+"benchmark_probe_result_success" = "成功（%d ms）";
+
+"benchmark_probe_result_failed" = "失敗";
+
+"benchmark_probe_result_timed_out" = "逾時";
+
+"benchmark_probe_result_unavailable" = "無法確認結果";
+
+"benchmark_probe_result_cancelled" = "已取消";
+
+"benchmark_probe_status_unknown" = "未知";
+
+"benchmark_probe_invalid_url" = "無效測試位址";
+
+"benchmark_probe_identity_leaf" = "節點身分";
+
+"benchmark_probe_identity_name_only" = "僅節點名稱";
+
+"benchmark_probe_failure_none" = "未回報失敗。";
+
+"benchmark_probe_failure_authentication_failed" = "代理驗證被拒絕，請核對節點驗證參數。";
+
+"benchmark_probe_failure_dial_failed" = "無法建立代理連線。";
+
+"benchmark_probe_failure_controller_unavailable" = "網路或核心介面無法確認結果，不能據此判定節點失效。";
+
+"benchmark_probe_failure_dns_resolution_failed" = "DNS 解析失敗。";
+
+"benchmark_probe_failure_dns_timeout" = "DNS 解析逾時。";
+
+"benchmark_probe_failure_http_request_failed" = "HTTP 探測請求未完成。";
+
+"benchmark_probe_failure_invalid_result" = "核心介面回傳了無效測速資料。";
+
+"benchmark_probe_failure_unspecified_core_failure" = "核心探測失敗，但未提供具體原因。";
+
+"benchmark_probe_failure_node_reported_failure" = "核心探測失敗，但未提供具體原因。";
+
+"benchmark_probe_failure_probe_failed" = "探測失敗，暫未識別出更具體的原因。";
+
+"benchmark_probe_failure_probe_timeout" = "探測超過了核心的等待期限。";
+
+"benchmark_probe_failure_quic_handshake_failed" = "QUIC 交握未完成；不能僅據此斷定 UDP 被封鎖。";
+
+"benchmark_probe_failure_tls_expired" = "TLS 憑證已過期。";
+
+"benchmark_probe_failure_tls_failure" = "TLS 連線失敗。";
+
+"benchmark_probe_failure_tls_name_mismatch" = "TLS 憑證名稱與設定不符，請檢查 SNI。";
+
+"benchmark_probe_failure_tls_unknown_authority" = "TLS 憑證簽發者不受信任。";
+
+"benchmark_probe_failure_unexpected_response" = "核心介面無法確認探測結果。";
+
+"benchmark_probe_failure_zero_delay" = "核心未得到正數延遲，無法確認本次測量。";
+
+/* Runtime ownership and bounded System Proxy recovery */
+"ClashFX is already running. This copy will close to protect the active proxy." = "ClashFX 已在執行。此副本將關閉，以保護目前的代理。";
+"ClashFX could not obtain exclusive runtime control." = "ClashFX 無法取得獨佔執行控制權。";
+"System Proxy recovery paused after repeated conflicts. Click to retry." = "系統代理恢復因持續衝突已暫停。按一下可重試。";
+
+"Enhanced Mode config preparation timed out" = "增強模式設定準備逾時";
+
+"Helper installation failed. Please try again or check the logs." = "輔助程式安裝失敗，請重試。詳細原因請查看日誌。";
+
+/* Proxy menu selection display */
+"Show Final Node in Proxy Menu" = "代理選單顯示最終節點";
+"By default, shows the selected node or group (such as Proxies). Enable to show the final node." = "預設顯示所選節點或策略群組（如 Proxies），開啟後顯示最終節點。";
