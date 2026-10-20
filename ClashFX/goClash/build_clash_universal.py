@@ -52,8 +52,10 @@ def mergeLibs():
 
 
 def build_mihomo_bin(version, build_time, arch):
+    # The system linker emits LC_UUID for modern macOS while explicit compiler
+    # and linker floors retain the release deployment target on both slices.
     command = f"""
-{go_bin} build -modfile='{go_modfile}' -trimpath -tags with_gvisor -ldflags '-X "github.com/metacubex/mihomo/constant.Version={version}" \
+{go_bin} build -modfile='{go_modfile}' -trimpath -tags with_gvisor -ldflags '-linkmode=external -X "github.com/metacubex/mihomo/constant.Version={version}" \
 -X "github.com/metacubex/mihomo/constant.BuildTime={build_time}"' \
 -o mihomo_core_{arch} ./mihomo-bin/ """
     envs = os.environ.copy()
@@ -61,7 +63,9 @@ def build_mihomo_bin(version, build_time, arch):
         {
             "GOOS": "darwin",
             "GOARCH": arch,
-            "CGO_ENABLED": "0",
+            "CGO_ENABLED": "1",
+            "CGO_CFLAGS": "-mmacosx-version-min=10.14",
+            "CGO_LDFLAGS": "-mmacosx-version-min=10.14",
         }
     )
     subprocess.check_output(command, shell=True, env=envs)
@@ -104,7 +108,8 @@ def run(native=False):
         go_modfile = modfile
         print("verify core workaround and Go tests")
         subprocess.check_call(
-            [go_bin, "test", f"-modfile={go_modfile}", "./..."],
+            [go_bin, "test", "-ldflags=-linkmode=external", f"-modfile={go_modfile}", "./..."],
+            env=dict(os.environ, CGO_ENABLED="1"),
         )
         print("clean existing")
         subprocess.check_output("rm -f *Clash*.h *.a mihomo_core_*", shell=True)

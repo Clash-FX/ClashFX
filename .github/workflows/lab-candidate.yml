@@ -115,7 +115,7 @@ jobs:
             env = dict(os.environ, CGO_ENABLED="1", GOMAXPROCS="2")
             for mode in ([], ["-race"]):
                 subprocess.run(
-                    ["go", "test", "-tags=with_gvisor", *mode,
+                    ["go", "test", "-tags=with_gvisor", "-ldflags=-linkmode=external", *mode,
                      f"-modfile={modfile}", "./..."],
                     check=True,
                     env=env,

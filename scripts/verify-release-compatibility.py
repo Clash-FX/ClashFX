@@ -33,6 +33,8 @@ def verify_binary(path):
         if arch not in archs:
             raise RuntimeError(f'{path}: missing {arch}')
         output = command('xcrun', 'otool', '-arch', arch, '-l', str(path))
+        if not re.search(r'cmd LC_UUID\b', output):
+            raise RuntimeError(f'{path}: {arch} missing LC_UUID required by modern macOS loaders')
         minima = []
         for block in output.split('Load command'):
             if re.search(r'cmd LC_BUILD_VERSION\b', block):

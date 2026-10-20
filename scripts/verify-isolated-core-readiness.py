@@ -182,9 +182,9 @@ def main():
         binary = workspace / "isolated-mihomo-core"
         with core_overlay.core_modfile() as modfile, (workspace / "build.log").open("wb") as log:
             subprocess.run(["go", "build", f"-modfile={modfile}", "-trimpath", "-tags", "with_gvisor",
-                            "-ldflags", f"-X github.com/metacubex/mihomo/constant.Version={version.lstrip('v')}",
+                            "-ldflags", f"-linkmode=external -X github.com/metacubex/mihomo/constant.Version={version.lstrip('v')}",
                             "-o", str(binary), "./mihomo-bin/"], cwd=source_copy,
-                           env=dict(os.environ, CGO_ENABLED="0", GOMAXPROCS="2"),
+                           env=dict(os.environ, CGO_ENABLED="1", GOMAXPROCS="2", CGO_CFLAGS="-mmacosx-version-min=10.14", CGO_LDFLAGS="-mmacosx-version-min=10.14"),
                            stdout=log, stderr=subprocess.STDOUT, check=True, timeout=300)
         built = True
 
