@@ -1079,6 +1079,8 @@ type Server struct {
     service resolver.Service
     tcpServer *D.Server
     udpServer *D.Server
+    tcpDone <-chan struct{}
+    udpDone <-chan struct{}
 }
 
 func (s *Server) ServeDNS(w D.ResponseWriter, r *D.Msg) {
@@ -1119,11 +1121,15 @@ func ReCreateServer(addr string, service resolver.Service) {
     }
     if server.tcpServer != nil {
         _ = server.tcpServer.Shutdown()
+        if server.tcpDone != nil { <-server.tcpDone }
         server.tcpServer = nil
+        server.tcpDone = nil
     }
     if server.udpServer != nil {
         _ = server.udpServer.Shutdown()
+        if server.udpDone != nil { <-server.udpDone }
         server.udpServer = nil
+        server.udpDone = nil
     }
     server.SetService(nil)
     address = ""
@@ -1150,12 +1156,17 @@ func ReCreateServer(addr string, service resolver.Service) {
     current.tcpServer = &D.Server{Addr: addr, Listener: listener, Handler: current}
     server = current
     address = addr
-    start := func(protocol string, dnsServer *D.Server) bool {
+    start := func(protocol string, dnsServer *D.Server) (bool, <-chan struct{}) {
         started := make(chan bool, 1)
+        done := make(chan struct{})
         var once sync.Once
         notify := func(ready bool) { once.Do(func() { started <- ready }) }
         dnsServer.NotifyStartedFunc = func() { notify(true) }
         go func() {
+            // A second concurrent Close can return ErrClosed before the first
+            // Close has released the OS descriptor. Join this owner as well as
+            // the library's serving loop before declaring shutdown complete.
+            defer close(done)
             defer notify(false) // Exit before startup is a failure, not readiness.
             if err := dnsServer.ActivateAndServe(); err != nil {
                 log.Errorln("Start DNS server(%s) error: %s", protocol, err.Error())
@@ -1163,16 +1174,22 @@ func ReCreateServer(addr string, service resolver.Service) {
             if dnsServer.PacketConn != nil { _ = dnsServer.PacketConn.Close() }
             if dnsServer.Listener != nil { _ = dnsServer.Listener.Close() }
         }()
-        return <-started
+        return <-started, done
     }
-    if !start("UDP", current.udpServer) {
+    var udpReady, tcpReady bool
+    udpReady, current.udpDone = start("UDP", current.udpServer)
+    if !udpReady {
         _ = listener.Close()
+        <-current.udpDone
         current.SetService(nil)
         address = ""
         return
     }
-    if !start("TCP", current.tcpServer) {
+    tcpReady, current.tcpDone = start("TCP", current.tcpServer)
+    if !tcpReady {
         _ = current.udpServer.Shutdown()
+        <-current.udpDone
+        <-current.tcpDone
         current.SetService(nil)
         address = ""
         return

@@ -29,11 +29,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	C "github.com/metacubex/mihomo/constant"
+	D "github.com/miekg/dns"
 )
 
 const (
@@ -53,6 +56,7 @@ func TestClashFXDNSLifecycleOwnership(t *testing.T) {
 	mapper := NewEnhancer(EnhancerConfig{EnhancedMode: C.DNSNormal})
 	service := NewService(resolvers.Resolver, mapper)
 	t.Cleanup(func() { ReCreateServer("", nil) })
+	clashFXVerifyCleanupJoin(t, listenAddress)
 
 	for cycle := 0; cycle < clashFXCycles; cycle++ {
 		ReCreateServer(listenAddress, service)
@@ -119,6 +123,108 @@ func TestClashFXDNSLifecycleOwnership(t *testing.T) {
 			t.Fatalf("cycle %d: close TCP ownership probe: %v", cycle, err)
 		}
 	}
+}
+
+func clashFXVerifyCleanupJoin(t *testing.T, listenAddress string) {
+	t.Helper()
+	ownedPacket, err := net.ListenPacket("udp", listenAddress)
+	if err != nil {
+		t.Fatalf("bind cleanup-join UDP socket at %s: %v", listenAddress, err)
+	}
+
+	ownerRelease := make(chan struct{})
+	ownerDone := make(chan struct{})
+	stopDone := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseOwner := func() { releaseOnce.Do(func() { close(ownerRelease) }) }
+
+	serverLifecycle.Lock()
+	previousServer, previousAddress := server, address
+	server = &Server{
+		udpServer: &D.Server{PacketConn: ownedPacket},
+		udpDone:   ownerDone,
+	}
+	address = listenAddress
+	serverLifecycle.Unlock()
+
+	go func() {
+		<-ownerRelease
+		_ = ownedPacket.Close()
+		close(ownerDone)
+	}()
+	go func() {
+		ReCreateServer("", nil)
+		close(stopDone)
+	}()
+	var restored bool
+	restoreGlobals := func() {
+		if restored {
+			return
+		}
+		serverLifecycle.Lock()
+		server, address = previousServer, previousAddress
+		serverLifecycle.Unlock()
+		restored = true
+	}
+	t.Cleanup(func() {
+		// Unblock the synthetic cleanup owner before waiting for shutdown or
+		// restoring globals, including when an assertion fails above.
+		releaseOwner()
+		<-ownerDone
+		<-stopDone
+		restoreGlobals()
+	})
+
+	entryDeadline := time.Now().Add(2 * time.Second)
+	for {
+		select {
+		case <-stopDone:
+			t.Fatal("ReCreateServer returned before the cleanup owner finished")
+		default:
+		}
+		if !serverLifecycle.TryLock() {
+			break
+		}
+		serverLifecycle.Unlock()
+		if time.Now().After(entryDeadline) {
+			t.Fatal("ReCreateServer did not enter its lifecycle critical section before the deadline")
+		}
+		runtime.Gosched()
+	}
+
+	// Give the stop goroutine bounded opportunities to pass Shutdown. With the
+	// join in place it remains in the critical section until ownerDone closes.
+	joinDeadline := time.Now().Add(50 * time.Millisecond)
+	for time.Now().Before(joinDeadline) {
+		select {
+		case <-stopDone:
+			t.Fatal("ReCreateServer returned before the cleanup owner finished")
+		default:
+		}
+		if serverLifecycle.TryLock() {
+			serverLifecycle.Unlock()
+			t.Fatal("ReCreateServer released its lifecycle lock before the cleanup owner finished")
+		}
+		runtime.Gosched()
+	}
+
+	releaseOwner()
+	select {
+	case <-stopDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ReCreateServer did not return after the cleanup owner finished")
+	}
+	if err := ownedPacket.SetReadDeadline(time.Now()); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("cleanup owner UDP socket SetReadDeadline error = %v, want net.ErrClosed", err)
+	}
+	probe, err := net.ListenPacket("udp", listenAddress)
+	if err != nil {
+		t.Fatalf("rebind UDP %s immediately after cleanup join: %v", listenAddress, err)
+	}
+	if err := probe.Close(); err != nil {
+		t.Fatalf("close cleanup-join UDP rebind probe: %v", err)
+	}
+	restoreGlobals()
 }
 
 func clashFXAvailablePort(t *testing.T) int {
