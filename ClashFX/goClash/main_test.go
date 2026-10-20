@@ -1289,16 +1289,20 @@ func TestImmediateDNSRecreationSuspensionReleasesBothListeners(t *testing.T) {
 	mapper := mihomoDNS.NewEnhancer(mihomoDNS.EnhancerConfig{EnhancedMode: C.DNSNormal})
 	service := mihomoDNS.NewService(resolvers.Resolver, mapper)
 	t.Cleanup(closeBuiltinDNSListener)
+	// Use one qualified non-ephemeral port for every cycle. A fresh :0 port
+	// can be claimed by the runner's unrelated outgoing UDP activity after
+	// shutdown, which does not identify whether this server retained its socket.
+	port := 0
+	for candidate := 20000; candidate < 40000; candidate++ {
+		if checkDNSPortAvailable(candidate) {
+			port = candidate
+			break
+		}
+	}
+	if port == 0 {
+		t.Fatal("no DNS lifecycle fixture port available")
+	}
 	for i := 0; i < 20; i++ {
-		probe, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		port := probe.Addr().(*net.TCPAddr).Port
-		_ = probe.Close()
-		if !checkDNSPortAvailable(port) {
-			continue
-		}
 		mihomoDNS.ReCreateServer(net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), service)
 		closeBuiltinDNSListener()
 		if !checkDNSPortAvailable(port) {

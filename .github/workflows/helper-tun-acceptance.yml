@@ -80,6 +80,8 @@ jobs:
             --bridge-directory "$RUNNER_TEMP/clashfx-acceptance-build"
           python3 scripts/verify-enhanced-reload-port-conflicts.py \
             --bridge-directory "$RUNNER_TEMP/clashfx-acceptance-build"
+      - name: DNS shutdown socket ownership regression
+        run: python3 scripts/verify-dns-lifecycle-ownership.py --count 20
       - name: Recovery selection, provider churn and custom IPv6 DNS regressions
         shell: bash
         run: |
