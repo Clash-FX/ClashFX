@@ -400,45 +400,6 @@ enum EnhancedModeDNSReadinessPolicy {
         guard prefix.count >= 2 else { return nil }
         return (Int(prefix[0]) << 8) | Int(prefix[1])
     }
-
-    static func retargetLoopbackServers(_ value: Any, to port: Int) -> Any {
-        let replacement = { (server: String) -> String in
-            guard let expression = try? NSRegularExpression(
-                pattern: #"(127\.0\.0\.1:|localhost:|\[::1\]:)\d+"#
-            ) else { return server }
-            let range = NSRange(server.startIndex ..< server.endIndex, in: server)
-            return expression.stringByReplacingMatches(
-                in: server,
-                range: range,
-                withTemplate: "$1\(port)"
-            )
-        }
-        if let server = value as? String {
-            return replacement(server)
-        }
-        if let servers = value as? [String] {
-            return servers.map(replacement)
-        }
-        if let servers = value as? [Any] {
-            return servers.map { retargetLoopbackServers($0, to: port) }
-        }
-        if let policy = value as? [String: Any] {
-            return policy.mapValues { retargetLoopbackServers($0, to: port) }
-        }
-        return value
-    }
-
-    static func preserveDNSListenPort(in config: inout [String: Any], port: Int) -> Bool {
-        guard port > 0, var dns = config["dns"] as? [String: Any] else { return false }
-        dns["listen"] = "127.0.0.1:\(port)"
-        for key in ["nameserver", "default-nameserver", "fallback", "proxy-server-nameserver", "nameserver-policy"] {
-            if let value = dns[key] {
-                dns[key] = retargetLoopbackServers(value, to: port)
-            }
-        }
-        config["dns"] = dns
-        return true
-    }
 }
 
 enum EnhancedModeRuntimeRecoveryPolicy {
@@ -489,11 +450,12 @@ enum EnhancedModeMenuAvailabilityPolicy {
         coreIsRunning: Bool,
         ownershipRetryAvailable: Bool,
         startupCleanupRetryAvailable: Bool,
-        builtInResumeRetryAvailable: Bool
+        builtInResumeRetryAvailable: Bool,
+        automaticRecoveryRetryAvailable: Bool = false
     ) -> Bool {
         !isTransitioning && !isTerminating && !isRestarting &&
             (coreIsRunning || ownershipRetryAvailable || startupCleanupRetryAvailable ||
-                builtInResumeRetryAvailable)
+                builtInResumeRetryAvailable || automaticRecoveryRetryAvailable)
     }
 }
 

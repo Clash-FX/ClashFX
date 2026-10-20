@@ -118,7 +118,7 @@ final class SystemProxyAutoRecoveryTests: XCTestCase {
         let harness = Harness()
         let controller = harness.makeController(scheduler: scheduler, coordination: coordination)
 
-        for _ in 0..<20 {
+        for _ in 0 ..< 20 {
             controller.request()
         }
 
@@ -193,7 +193,7 @@ final class SystemProxyAutoRecoveryTests: XCTestCase {
         controller.request()
         scheduler.advance(by: SystemProxyAutoRecoveryController.requestCoalescingDelay)
 
-        for index in 0..<2 {
+        for index in 0 ..< 2 {
             XCTAssertTrue(harness.finishNextApply(false))
             scheduler.advance(by: SystemProxyAutoRecoveryController.settleDelay)
             if index == 0 {
@@ -204,7 +204,7 @@ final class SystemProxyAutoRecoveryTests: XCTestCase {
         XCTAssertEqual(harness.suspendCount, 0)
 
         harness.observation.matches = true
-        for _ in 0..<10 {
+        for _ in 0 ..< 10 {
             controller.request()
         }
         scheduler.advance(by: SystemProxyAutoRecoveryController.requestCoalescingDelay)
@@ -230,7 +230,7 @@ final class SystemProxyAutoRecoveryTests: XCTestCase {
 
         controller.request()
         scheduler.advance(by: SystemProxyAutoRecoveryController.requestCoalescingDelay)
-        for _ in 0..<SystemProxyAutoRecoveryController.maximumAttempts {
+        for _ in 0 ..< SystemProxyAutoRecoveryController.maximumAttempts {
             XCTAssertTrue(harness.finishNextApply(false))
             scheduler.advance(by: SystemProxyAutoRecoveryController.settleDelay)
             if harness.applyCompletions.count < SystemProxyAutoRecoveryController.maximumAttempts {

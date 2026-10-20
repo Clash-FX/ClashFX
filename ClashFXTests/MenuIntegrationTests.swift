@@ -426,6 +426,359 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertNil(action.toolTip)
     }
 
+    func testSelectorAutomaticRowUsesCurrentLeafMeasurementAfterRouteChanges() throws {
+        var selector = try XCTUnwrap(MihomoMenuURLProtocol.topology["Selector"] as? [String: Any])
+        selector["all"] = ["Automatic", "Leaf-A", "Leaf-B", "Leaf-C"]
+        selector["now"] = "Automatic"
+        MihomoMenuURLProtocol.topology["Selector"] = selector
+        MihomoMenuURLProtocol.topology["Automatic"] = [
+            "name": "Automatic", "type": "URLTest", "now": "Leaf-A",
+            "all": ["Leaf-A", "Leaf-B"], "testUrl": urlA, "history": []
+        ]
+        MihomoMenuURLProtocol.topology["Leaf-C"] = [
+            "name": "Leaf-C", "type": "Vless", "id": "leaf-c-id", "history": []
+        ]
+        refresh()
+
+        let menu = menu()
+        MihomoMenuURLProtocol.groupReply = .init(body: ["Leaf-A": 486, "Leaf-B": 35])
+        MihomoMenuURLProtocol.groupDidRespond = { MihomoMenuURLProtocol.hold = true }
+        clickBenchmark(menu)
+        waitUntil("sibling leaf probe is held after automatic retest") {
+            MihomoMenuURLProtocol.held.count == 1
+                && self.text(menu, "Automatic") == "486 ms"
+        }
+
+        // Preserve the ordering that causes the bug: the old-path row envelope
+        // is newer than the other candidate's valid measurement. A late row
+        // publication must not become a failed attempt on a different path.
+        let oldLeaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        SelectorBenchmarkPresentationStore.publish(SelectorBenchmarkPresentation(
+            selectorName: "Selector", rowName: "Automatic", resolvedLeafName: oldLeaf.name,
+            resolvedCoreID: oldLeaf.id, benchmarkURL: urlA, sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Automatic", delay: 486)
+        ))
+        setNow("Automatic", "Leaf-B")
+        refresh()
+
+        XCTAssertEqual(snapshot.proxiesMap["Automatic"]?.now, "Leaf-B")
+        XCTAssertEqual(text(menu, "Automatic"), "35 ms")
+        XCTAssertTrue(selected(menu, "Automatic"))
+        let reopened = self.menu()
+        XCTAssertEqual(text(reopened, "Automatic"), "35 ms")
+        XCTAssertTrue(selected(reopened, "Automatic"))
+
+        MihomoMenuURLProtocol.hold = false
+        MihomoMenuURLProtocol.releaseHeld()
+        finish(menu)
+        XCTAssertEqual(text(menu, "Automatic"), "35 ms")
+    }
+
+    func testAutomaticHeaderUsesExistingCurrentLeafEvidenceAfterPathChanges() throws {
+        let group = try XCTUnwrap(snapshot.proxiesMap["Automatic"])
+        header = ProxyGroupMenuItemView(proxyGroup: group, targetProxy: "Leaf-A", hasLeftPadding: true)
+        MihomoMenuURLProtocol.groupReply = .init(body: ["Leaf-A": 486, "Leaf-B": 35])
+        let automatic = menu("Automatic")
+        clickBenchmark(automatic)
+        finish(automatic)
+        XCTAssertEqual(header?.delayLabel.stringValue, "486 ms")
+        setNow("Automatic", "Leaf-B")
+        refresh()
+        XCTAssertEqual(header?.delayLabel.stringValue, "35 ms")
+        let reopened = try ProxyGroupMenuItemView(proxyGroup: XCTUnwrap(snapshot.proxiesMap["Automatic"]),
+                                                  targetProxy: "Leaf-B", hasLeftPadding: true)
+        XCTAssertEqual(reopened.delayLabel.stringValue, "35 ms")
+        XCTAssertEqual(snapshot.proxiesMap["Automatic"]?.now, "Leaf-B")
+
+        // An actual new attempt on the current leaf must still supersede its
+        // earlier successful measurement, unlike old-path invalidation.
+        let currentLeaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-B"])
+        for state: ProxyBenchmarkRowState in [.unavailable(displayName: "Leaf-B"), .timedOut(displayName: "Leaf-B"), .failed(displayName: "Leaf-B")] {
+            GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+                identity: LeafProxyBenchmarkIdentity(proxy: currentLeaf), benchmarkURL: urlB,
+                sessionIdentifier: UUID(), rowState: state
+            ))
+            NotificationCenter.default.post(name: .proxyUpdate(for: "Automatic"), object: snapshot.proxiesMap["Automatic"])
+            XCTAssertEqual(header?.delayLabel.stringValue, state.delayDisplay)
+            XCTAssertEqual(reopened.delayLabel.stringValue, state.delayDisplay)
+        }
+    }
+
+    func testAutomaticHeaderRejectsLateEvidenceFromDifferentURLOrExpectedStatus() throws {
+        let oldGroup = try XCTUnwrap(snapshot.proxiesMap["Automatic"])
+        let oldLeaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        let late = AutomaticGroupBenchmarkPresentation(
+            identity: AutomaticGroupBenchmarkIdentity(group: oldGroup, fallbackBenchmarkURL: urlA),
+            selectedPath: ["Automatic", "Leaf-A"], finalLeaf: "Leaf-A", finalLeafID: oldLeaf.id,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 131)
+        )
+        header = ProxyGroupMenuItemView(proxyGroup: oldGroup, targetProxy: "Leaf-A", hasLeftPadding: true)
+        GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: oldLeaf), benchmarkURL: urlB,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 131)
+        ))
+
+        var changed = try XCTUnwrap(MihomoMenuURLProtocol.topology["Automatic"] as? [String: Any])
+        changed["testUrl"] = urlA
+        MihomoMenuURLProtocol.topology["Automatic"] = changed
+        refresh()
+        NotificationCenter.default.post(name: .proxyUpdate(for: "Automatic"), object: snapshot.proxiesMap["Automatic"])
+        let currentLeaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: currentLeaf), benchmarkURL: urlA,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 42)
+        ))
+        // A late old-URL event must resolve against current group conditions.
+        AutomaticGroupBenchmarkPresentationStore.publish(late)
+        XCTAssertEqual(header?.delayLabel.stringValue, "42 ms")
+
+        let previousGroup = try XCTUnwrap(snapshot.proxiesMap["Automatic"])
+        let oldStatus = AutomaticGroupBenchmarkPresentation(
+            identity: AutomaticGroupBenchmarkIdentity(group: previousGroup, fallbackBenchmarkURL: urlA),
+            selectedPath: ["Automatic", "Leaf-A"], finalLeaf: "Leaf-A", finalLeafID: currentLeaf.id,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 42)
+        )
+        changed["expectedStatus"] = "204"
+        MihomoMenuURLProtocol.topology["Automatic"] = changed
+        refresh()
+        NotificationCenter.default.post(name: .proxyUpdate(for: "Automatic"), object: snapshot.proxiesMap["Automatic"])
+        try GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: XCTUnwrap(snapshot.proxiesMap["Leaf-A"])),
+            benchmarkURL: urlA, expectedStatus: "204", sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Leaf-A", delay: 67)
+        ))
+        AutomaticGroupBenchmarkPresentationStore.publish(oldStatus)
+        XCTAssertEqual(header?.delayLabel.stringValue, "67 ms")
+        XCTAssertEqual(snapshot.proxiesMap["Automatic"]?.now, "Leaf-A")
+    }
+
+    func testAutomaticHeaderKeepsHistoryAgeAndCurrentLeafFailuresAcrossRouteChanges() throws {
+        let oldGroup = try XCTUnwrap(snapshot.proxiesMap["Automatic"])
+        let oldLeaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        let measuredAt = Date().addingTimeInterval(-31 * 60)
+        let otherLeaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-B"])
+        GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: otherLeaf), benchmarkURL: urlB,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-B", delay: 35),
+            publishedAt: measuredAt
+        ))
+        AutomaticGroupBenchmarkPresentationStore.publish(AutomaticGroupBenchmarkPresentation(
+            identity: AutomaticGroupBenchmarkIdentity(group: oldGroup, fallbackBenchmarkURL: urlA),
+            selectedPath: ["Automatic", "Leaf-A"], finalLeaf: "Leaf-A", finalLeafID: oldLeaf.id,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 486)
+        ))
+        header = ProxyGroupMenuItemView(proxyGroup: oldGroup, targetProxy: "Leaf-A", hasLeftPadding: true)
+        setNow("Automatic", "Leaf-B")
+        refresh()
+        XCTAssertTrue(header?.delayLabel.stringValue.contains("35 ms") == true)
+        XCTAssertNotEqual(header?.delayLabel.stringValue, "35 ms", "A route change must not freshen history")
+        for state: ProxyBenchmarkRowState in [.failed(displayName: "Leaf-B"), .timedOut(displayName: "Leaf-B"), .unavailable(displayName: "Leaf-B")] {
+            GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+                identity: LeafProxyBenchmarkIdentity(proxy: otherLeaf), benchmarkURL: urlB,
+                sessionIdentifier: UUID(), rowState: state
+            ))
+            NotificationCenter.default.post(name: .proxyUpdate(for: "Automatic"), object: snapshot.proxiesMap["Automatic"])
+            XCTAssertEqual(header?.delayLabel.stringValue, state.delayDisplay)
+            XCTAssertTrue(header?.delayLabel.toolTip?.contains("35 ms") == true)
+        }
+        XCTAssertEqual(snapshot.proxiesMap["Automatic"]?.now, "Leaf-B")
+    }
+
+    func testAutomaticHeaderDoesNotReuseAncestorEvidenceWhenOnlyInnerRouteChanges() throws {
+        MihomoMenuURLProtocol.topology["Automatic"] = [
+            "name": "Automatic", "type": "URLTest", "now": "Inner-A",
+            "all": ["Inner-A", "Inner-B"], "testUrl": urlB, "history": []
+        ]
+        for name in ["Inner-A", "Inner-B"] {
+            MihomoMenuURLProtocol.topology[name] = [
+                "name": name, "type": "Selector", "now": "Leaf-A", "all": ["Leaf-A"], "history": []
+            ]
+        }
+        refresh()
+        let leaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: leaf), benchmarkURL: urlB,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 35),
+            publishedAt: Date().addingTimeInterval(-1)
+        ))
+        header = try ProxyGroupMenuItemView(proxyGroup: XCTUnwrap(snapshot.proxiesMap["Automatic"]),
+                                            targetProxy: "Inner-A", hasLeftPadding: true)
+        for state: ProxyBenchmarkRowState in [.measured(displayName: "Leaf-A", delay: 486), .failed(displayName: "Leaf-A"), .timedOut(displayName: "Leaf-A"), .unavailable(displayName: "Leaf-A")] {
+            setNow("Automatic", "Inner-A")
+            refresh()
+            let group = try XCTUnwrap(snapshot.proxiesMap["Automatic"])
+            AutomaticGroupBenchmarkPresentationStore.publish(AutomaticGroupBenchmarkPresentation(
+                identity: AutomaticGroupBenchmarkIdentity(group: group, fallbackBenchmarkURL: urlA),
+                selectedPath: ["Automatic", "Inner-A", "Leaf-A"], finalLeaf: "Leaf-A", finalLeafID: leaf.id,
+                sessionIdentifier: UUID(), rowState: state
+            ))
+            XCTAssertEqual(header?.delayLabel.stringValue, state.delayDisplay)
+            setNow("Automatic", "Inner-B")
+            refresh()
+            XCTAssertEqual(header?.delayLabel.stringValue, "35 ms")
+            XCTAssertEqual(snapshot.proxiesMap["Automatic"]?.now, "Inner-B")
+        }
+    }
+
+    func testAutomaticHeaderRejectsSameNameProviderReplacementWithoutCoreID() throws {
+        func attachProvider(_ name: String) throws {
+            let data = try JSONSerialization.data(withJSONObject: ["providers": [name: [
+                "name": name, "type": "Proxy", "vehicleType": "HTTP",
+                "proxies": [["name": "Leaf-A", "type": "Vless", "history": []]]
+            ]]])
+            try snapshot.updateProvider(ClashProviderResp.decoder.decode(ClashProviderResp.self, from: data))
+        }
+        try attachProvider("P1")
+        let group = try XCTUnwrap(snapshot.proxiesMap["Automatic"])
+        let original = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        XCTAssertNil(original.id)
+        let oldPresentation = AutomaticGroupBenchmarkPresentation(
+            identity: AutomaticGroupBenchmarkIdentity(group: group, fallbackBenchmarkURL: urlA),
+            selectedPath: ["Automatic", "Leaf-A"], finalLeaf: "Leaf-A", finalLeafID: original.id,
+            finalLeafIdentity: LeafProxyBenchmarkIdentity(proxy: original),
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 131)
+        )
+        header = ProxyGroupMenuItemView(proxyGroup: group, targetProxy: "Leaf-A", hasLeftPadding: true)
+        AutomaticGroupBenchmarkPresentationStore.publish(oldPresentation)
+        XCTAssertEqual(header?.delayLabel.stringValue, "131 ms")
+        try attachProvider("P2")
+        let replacement = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        XCTAssertNil(replacement.id)
+        XCTAssertEqual(replacement.enclosingProvider?.name, "P2")
+        AutomaticGroupBenchmarkPresentationStore.publish(oldPresentation)
+        XCTAssertNotEqual(header?.delayLabel.stringValue, "131 ms")
+        GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: replacement), benchmarkURL: urlB,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 42)
+        ))
+        AutomaticGroupBenchmarkPresentationStore.publish(oldPresentation)
+        XCTAssertEqual(header?.delayLabel.stringValue, "42 ms")
+    }
+
+    func testSelectorDistinguishesAncestorPathEvidenceFromDirectLeafMeasurements() throws {
+        var selector = try XCTUnwrap(MihomoMenuURLProtocol.topology["Selector"] as? [String: Any])
+        selector["now"] = "Automatic"
+        MihomoMenuURLProtocol.topology["Selector"] = selector
+        MihomoMenuURLProtocol.topology["Automatic"] = [
+            "name": "Automatic", "type": "URLTest", "now": "Inner-A",
+            "all": ["Inner-A", "Inner-B"], "testUrl": urlB, "history": []
+        ]
+        for name in ["Inner-A", "Inner-B"] {
+            MihomoMenuURLProtocol.topology[name] = [
+                "name": name, "type": "Selector", "now": "Leaf-A", "all": ["Leaf-A"], "history": []
+            ]
+        }
+        refresh()
+        let leaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: leaf), benchmarkURL: urlA,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 35),
+            publishedAt: Date().addingTimeInterval(-1)
+        ))
+        let selectorMenu = menu()
+        SelectorBenchmarkPresentationStore.publish(SelectorBenchmarkPresentation(
+            selectorName: "Selector", rowName: "Automatic", resolvedLeafName: leaf.name,
+            resolvedCoreID: leaf.id, resolvedPath: ["Automatic", "Inner-A", "Leaf-A"], benchmarkURL: urlA,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Automatic", delay: 486)
+        ))
+        XCTAssertEqual(text(selectorMenu, "Automatic"), "486 ms")
+        setNow("Automatic", "Inner-B")
+        refresh()
+        XCTAssertEqual(text(selectorMenu, "Automatic"), "35 ms")
+        XCTAssertEqual(text(menu(), "Automatic"), "35 ms")
+
+        // A /proxies/Leaf-A/delay result is direct leaf evidence and remains
+        // valid through another inner group that still resolves to that node.
+        SelectorBenchmarkPresentationStore.publish(SelectorBenchmarkPresentation(
+            selectorName: "Selector", rowName: "Automatic", resolvedLeafName: leaf.name,
+            resolvedCoreID: leaf.id, benchmarkURL: urlA, sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Automatic", delay: 73)
+        ))
+        setNow("Automatic", "Inner-A")
+        refresh()
+        XCTAssertEqual(text(selectorMenu, "Automatic"), "73 ms")
+        XCTAssertEqual(snapshot.proxiesMap["Selector"]?.now, "Automatic")
+    }
+
+    func testSelectorUnresolvedRowDoesNotMaskLeafHistoryAfterRouteResolves() throws {
+        var selector = try XCTUnwrap(MihomoMenuURLProtocol.topology["Selector"] as? [String: Any])
+        selector["all"] = ["Automatic", "Leaf-B"]
+        selector["now"] = "Automatic"
+        MihomoMenuURLProtocol.topology["Selector"] = selector
+        var automatic = try XCTUnwrap(MihomoMenuURLProtocol.topology["Automatic"] as? [String: Any])
+        automatic.removeValue(forKey: "now")
+        MihomoMenuURLProtocol.topology["Automatic"] = automatic
+        refresh()
+        let leaf = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
+        GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: leaf), benchmarkURL: urlA,
+            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 35),
+            publishedAt: Date().addingTimeInterval(-1)
+        ))
+        let selectorMenu = menu()
+        clickBenchmark(selectorMenu)
+        finish(selectorMenu)
+        XCTAssertEqual(text(selectorMenu, "Automatic"), NSLocalizedString("Benchmark unavailable", comment: ""))
+        setNow("Automatic", "Leaf-A")
+        refresh()
+        XCTAssertEqual(text(selectorMenu, "Automatic"), "35 ms")
+        XCTAssertEqual(text(menu(), "Automatic"), "35 ms")
+    }
+
+    func testSelectedAutomaticReadbackFailureRemainsUnavailableOnKnownPath() throws {
+        var selector = try XCTUnwrap(MihomoMenuURLProtocol.topology["Selector"] as? [String: Any])
+        selector["all"] = ["Automatic"]
+        selector["now"] = "Automatic"
+        MihomoMenuURLProtocol.topology["Selector"] = selector
+        var automatic = try XCTUnwrap(MihomoMenuURLProtocol.topology["Automatic"] as? [String: Any])
+        automatic["testUrl"] = urlA
+        MihomoMenuURLProtocol.topology["Automatic"] = automatic
+        refresh()
+        try GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: XCTUnwrap(snapshot.proxiesMap["Leaf-A"])),
+            benchmarkURL: urlA, sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 35),
+            publishedAt: Date().addingTimeInterval(-1)
+        ))
+        let selectorMenu = menu()
+        // Initial topology succeeds; the retest's required fresh readback fails.
+        MihomoMenuURLProtocol.proxyDataResponseStatuses = [200, 503, 200]
+        MihomoMenuURLProtocol.groupReply = .init(body: ["Leaf-A": 80, "Leaf-B": 150])
+        clickBenchmark(selectorMenu)
+        finish(selectorMenu)
+        XCTAssertEqual(snapshot.proxiesMap["Automatic"]?.now, "Leaf-A")
+        XCTAssertEqual(text(selectorMenu, "Automatic"), NSLocalizedString("Benchmark unavailable", comment: ""))
+        XCTAssertEqual(text(menu(), "Automatic"), NSLocalizedString("Benchmark unavailable", comment: ""))
+    }
+
+    func testAutomaticNestedChildDoesNotReuseAnotherLeafsAncestorResult() throws {
+        MihomoMenuURLProtocol.topology["Automatic"] = [
+            "name": "Automatic", "type": "URLTest", "now": "Inner-A",
+            "all": ["Inner-A"], "testUrl": urlB, "history": []
+        ]
+        MihomoMenuURLProtocol.topology["Inner-A"] = [
+            "name": "Inner-A", "type": "Selector", "now": "Leaf-A",
+            "all": ["Leaf-A", "Leaf-B"], "history": []
+        ]
+        refresh()
+        let group = try XCTUnwrap(snapshot.proxiesMap["Automatic"])
+        let session = UUID()
+        try GlobalLeafBenchmarkPresentationStore.publish(GlobalLeafBenchmarkPresentation(
+            identity: LeafProxyBenchmarkIdentity(proxy: XCTUnwrap(snapshot.proxiesMap["Leaf-B"])),
+            benchmarkURL: urlB, sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-B", delay: 35),
+            publishedAt: Date().addingTimeInterval(-1)
+        ))
+        AutomaticChildBenchmarkStore.begin(group: group, sessionIdentifier: session)
+        AutomaticChildBenchmarkStore.settle(group: group, candidateDelays: ["Inner-A": 486],
+                                            hasProbeEvidence: true, sessionIdentifier: session)
+        let automaticMenu = menu("Automatic")
+        XCTAssertEqual(text(automaticMenu, "Inner-A"), "486 ms")
+        setNow("Inner-A", "Leaf-B")
+        refresh()
+        XCTAssertEqual(text(automaticMenu, "Inner-A"), "35 ms")
+        XCTAssertEqual(text(menu("Automatic"), "Inner-A"), "35 ms")
+        XCTAssertEqual(snapshot.proxiesMap["Inner-A"]?.now, "Leaf-B")
+    }
+
     func testQuickAutomaticGroupTimeoutRemainsUnavailable() throws {
         Settings.benchmarkMode = .quick
         MihomoMenuURLProtocol.groupReply = .init(

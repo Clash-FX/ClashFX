@@ -7,6 +7,18 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7D6C2925D5EA49E8B7A3BA92 /* AutomaticRecoverySelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBC68B02EE98476890EF3385 /* AutomaticRecoverySelectionTests.swift */; };
+		DF23D94B74AF497FBE204ABE /* RuntimeConfigTransactionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1C446D08824AFDA0B275B3 /* RuntimeConfigTransactionController.swift */; };
+		EF45CBD7F60C4D0698C6FF64 /* RuntimeConfigTransactionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1C446D08824AFDA0B275B3 /* RuntimeConfigTransactionController.swift */; };
+		A3D29B5EF98F4BC1B09AB830 /* RuntimeConfigValidationRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A8BA53AF18C404FB6390344 /* RuntimeConfigValidationRunner.swift */; };
+		4FB3688AAE3C49C19647AD57 /* RuntimeConfigValidationRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A8BA53AF18C404FB6390344 /* RuntimeConfigValidationRunner.swift */; };
+		195E5D048FDA49E1AAEC037C /* RuntimeProxySelectionRestoreSequence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A7AAD82E5544D1BCBCD313 /* RuntimeProxySelectionRestoreSequence.swift */; };
+		A58F5C5564DD41DA85E7C184 /* RuntimeProxySelectionRestoreSequence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A7AAD82E5544D1BCBCD313 /* RuntimeProxySelectionRestoreSequence.swift */; };
+		61A64E52755F43FA9658C582 /* RuntimeConfigReadbackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F281C265AD7417481013E10 /* RuntimeConfigReadbackPolicy.swift */; };
+		1EAEFB7ABBEC4C40ABF231A6 /* RuntimeConfigReadbackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F281C265AD7417481013E10 /* RuntimeConfigReadbackPolicy.swift */; };
+		FAB6761E8A544174880C57D3 /* RuntimeConfigTransactionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58973B40BBB044FF82E6B7F8 /* RuntimeConfigTransactionTests.swift */; };
+		0C24D57D3D33436F8CA5130C /* RuntimeConfigValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1744E44FE0B74C5BA22B286C /* RuntimeConfigValidationTests.swift */; };
+		0D4B1CB535944F42A568794D /* RuntimeConfigReadbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7D8DE7ADA542D89E71DA98 /* RuntimeConfigReadbackTests.swift */; };
 		D43000000000000000000002 /* TunDNSTransactionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43000000000000000000001; };
 		D43000000000000000000003 /* TunDNSTransactionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43000000000000000000001; };
 		D43100000000000000000002 /* TunDNSTransactionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43100000000000000000001; };
@@ -279,6 +291,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		CBC68B02EE98476890EF3385 /* AutomaticRecoverySelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/AutomaticRecoverySelectionTests.swift; sourceTree = SOURCE_ROOT; };
+		7E1C446D08824AFDA0B275B3 /* RuntimeConfigTransactionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/RuntimeConfigTransactionController.swift; sourceTree = SOURCE_ROOT; };
+		3A8BA53AF18C404FB6390344 /* RuntimeConfigValidationRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/RuntimeConfigValidationRunner.swift; sourceTree = SOURCE_ROOT; };
+		F2A7AAD82E5544D1BCBCD313 /* RuntimeProxySelectionRestoreSequence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/RuntimeProxySelectionRestoreSequence.swift; sourceTree = SOURCE_ROOT; };
+		8F281C265AD7417481013E10 /* RuntimeConfigReadbackPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/RuntimeConfigReadbackPolicy.swift; sourceTree = SOURCE_ROOT; };
+		58973B40BBB044FF82E6B7F8 /* RuntimeConfigTransactionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/RuntimeConfigTransactionTests.swift; sourceTree = SOURCE_ROOT; };
+		1744E44FE0B74C5BA22B286C /* RuntimeConfigValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/RuntimeConfigValidationTests.swift; sourceTree = SOURCE_ROOT; };
+		AA7D8DE7ADA542D89E71DA98 /* RuntimeConfigReadbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/RuntimeConfigReadbackTests.swift; sourceTree = SOURCE_ROOT; };
 		D43000000000000000000001 /* TunDNSTransactionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Managers/TunDNSTransactionController.swift; sourceTree = SOURCE_ROOT; };
 		D43100000000000000000001 /* TunDNSTransactionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/TunDNSTransactionTests.swift; sourceTree = SOURCE_ROOT; };
 		D42500000000000000000001 /* ProxySelectionMemoryRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/ProxySelectionMemoryRestorationTests.swift; sourceTree = SOURCE_ROOT; };
@@ -536,6 +556,7 @@
 			isa = PBXGroup;
 			children = (
 				D43100000000000000000001 /* TunDNSTransactionTests.swift */,
+				CBC68B02EE98476890EF3385 /* AutomaticRecoverySelectionTests.swift */,
 				D43000000000000000000001 /* TunDNSTransactionController.swift */,
 				D40800000000000000000001 /* BenchmarkSortAndColorTests.swift */,
 				D40700000000000000000001 /* BenchmarkSettingsMigrationTests.swift */,
@@ -640,6 +661,13 @@
 				D42200000000000000000001 /* BundleIconImage.swift */,
 				D42000000000000000000001 /* SystemProxyAutoRecoveryController.swift */,
 				D41800000000000000000001 /* RuntimeControlLease.swift */,
+				7E1C446D08824AFDA0B275B3 /* RuntimeConfigTransactionController.swift */,
+				3A8BA53AF18C404FB6390344 /* RuntimeConfigValidationRunner.swift */,
+				F2A7AAD82E5544D1BCBCD313 /* RuntimeProxySelectionRestoreSequence.swift */,
+				8F281C265AD7417481013E10 /* RuntimeConfigReadbackPolicy.swift */,
+				58973B40BBB044FF82E6B7F8 /* RuntimeConfigTransactionTests.swift */,
+				1744E44FE0B74C5BA22B286C /* RuntimeConfigValidationTests.swift */,
+				AA7D8DE7ADA542D89E71DA98 /* RuntimeConfigReadbackTests.swift */,
 				C30600000000000000000001 /* ManagedOperationSettlement.swift */,
 				C30700000000000000000001 /* SystemProxyOperationPolicy.swift */,
 				495BFB8721919B9800C8779D /* RemoteConfigManager.swift */,
@@ -1011,6 +1039,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 49CF3B2D20CD7465001EBF94 /* Build configuration list for PBXNativeTarget "ClashFX" */;
 			buildPhases = (
+				C10F20A00000000000000001 /* Verify Core Capabilities */,
 				2FD76081F5FF64514C3E5C9D /* [CP] Check Pods Manifest.lock */,
 				49A7A54F2AA6C0980083025C /* Swift Format */,
 				49CF3B1920CD7463001EBF94 /* Sources */,
@@ -1133,6 +1162,19 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+        C10F20A00000000000000001 /* Verify Core Capabilities */ = {
+            isa = PBXShellScriptBuildPhase;
+            alwaysOutOfDate = 1;
+            buildActionMask = 2147483647;
+            files = ();
+            inputPaths = ("$(SRCROOT)/ClashFX/goClash/mihomo_core", "$(SRCROOT)/scripts/verify-core-build-capabilities.py",);
+            name = "Verify Core Capabilities";
+            outputPaths = ();
+            runOnlyForDeploymentPostprocessing = 0;
+            shellPath = /bin/sh;
+            shellScript = "python3 \"$SRCROOT/scripts/verify-core-build-capabilities.py\" --core \"$SRCROOT/ClashFX/goClash/mihomo_core\"\n";
+        };
+
 		2FD76081F5FF64514C3E5C9D /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -1232,6 +1274,7 @@
 			files = (
 				D43000000000000000000003 /* TunDNSTransactionController.swift in Sources */,
 				D43100000000000000000002 /* TunDNSTransactionTests.swift in Sources */,
+				7D6C2925D5EA49E8B7A3BA92 /* AutomaticRecoverySelectionTests.swift in Sources */,
 				D40900000000000000000003 /* RuntimeBenchmarkSettingsPolicy.swift in Sources */,
 				D40800000000000000000003 /* BenchmarkSortAndColorTests.swift in Sources */,
 				D40700000000000000000003 /* BenchmarkSettingsMigrationTests.swift in Sources */,
@@ -1258,6 +1301,13 @@
 				D42000000000000000000003 /* SystemProxyAutoRecoveryController.swift in Sources */,
 				D41900000000000000000003 /* RuntimeControlLeaseTests.swift in Sources */,
 				D41800000000000000000003 /* RuntimeControlLease.swift in Sources */,
+				DF23D94B74AF497FBE204ABE /* RuntimeConfigTransactionController.swift in Sources */,
+				A3D29B5EF98F4BC1B09AB830 /* RuntimeConfigValidationRunner.swift in Sources */,
+				195E5D048FDA49E1AAEC037C /* RuntimeProxySelectionRestoreSequence.swift in Sources */,
+				61A64E52755F43FA9658C582 /* RuntimeConfigReadbackPolicy.swift in Sources */,
+				FAB6761E8A544174880C57D3 /* RuntimeConfigTransactionTests.swift in Sources */,
+				0C24D57D3D33436F8CA5130C /* RuntimeConfigValidationTests.swift in Sources */,
+				0D4B1CB535944F42A568794D /* RuntimeConfigReadbackTests.swift in Sources */,
 				D41600000000000000000003 /* BenchmarkFailurePresentation.swift in Sources */,
 				C31100000000000000000003 /* ClaudeProxyLockPolicy.swift in Sources */,
 				C30100000000000000000003 /* BenchmarkRegressionTests.swift in Sources */,
@@ -1313,6 +1363,10 @@
 				D42200000000000000000002 /* BundleIconImage.swift in Sources */,
 				D42000000000000000000002 /* SystemProxyAutoRecoveryController.swift in Sources */,
 				D41800000000000000000002 /* RuntimeControlLease.swift in Sources */,
+				EF45CBD7F60C4D0698C6FF64 /* RuntimeConfigTransactionController.swift in Sources */,
+				4FB3688AAE3C49C19647AD57 /* RuntimeConfigValidationRunner.swift in Sources */,
+				A58F5C5564DD41DA85E7C184 /* RuntimeProxySelectionRestoreSequence.swift in Sources */,
+				1EAEFB7ABBEC4C40ABF231A6 /* RuntimeConfigReadbackPolicy.swift in Sources */,
 				C31100000000000000000002 /* ClaudeProxyLockPolicy.swift in Sources */,
 				49ABB749236B0F9E00535CD7 /* UnsafePointer+bridge.swift in Sources */,
 				499A485522ED707300F6C675 /* RemoteConfigViewController.swift in Sources */,

@@ -166,6 +166,25 @@ final class EnhancedModeTransitionSafetyTests: XCTestCase {
         ))
     }
 
+    func testAutomaticRecoveryRetryMenuAvailableWithoutRunningCore() {
+        for retry in [false, true] {
+            XCTAssertEqual(EnhancedModeMenuAvailabilityPolicy.shouldEnableToggle(
+                isTransitioning: false, isTerminating: false, isRestarting: false,
+                coreIsRunning: false, ownershipRetryAvailable: false,
+                startupCleanupRetryAvailable: false, builtInResumeRetryAvailable: false,
+                automaticRecoveryRetryAvailable: retry
+            ), retry)
+        }
+        for blocked in [0, 1, 2] {
+            XCTAssertFalse(EnhancedModeMenuAvailabilityPolicy.shouldEnableToggle(
+                isTransitioning: blocked == 0, isTerminating: blocked == 1, isRestarting: blocked == 2,
+                coreIsRunning: false, ownershipRetryAvailable: false,
+                startupCleanupRetryAvailable: false, builtInResumeRetryAvailable: false,
+                automaticRecoveryRetryAvailable: true
+            ))
+        }
+    }
+
     func testSustainedAPIFailureHasAnAttemptAndTimeCeilingDuringFreshTraffic() {
         XCTAssertFalse(EnhancedModeRuntimeRecoveryPolicy.shouldRecover(
             from: .apiUnavailable,

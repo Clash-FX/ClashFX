@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'codex/helper-tun-acceptance-*'
+      - 'codex/lab-1.1.11.14-candidate'
 
 permissions:
   contents: read
@@ -18,12 +19,12 @@ concurrency:
 jobs:
   helper-tun:
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          go-version: '1.26.1'
           cache-dependency-path: ClashFX/goClash/go.sum
       - name: Build candidate Helper and standalone core (no app or release package)
         shell: bash
@@ -43,7 +44,7 @@ jobs:
             --identifier com.clashfx.app.Helper \
             "$RUNNER_TEMP/clashfx-acceptance-build/com.clashfx.app.Helper"
           python3 - <<'PY'
-          import os, subprocess, sys, time
+          import os, shutil, subprocess, sys, time
           from pathlib import Path
           root = Path.cwd()
           sys.path.insert(0, str(root / 'ClashFX/goClash'))
@@ -57,12 +58,36 @@ jobs:
                                       '-o', str(output), './mihomo-bin/'],
                                      cwd=root / 'ClashFX/goClash',
                                      env=dict(os.environ, CGO_ENABLED='0', GOMAXPROCS='2'), check=True, timeout=600)
+                      subprocess.run(['go', 'build', f'-modfile={modfile}', '-trimpath', '-tags', 'with_gvisor',
+                                      '-buildmode=c-archive', '-o', str(output.parent / 'goClash.a')],
+                                     cwd=root / 'ClashFX/goClash',
+                                     env=dict(os.environ, CGO_ENABLED='1', GOMAXPROCS='2'), check=True, timeout=600)
+                      shutil.copy2(root / 'ClashFX/goClash/UIHelper.h', output.parent / 'UIHelper.h')
                   break
               except subprocess.CalledProcessError:
                   if attempt == 2:
                       raise
                   time.sleep(5 * (attempt + 1))
           PY
+      - name: Startup, API lifecycle and PATCH regressions in the disposable guest
+        shell: bash
+        run: |
+          python3 scripts/verify-hosted-runtime-dns-parser.py
+          python3 ClashFX/goClash/run_core_tests.py \
+            --run 'TestFailedEmbeddedStartup|TestFailedStartup|TestCacheDBLifecycle|TestStaleSuspend|TestRuntimeManagementEndpointLifecycle' \
+            --runtime-http
+          python3 scripts/verify-runtime-session-settings.py \
+            --bridge-directory "$RUNNER_TEMP/clashfx-acceptance-build"
+          python3 scripts/verify-enhanced-reload-port-conflicts.py \
+            --bridge-directory "$RUNNER_TEMP/clashfx-acceptance-build"
+      - name: Recovery selection, provider churn and custom IPv6 DNS regressions
+        shell: bash
+        run: |
+          python3 scripts/verify-automatic-recovery-core.py --core "$RUNNER_TEMP/clashfx-acceptance-build/mihomo_core"
+          python3 scripts/verify-custom-ipv6-dns-reload.py --core "$RUNNER_TEMP/clashfx-acceptance-build/mihomo_core" --bridge-directory "$RUNNER_TEMP/clashfx-acceptance-build"
+          python3 scripts/verify-automatic-recovery-selections.py
+          python3 scripts/verify-automatic-recovery-lifecycle.py
+          python3 scripts/verify-recovery-event-journal.py
       - name: Real Helper, TUN and production rollback acceptance (disposable hosted guest only)
         shell: bash
         run: |
@@ -80,8 +105,8 @@ jobs:
           expected = ['productionHelperXPC', 'helperManagedCore', 'tunInterfaceAndRoutes',
                       'systemProxyExactRestore', 'systemDNSExactRestore',
                       'productionSystemProxyManager', 'ClaudeProxyLockTransactionRollback',
-                      'productionLegacyHelperInstallation', 'metadataDecoratedAppInstallation',
-                      'legacyHelperReinstallation']
+                      'continuousRuntimeSwitches', 'runtimeConfigRollback', 'patchFailureRollback',
+                      'stableRuntimeEndpoints', 'rapidHelperCoreLifecycle', 'systemDNSResolverThroughTUN']
           missing = [name for name in expected if report.get('coverage', {}).get(name) is not True]
           assert report.get('status') == 'passed' and not missing, (report.get('status'), missing)
           assert not report.get('failures'), report.get('failures')

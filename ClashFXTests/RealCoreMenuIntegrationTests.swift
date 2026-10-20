@@ -548,6 +548,37 @@ final class RealCoreMenuIntegrationTests: XCTestCase {
         try assertDelay(automatic, node: "Local-A", equals: firstAutomaticA, color: ExpectedDelayColor.orange)
         try assertDelay(automatic, node: "Local-B", equals: firstAutomaticB, color: ExpectedDelayColor.orange)
 
+        // Publish the selected automatic row through its production benchmark
+        // action, then change only the core-selected path without a new probe.
+        // The old row's path invalidation must not masquerade as a later failed
+        // measurement and hide current-leaf evidence already obtained this run.
+        _ = try call(endpoint, "proxies/Selector", method: "PUT", body: ["name": "Automatic"])
+        refresh()
+        try resetCapturedResponses()
+        try benchmark(selector)
+        XCTAssertEqual(snapshot.proxiesMap["Automatic"]?.now, "Local-A")
+        let oldLeaf = try XCTUnwrap(snapshot.proxiesMap["Local-A"])
+        let retained = try XCTUnwrap(try GlobalLeafBenchmarkPresentationStore.presentation(
+            for: XCTUnwrap(snapshot.proxiesMap["Local-B"]),
+            conditions: BenchmarkConditions(url: probeURL)
+        ))
+        let retainedB = try XCTUnwrap(retained.rowState.rawDelay)
+        SelectorBenchmarkPresentationStore.publish(SelectorBenchmarkPresentation(
+            selectorName: "Selector", rowName: "Automatic", resolvedLeafName: oldLeaf.name,
+            resolvedCoreID: oldLeaf.id, benchmarkURL: probeURL, sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Automatic", delay: firstAutomaticA)
+        ))
+        _ = try call(endpoint, "proxies/Automatic", method: "PUT", body: ["name": "Local-B"])
+        refresh()
+        XCTAssertEqual(snapshot.proxiesMap["Automatic"]?.now, "Local-B")
+        XCTAssertEqual(snapshot.proxiesMap["Selector"]?.now, "Automatic")
+        XCTAssertNotNil(try (row(selector, "Automatic").view as? ProxyItemView)?.imageView)
+        XCTAssertEqual(try numericDelay(text(selector, "Automatic")), retainedB)
+        XCTAssertEqual(try numericDelay(text(menu("Selector"), "Automatic")), retainedB)
+        print("REAL_CORE_AUTOMATIC_PATH_REFRESH: fresh now=Local-B retains its measured delay after old contextual path invalidation")
+        _ = try call(endpoint, "proxies/Automatic", method: "DELETE")
+        refresh()
+
         try call(origin, "fixture-delays", method: "POST", body: ["Local-A": 2.383, "Local-B": 0.04])
         try resetCapturedResponses()
         try benchmark(automatic)

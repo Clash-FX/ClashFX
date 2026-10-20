@@ -1,3 +1,6 @@
+import argparse
+import platform
+import sys
 import subprocess
 import datetime
 import plistlib
@@ -92,7 +95,7 @@ def write_to_info(version):
         plistlib.dump(contents, f, sort_keys=False)
 
 
-def run():
+def run(native=False):
     global go_modfile
     version = get_version()
     print("current clash version:", version)
@@ -100,24 +103,38 @@ def run():
     with core_modfile() as modfile:
         go_modfile = modfile
         print("verify core workaround and Go tests")
-        # Preserve test output on failure so the publication gate is diagnosable.
         subprocess.check_call(
             [go_bin, "test", f"-modfile={go_modfile}", "./..."],
         )
         print("clean existing")
         subprocess.check_output("rm -f *Clash*.h *.a mihomo_core_*", shell=True)
-        print("create arm64 library")
-        build_clash(version, build_time, "arm64")
-        print("create amd64 library")
-        build_clash(version, build_time, "amd64")
-        print("merge libraries")
-        mergeLibs()
-        print("create arm64 mihomo-bin")
-        build_mihomo_bin(version, build_time, "arm64")
-        print("create amd64 mihomo-bin")
-        build_mihomo_bin(version, build_time, "amd64")
-        print("merge and codesign mihomo-bin")
-        mergeMihomoBins()
+        if native:
+            machine = platform.machine().lower()
+            arch = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "amd64", "amd64": "amd64"}.get(machine)
+            if arch is None:
+                raise RuntimeError("Unsupported native macOS architecture: " + machine)
+            print("create native library and core:", arch)
+            build_clash(version, build_time, arch)
+            os.replace("goClash_" + arch + ".a", "goClash.a")
+            os.replace("goClash_" + arch + ".h", "goClash.h")
+            build_mihomo_bin(version, build_time, arch)
+            os.replace("mihomo_core_" + arch, "mihomo_core")
+            subprocess.check_output(["codesign", "--sign", "-", "--force", "--identifier", "com.clashx.mihomo-core", "mihomo_core"])
+        else:
+            print("create arm64 library")
+            build_clash(version, build_time, "arm64")
+            print("create amd64 library")
+            build_clash(version, build_time, "amd64")
+            print("merge libraries")
+            mergeLibs()
+            print("create arm64 mihomo-bin")
+            build_mihomo_bin(version, build_time, "arm64")
+            print("create amd64 mihomo-bin")
+            build_mihomo_bin(version, build_time, "amd64")
+            print("merge and codesign mihomo-bin")
+            mergeMihomoBins()
+        subprocess.check_call([sys.executable, "../../scripts/verify-core-build-capabilities.py",
+                               "--core", os.path.abspath("mihomo_core")])
         print("clean")
         clean()
     if os.environ.get("CI", False) or os.environ.get("GITHUB_ACTIONS", False):
@@ -127,4 +144,6 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser(description="Build the full-featured embedded and external cores")
+    parser.add_argument("--native", action="store_true", help="build only this Mac's architecture for local Xcode testing")
+    run(native=parser.parse_args().native)

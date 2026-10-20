@@ -1085,8 +1085,16 @@ static BOOL RunTaskWithTimeout(NSString *executablePath,
         }
         index += 1;
     }
-    return [homeArgument isEqualToString:expectedHome] &&
-        IsAllowedMihomoConfigPath(configArgument, expectedHome);
+    // Launch callers may supply a trailing slash (kConfigFolderPath does).
+    // Compare resolved absolute paths consistently with the scanner's expected
+    // home, while rejecting relative paths and retaining exact config ownership.
+    if (!homeArgument.isAbsolutePath || !expectedHome.isAbsolutePath) {
+        return NO;
+    }
+    NSString *normalizedHome = homeArgument.stringByResolvingSymlinksInPath;
+    NSString *normalizedExpectedHome = expectedHome.stringByResolvingSymlinksInPath;
+    return [normalizedHome isEqualToString:normalizedExpectedHome] &&
+        IsAllowedMihomoConfigPath(configArgument, normalizedExpectedHome);
 }
 
 - (NSArray<NSString *> *)kernelArgumentsForProcessID:(pid_t)pid
