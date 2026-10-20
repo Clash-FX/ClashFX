@@ -186,6 +186,8 @@ def main():
                             "-o", str(binary), "./mihomo-bin/"], cwd=source_copy,
                            env=dict(os.environ, CGO_ENABLED="1", GOMAXPROCS="2", CGO_CFLAGS="-mmacosx-version-min=10.14", CGO_LDFLAGS="-mmacosx-version-min=10.14"),
                            stdout=log, stderr=subprocess.STDOUT, check=True, timeout=300)
+        subprocess.run(["codesign", "--force", "--sign", "-", "--identifier",
+                        "com.clashx.mihomo-core", str(binary)], check=True, capture_output=True)
         built = True
 
         stage = "production_policy_compile"
