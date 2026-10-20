@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   helper-tun:
-    runs-on: macos-latest
+    runs-on: macos-26-intel
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
