@@ -58,6 +58,33 @@ jobs:
         python3 scripts/verify-helper-home-identity.py
         python3 scripts/verify-enhanced-readiness-helper-queue.py
 
+    - name: Go core tests with race detector
+      run: |
+        mkdir -p "$RUNNER_TEMP/lab-validation"
+        set -o pipefail
+        (
+          cd ClashFX/goClash
+          python3 - <<'PY'
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path.cwd()))
+        from core_overlay import core_modfile
+
+        with core_modfile() as modfile:
+            env = dict(os.environ, CGO_ENABLED="1", GOMAXPROCS="2")
+            for mode in ([], ["-race"]):
+                subprocess.run(
+                    ["go", "test", "-tags=with_gvisor", "-ldflags=-linkmode=external", *mode,
+                     f"-modfile={modfile}", "./..."],
+                    check=True,
+                    env=env,
+                )
+        PY
+        ) 2>&1 | tee "$RUNNER_TEMP/lab-validation/go-core-race.log"
+
     - name: isolated regression tests
       run: |
         xcodebuild -workspace ClashFX.xcworkspace -scheme ClashFX \
@@ -95,33 +122,6 @@ jobs:
         bash scripts/verify-dashboard-compatibility-bundle.sh "$APP_PATH"
         ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" ClashFX-1.1.11.14-Lab-candidate.zip
         shasum -a 256 ClashFX-1.1.11.14-Lab-candidate.zip > ClashFX-1.1.11.14-Lab-candidate.zip.sha256
-
-    - name: Go core tests with race detector
-      run: |
-        mkdir -p "$RUNNER_TEMP/lab-validation"
-        set -o pipefail
-        (
-          cd ClashFX/goClash
-          python3 - <<'PY'
-        import os
-        import subprocess
-        import sys
-        from pathlib import Path
-
-        sys.path.insert(0, str(Path.cwd()))
-        from core_overlay import core_modfile
-
-        with core_modfile() as modfile:
-            env = dict(os.environ, CGO_ENABLED="1", GOMAXPROCS="2")
-            for mode in ([], ["-race"]):
-                subprocess.run(
-                    ["go", "test", "-tags=with_gvisor", "-ldflags=-linkmode=external", *mode,
-                     f"-modfile={modfile}", "./..."],
-                    check=True,
-                    env=env,
-                )
-        PY
-        ) 2>&1 | tee "$RUNNER_TEMP/lab-validation/go-core-race.log"
 
     - name: Real core listener readiness across log levels
       run: |

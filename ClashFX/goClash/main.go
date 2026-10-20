@@ -108,14 +108,33 @@ func checkPortAvailable(port int) bool {
 
 // Mixed proxy startup needs both transports; API controllers remain TCP-only.
 func checkMixedPortAvailable(port int) bool {
-	if !checkPortAvailable(port) {
+	return checkMixedPortAvailableAt(port, true, "*")
+}
+
+// Probe exactly the same binding as Mihomo's global mixed listener. A
+// loopback-only core must not be rejected by an unrelated IPv6/LAN listener.
+func checkMixedPortAvailableAt(port int, allowLan bool, bindAddress string) bool {
+	if port < 1 || port > 65535 {
 		return false
 	}
-	udp, err := net.ListenPacket("udp", net.JoinHostPort("", strconv.Itoa(port)))
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	if allowLan {
+		if bindAddress == "*" {
+			address = ":" + strconv.Itoa(port)
+		} else {
+			address = fmt.Sprintf("%s:%d", bindAddress, port)
+		}
+	}
+	tcp, err := net.Listen("tcp", address)
 	if err != nil {
 		return false
 	}
-	_ = udp.Close()
+	defer tcp.Close()
+	udp, err := net.ListenPacket("udp", address)
+	if err != nil {
+		return false
+	}
+	defer udp.Close()
 	return true
 }
 
@@ -1168,7 +1187,9 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 		}
 		rawCfg.AllowLan = allowLan
 
-		if port, err := resolveConfiguredMixedPort(rawCfg.MixedPort, checkMixedPortAvailable); err != nil {
+		if port, err := resolveConfiguredMixedPort(rawCfg.MixedPort, func(port int) bool {
+			return checkMixedPortAvailableAt(port, rawCfg.AllowLan, rawCfg.BindAddress)
+		}); err != nil {
 			return nil, err
 		} else {
 			rawCfg.MixedPort = port

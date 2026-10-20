@@ -32,21 +32,32 @@ func TestFailedEmbeddedStartupReleasesEndpointsAndCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer blocked.Close()
+	allocated := map[int]bool{}
 	freePort := func() int {
 		t.Helper()
-		tcp, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		port := tcp.Addr().(*net.TCPAddr).Port
-		udp, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
-		if err != nil {
+		// Keep fixtures away from the runner's usual outgoing ephemeral ports.
+		// Actual loopback TCP/UDP binds still decide availability; never retry
+		// a core startup failure or weaken the endpoint/cache cleanup assertions.
+		for port := 20000; port < 40000; port++ {
+			if allocated[port] {
+				continue
+			}
+			tcp, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+			if err != nil {
+				continue
+			}
+			udp, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
+			if err != nil {
+				tcp.Close()
+				continue
+			}
 			tcp.Close()
-			t.Fatal(err)
+			udp.Close()
+			allocated[port] = true
+			return port
 		}
-		tcp.Close()
-		udp.Close()
-		return port
+		t.Fatal("no private startup fixture port available")
+		return 0
 	}
 	mixed, api := freePort(), freePort()
 	for api == mixed {

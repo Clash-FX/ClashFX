@@ -17,3 +17,13 @@ Remaining manual scope includes authorization cancellation, rapid full-GUI repea
 `lab-candidate.yml` builds a universal ad-hoc-signed Release candidate, checks packaged signatures, gVisor capabilities, dashboard and minimum OS, runs the source/race/listener/TUN regressions, and uploads a ZIP plus SHA256 as workflow artifacts. The existing isolated Helper/TUN acceptance also runs against this branch on a separate disposable hosted Mac. No production release workflow is dispatched, no tag is pushed and no Release/appcast/website update is created by candidate preparation. This ad-hoc signature matches the current Lab pipeline; no Developer ID notarization is claimed.
 
 Hosted results and downloadable candidate artifact are recorded after completion. No installed local app, Helper, core or network configuration is changed by preparation.
+
+## Toolchain and startup probe follow-up
+
+The first hosted packaging attempt exposed Go 1.22 CLI test binaries without LC_UUID. External linking and explicit 10.14 compiler/linker floors retain x86_64 10.14 and arm64 11.0 while emitting UUIDs; private readiness binaries are signed before launch. Real local Go 1.22 CLI, signed capability and four-log-level listener/DNS tests passed, and the hosted App/Helper/core package compatibility and strict signature gates passed.
+
+The subsequent tagged Go gate caught a startup cleanup fixture retry colliding on an ephemeral port. Independent analysis found a definite production precheck scope mismatch: loopback-only startup used wildcard TCP/UDP probes. It now mirrors Mihomo's actual binding, holding the TCP probe while checking UDP. Regression coverage qualifies IPv4 transport availability while holding an IPv6-only neighbor, then confirms IPv4 loopback succeeds and matching IPv6/wildcard conflicts remain rejected. Startup fixture allocations avoid the runner's usual ephemeral range and retain all original endpoint/cache release and same-port retry assertions. Tagged Go/race checks run before the long App build in the candidate workflow.
+
+## 2026-10-21: authenticator concurrency follow-up
+
+Continuing the full Go 1.22 race run reproduced unsynchronized auth-store interface reads in accepted HTTP connections concurrent with executor user updates during reload. The pinned Mihomo auth-store overlay now protects getter and setter with an RWMutex, preserves immutable authenticator snapshots and nil transitions, and leaves the no-op nil store unchanged. It verifies the exact upstream source hash before patching. A fresh-store concurrent reader/writer regression reproduces the data race when this overlay is disabled; the fixed full and focused race results are recorded with the final candidate evidence.

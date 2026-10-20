@@ -23,6 +23,7 @@ from core_runtime_apply_overlay import patch_runtime_config_apply
 from core_startup_selection_overlay import patch_startup_selection_overlay
 from core_inbound_access_overlay import patch_inbound_access_state
 from core_route_lifecycle_overlay import patch_route_lifecycle
+from core_auth_store_overlay import patch_auth_store
 
 
 SING_MODULE = "github.com/metacubex/sing"
@@ -1429,6 +1430,7 @@ def core_modfile() -> Iterator[str]:
             mihomo_original.replace(ORIGINAL_URL_TEST, PATCHED_URL_TEST),
             encoding="utf-8",
         )
+        patch_auth_store(mihomo_replacement_module)
         _patch_cachefile_lifecycle(mihomo_replacement_module)
         _patch_queue_races(mihomo_replacement_module)
         _patch_inbound_listener_transactions(mihomo_replacement_module)

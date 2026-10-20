@@ -217,3 +217,50 @@ func TestHealthyGlobalTuicDefaultsPassReadinessAndHandoff(t *testing.T) {
 	}
 	_ = released.Close()
 }
+
+func TestMixedStartupProbeRespectsActualBindScope(t *testing.T) {
+	var blocked net.PacketConn
+	var port int
+	for attempt := 0; attempt < 32; attempt++ {
+		candidate, err := net.ListenPacket("udp6", "[::1]:0")
+		if err != nil {
+			t.Skipf("IPv6 loopback unavailable: %v", err)
+		}
+		port = candidate.LocalAddr().(*net.UDPAddr).Port
+		address := fmt.Sprintf("127.0.0.1:%d", port)
+		tcp, tcpErr := net.Listen("tcp", address)
+		udp, udpErr := net.ListenPacket("udp", address)
+		if tcp != nil {
+			tcp.Close()
+		}
+		if udp != nil {
+			udp.Close()
+		}
+		ipv6TCP, ipv6Err := net.Listen("tcp", fmt.Sprintf("[::1]:%d", port))
+		if ipv6TCP != nil {
+			ipv6TCP.Close()
+		}
+		wildcardTCP, wildcardErr := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if wildcardTCP != nil {
+			wildcardTCP.Close()
+		}
+		if tcpErr == nil && udpErr == nil && ipv6Err == nil && wildcardErr == nil {
+			blocked = candidate
+			break
+		}
+		candidate.Close()
+	}
+	if blocked == nil {
+		t.Fatal("could not reserve an IPv6 neighbor with free IPv4 transports")
+	}
+	defer blocked.Close()
+	if !checkMixedPortAvailableAt(port, false, "*") {
+		t.Fatal("IPv6-only neighbor blocked an IPv4 loopback-only mixed listener")
+	}
+	if checkMixedPortAvailableAt(port, true, "[::1]") {
+		t.Fatal("same-address IPv6 UDP conflict was accepted")
+	}
+	if checkMixedPortAvailableAt(port, true, "*") {
+		t.Fatal("wildcard UDP conflict was accepted")
+	}
+}
