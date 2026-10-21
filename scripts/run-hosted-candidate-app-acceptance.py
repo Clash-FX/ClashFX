@@ -278,6 +278,17 @@ def main():
                 sampled = subprocess.run(['/usr/bin/sample', str(launched_pids[-1]), '1', '-file', artifact / 'app-main-sample.txt'], capture_output=True, text=True, timeout=15)
                 report['failureSampleStatus'] = sampled.returncode
             except Exception as sample_error: report['failureSampleError'] = str(sample_error)
+        sample_path = artifact / 'app-main-sample.txt'
+        if 'alert capture timed out' in str(error) and sample_path.exists():
+            sample_text = sample_path.read_text(errors='replace')
+            if '-[NSAlert init]' in sample_text and 'ISIconManager' in sample_text and 'WAITING_FOR_A_SYNCHRONOUS_REPLY' in sample_text:
+                report['environmentBlock'] = 'guest NSAlert initialization waits for system IconServices XPC before a modal window exists'
+                try:
+                    healthy('LOCAL_A')
+                    selected = user(['defaults', 'read', 'com.clashfx.app', 'selectConfigName']).decode().strip()
+                    record('failedCandidateRetainsSelectedProfileWhileGuestAlertServiceBlocked', selected == 'Acceptance-A')
+                    report['status'] = 'blocked'
+                except Exception as core_error: report['blockedCoreVerificationError'] = str(core_error)
         raise
     finally:
         # All paths here are guarded by multiple disposable-hosted-runner signals.
