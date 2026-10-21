@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.14 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.14 (Lab)</h2><p>See release notes on GitHub.</p>
+  ]]></description>
+  <pubDate>Wed, 21 Oct 2026 02:51:40 +0000</pubDate>
+  <sparkle:version>1001011014</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.14</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.14/ClashFX.dmg"
+    sparkle:version="1001011014"
+    sparkle:shortVersionString="1.1.11.14"
+    sparkle:edSignature="/DNy+pcu8APF8Cn2uOs1e3hyrd7kxcAJyBE1QB79njOGek4EHTN1E2gGrPDx6atpWtjFZ7tEgA20jSrYtSReCQ=="
+    length="95989258"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.13 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.13 (Lab)</h2><ul><li><strong>Show the Selected Proxy Group by Default</strong> — If Netflix selects Proxies and Proxies selects Japan 27, the outer menu now shows Proxies, matching the submenu checkmark. Directly selected nodes still show their own names.</li><li><strong>Choose Final-Node Display in Settings</strong> — Enable “Show Final Node in Proxy Menu” in General settings to display the resolved final node. The preference is saved and existing menu rows update immediately.</li><li><strong>Keep Route Details Available</strong> — Route tooltips and accessibility help retain the full selection path. Automatic-selection and manual-priority labels remain visible; benchmark evidence continues to follow the core-resolved route.</li></ul>
