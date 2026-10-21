@@ -63,6 +63,13 @@ jobs:
           sudo -E python3 scripts/run-hosted-candidate-app-acceptance.py \
             --app "$RUNNER_TEMP/candidate-derived/Build/Products/Release/ClashFX.app" \
             --artifact-dir "$RUNNER_TEMP/candidate-app-evidence"
+      - name: Real rollback and lifecycle using the exact packaged Helper and core
+        run: |
+          APP="$RUNNER_TEMP/candidate-derived/Build/Products/Release/ClashFX.app"
+          sudo -E python3 scripts/run-hosted-helper-tun-acceptance.py \
+            --helper "$APP/Contents/Library/LaunchServices/com.clashfx.app.Helper" \
+            --core "$APP/Contents/Resources/mihomo_core" \
+            --artifact-dir "$RUNNER_TEMP/packaged-helper-core-evidence"
       - name: Preserve candidate and acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -70,6 +77,7 @@ jobs:
           name: startup-candidate-${{ github.sha }}
           path: |
             ${{ runner.temp }}/candidate-app-evidence/
+            ${{ runner.temp }}/packaged-helper-core-evidence/
             ${{ runner.temp }}/ClashFX-startup-candidate.zip
             ${{ runner.temp }}/ClashFX-startup-candidate.sha256
             ${{ runner.temp }}/candidate-regressions.xcresult/

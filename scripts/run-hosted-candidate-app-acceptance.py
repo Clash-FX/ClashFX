@@ -147,6 +147,9 @@ def main():
         health = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Health)
         threading.Thread(target=health.serve_forever, daemon=True).start()
         def launch():
+            # A previous quit/restart command must never replay in a new process.
+            request_file.unlink(missing_ok=True)
+            response_file.unlink(missing_ok=True)
             env = {k: v for k, v in os.environ.items() if k.startswith(('GITHUB_', 'RUNNER_', 'Image')) or k == 'CI'}
             env.update(HOME=str(home), DYLD_INSERT_LIBRARIES=str(dylib),
                        CLASHFX_ACCEPTANCE_COMMAND=str(request_file), CLASHFX_ACCEPTANCE_RESPONSE=str(response_file))
@@ -189,7 +192,7 @@ def main():
         menu('invoke', title='Acceptance-Remote')
         time.sleep(2)
         remote_menu = menu('list')
-        record('remoteMenuActionFullApp')
+        record('remoteMenuActionFullApp', any(x.get('title') == 'Acceptance-Remote' and x.get('state') == 1 for x in remote_menu.get('items', [])))
         # Local item title is localized in the actual menu; use its model-free
         # action item with state off, reported by the menu driver.
         items = remote_menu.get('items', [])
@@ -197,16 +200,16 @@ def main():
         assert len(local) == 1, local
         menu('invoke', title=local[0]['title'])
         healthy('LOCAL_A')
-        record('remoteToLocalFullApp')
+        record('remoteToLocalFullApp', any(x.get('title') == local[0]['title'] and x.get('selector') == 'didSelectMenuItem:' and x.get('state') == 1 for x in menu('list').get('items', [])))
         menu('invoke', title='Acceptance-B'); healthy('LOCAL_B')
         menu('invoke', title='Acceptance-A'); healthy('LOCAL_A')
         record('continuousProfileSwitchesFullApp')
         menu('invoke', title='Acceptance-Invalid')
         alert = wait(lambda: (lambda x: x if x.get('alert') else None)(menu('list')), 'invalid profile alert')
-        record('invalidCandidateReportsFailure', bool(alert.get('alert')))
+        record('invalidCandidateReportsFailure', alert['alert'].get('title') == 'Reload Config Fail')
         menu('dismiss')
         healthy('LOCAL_A')
-        record('failedCandidatePreservesVerifiedProfile')
+        record('failedCandidatePreservesVerifiedProfile', any(x.get('title') == 'Acceptance-A' and x.get('selector') == 'actionSelectConfig:' and x.get('state') == 1 for x in menu('list').get('items', [])))
         for cycle in range(3):
             menu('invoke', selector='actionQuit:')
             wait(lambda: not _pid_alive(launched_pids[-1]), 'graceful app exit')
@@ -217,8 +220,15 @@ def main():
         # Exercise production restartApp once, including its /usr/bin/open replacement.
         last_pid = launched_pids[-1]
         menu('invoke', selector='actionRestart:')
+        request_file.unlink(missing_ok=True)
         wait(lambda: not _pid_alive(last_pid), 'production restart old process exit')
         healthy('LOCAL_A')
+        def replacement_pid():
+            rows = command(['ps', '-axo', 'pid=,comm=']).decode().splitlines()
+            return next((int(row.split(maxsplit=1)[0]) for row in rows
+                         if len(row.split(maxsplit=1)) == 2 and row.split(maxsplit=1)[1] == str(app / 'Contents/MacOS/ClashFX')
+                         and int(row.split(maxsplit=1)[0]) not in launched_pids), None)
+        launched_pids.append(wait(replacement_pid, 'LaunchServices replacement PID'))
         record('productionRestartActionAndLaunchServicesReplacement')
         report['status'] = 'passed'
     except BaseException as error:
