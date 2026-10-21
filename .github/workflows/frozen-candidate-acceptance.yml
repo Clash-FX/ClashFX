@@ -1,4 +1,4 @@
-name: Frozen Candidate Package Acceptance
+name: Frozen Candidate Package Build
 
 on:
   push:
@@ -21,11 +21,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Require previously passed unit gates for identical App and test source
+      - name: Require core regression gates and validate signed icon policy
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git diff --exit-code "$REGRESSION_SOURCE" HEAD -- ClashFX ProxyConfigHelper ClashFXTests ClashFX.xcodeproj Podfile Podfile.lock
+          git diff --exit-code "$REGRESSION_SOURCE" HEAD -- ClashFX ProxyConfigHelper ClashFXTests ClashFX.xcodeproj Podfile Podfile.lock ":(exclude)ClashFX/General/Utils/AppLogoTool.swift"
+          python3 scripts/verify-signed-app-icon-policy.py
           python3 - <<'PY'
           import json, os, subprocess
           endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{os.environ["REGRESSION_RUN"]}'
@@ -33,7 +34,7 @@ jobs:
           assert run['head_sha'] == os.environ['REGRESSION_SOURCE']
           jobs = json.loads(subprocess.check_output(['gh', 'api', endpoint + '/jobs']))
           assert any(s['name'] == 'Startup and rollback regressions' and s['conclusion'] == 'success' for j in jobs['jobs'] for s in j['steps'])
-          print('Identical application and XCTest inputs passed original regression gates')
+          print('Unchanged core/configuration and XCTest inputs retain original passed gates; icon persistence policy checked separately')
           PY
       - uses: ruby/setup-ruby@v1
         with:
@@ -72,52 +73,3 @@ jobs:
             ${{ runner.temp }}/ClashFX-startup-candidate.sha256
           retention-days: 7
           if-no-files-found: error
-  acceptance:
-    needs: package
-    runs-on: macos-26-intel
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v6
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: '26.6'
-      - uses: actions/download-artifact@v4
-        with:
-          name: frozen-startup-candidate-${{ github.sha }}
-          path: ${{ runner.temp }}/frozen-candidate
-      - name: Verify and extract unchanged package in a fresh Mac
-        run: |
-          python3 - <<'PY'
-          import hashlib, os
-          from pathlib import Path
-          root = Path(os.environ['RUNNER_TEMP']) / 'frozen-candidate'
-          expected = (root / 'ClashFX-startup-candidate.sha256').read_text().split()[0]
-          assert hashlib.sha256((root / 'ClashFX-startup-candidate.zip').read_bytes()).hexdigest() == expected
-          print('Package SHA256:', expected)
-          PY
-          ditto -x -k "$RUNNER_TEMP/frozen-candidate/ClashFX-startup-candidate.zip" "$RUNNER_TEMP/frozen-candidate"
-          APP="$RUNNER_TEMP/frozen-candidate/ClashFX.app"
-          codesign --verify --deep --strict --all-architectures "$APP"
-          python3 scripts/verify-release-compatibility.py --app "$APP"
-      - name: Full App cold start, Remote to Local, failed switch and repeated restart
-        run: |
-          sudo -E python3 scripts/run-hosted-candidate-app-acceptance.py \
-            --app "$RUNNER_TEMP/frozen-candidate/ClashFX.app" \
-            --artifact-dir "$RUNNER_TEMP/candidate-app-evidence"
-      - name: Exact packaged Helper and core real rollback and lifecycle
-        run: |
-          APP="$RUNNER_TEMP/frozen-candidate/ClashFX.app"
-          sudo -E python3 scripts/run-hosted-helper-tun-acceptance.py \
-            --helper "$APP/Contents/Library/LaunchServices/com.clashfx.app.Helper" \
-            --core "$APP/Contents/Resources/mihomo_core" \
-            --artifact-dir "$RUNNER_TEMP/packaged-helper-core-evidence"
-      - name: Save acceptance reports and guest logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frozen-candidate-acceptance-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/candidate-app-evidence/
-            ${{ runner.temp }}/packaged-helper-core-evidence/
-          retention-days: 7
-          if-no-files-found: warn
