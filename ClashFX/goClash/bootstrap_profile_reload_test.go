@@ -12,6 +12,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/metacubex/mihomo/component/profile"
 	"github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/listener"
@@ -79,6 +80,14 @@ func writeBootstrapProfile(t *testing.T, name, contents string) string {
 
 func startBootstrapForProfileReload(t *testing.T) bootstrapProfilePorts {
 	t.Helper()
+	lifecycle := currentCacheDBLifecycle()
+	previousLifecycleState := lifecycle.state.Load()
+	previousConfig, previousConfigMode, hadPreviousConfig := snapshotBootstrapConfig(t, constant.Path.Config())
+	previousSubmittedConfig := lastSubmittedConfig.bytes()
+	previousStoreSelected := profile.StoreSelected.Load()
+	previousIPv6 := enableIPV6
+	previousUserTunStack := loadUserTunStackRaw()
+
 	tunMu.Lock()
 	previousTunEnabled := tunEnabled
 	tunEnabled = false
@@ -96,11 +105,33 @@ func startBootstrapForProfileReload(t *testing.T) bootstrapProfilePorts {
 		t.Fatalf("write private bootstrap config: %v", err)
 	}
 
-	lifecycle := currentCacheDBLifecycle()
 	t.Cleanup(func() {
-		if err := lifecycle.suspendWithEpoch(stopBuiltinListenersForSuspend, &configUpdateEpoch); err != nil && err != errCoreLifecycleCancelled {
-			t.Errorf("suspend isolated bootstrap core: %v", err)
+		requested := lifecycle.requestSuspend(func() { configUpdateEpoch.Add(1) })
+		if err := lifecycle.suspendRequested(requested, stopBuiltinListenersForSuspend); err != nil {
+			if err != errCoreLifecycleCancelled {
+				t.Errorf("suspend isolated bootstrap core: %v", err)
+			}
+			return
 		}
+
+		// stopBuiltinListenersForSuspend and cache close must finish before the
+		// previous admission intent can be restored. Keep the new generation and
+		// config epoch so any queued work from this fixture remains invalidated.
+		lifecycle.mu.Lock()
+		lifecycle.stateMu.Lock()
+		if lifecycle.state.Load() == requested {
+			lifecycle.state.Store((requested &^ uint64(1)) | (previousLifecycleState & 1))
+		}
+		lifecycle.stateMu.Unlock()
+		lifecycle.mu.Unlock()
+
+		if err := restoreBootstrapConfig(constant.Path.Config(), previousConfig, previousConfigMode, hadPreviousConfig); err != nil {
+			t.Errorf("restore config after isolated bootstrap: %v", err)
+		}
+		lastSubmittedConfig.value.Store(append([]byte(nil), previousSubmittedConfig...))
+		profile.StoreSelected.Store(previousStoreSelected)
+		enableIPV6 = previousIPv6
+		userTunStackRaw.Store(previousUserTunStack)
 	})
 	epoch := configUpdateEpoch.Add(1)
 	cfg, err := startDefaultCoreWithCache(false, false, false, 0, "", epoch)
@@ -129,6 +160,35 @@ func startBootstrapForProfileReload(t *testing.T) bootstrapProfilePorts {
 		t.Fatalf("isolated API fallback status = %d, want %d", apiResponse.StatusCode, http.StatusOK)
 	}
 	return bootstrapProfilePorts{mixed: mixedPort, api: cfg.Controller.ExternalController}
+}
+
+func snapshotBootstrapConfig(t *testing.T, path string) ([]byte, os.FileMode, bool) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil, 0, false
+	}
+	if err != nil {
+		t.Fatalf("stat bootstrap config before fixture: %v", err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bootstrap config before fixture: %v", err)
+	}
+	return contents, info.Mode().Perm(), true
+}
+
+func restoreBootstrapConfig(path string, contents []byte, mode os.FileMode, existed bool) error {
+	if existed {
+		if err := os.WriteFile(path, contents, mode); err != nil {
+			return err
+		}
+		return os.Chmod(path, mode)
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func bootstrapProfileConfig(ports bootstrapProfilePorts, httpPort, socksPort, dnsPort int, allowLAN bool) string {

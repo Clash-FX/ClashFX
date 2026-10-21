@@ -210,6 +210,22 @@ def main():
         menu('dismiss')
         healthy('LOCAL_A')
         record('failedCandidatePreservesVerifiedProfile', any(x.get('title') == 'Acceptance-A' and x.get('selector') == 'actionSelectConfig:' and x.get('state') == 1 for x in menu('list').get('items', [])))
+        menu('invoke', selector='actionQuit:')
+        wait(lambda: not _pid_alive(launched_pids[-1]), 'exit before saved-remote cold start')
+        user(['defaults', 'write', 'com.clashfx.app', 'selectedRemoteControlConfigID', '-string', 'acceptance-remote'])
+        launch()
+        def saved_remote_menu():
+            snapshot = menu('list')
+            return snapshot if any(x.get('title') == 'Acceptance-Remote' and x.get('state') == 1 for x in snapshot.get('items', [])) else None
+        saved_remote = wait(saved_remote_menu, 'saved remote selected on cold start')
+        launched_pids.append(saved_remote['pid'])
+        # Record whether the local bootstrap had already run before persisted
+        # remote restoration; do not pretend that an absent core was observed.
+        try: report['savedRemoteStartHadLocalAPI'] = bool(get(api, 'version'))
+        except OSError: report['savedRemoteStartHadLocalAPI'] = False
+        menu('invoke', title=local[0]['title'])
+        healthy('LOCAL_A')
+        record('savedRemoteColdStartThenLocal', any(x.get('title') == local[0]['title'] and x.get('selector') == 'didSelectMenuItem:' and x.get('state') == 1 for x in menu('list').get('items', [])))
         for cycle in range(3):
             menu('invoke', selector='actionQuit:')
             wait(lambda: not _pid_alive(launched_pids[-1]), 'graceful app exit')

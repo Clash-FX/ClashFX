@@ -49,6 +49,7 @@ jobs:
             test CODE_SIGNING_ALLOWED=NO
       - name: Build and verify ad hoc candidate package without publication
         run: |
+          (cd ClashFX && python3 add_build_info.py)
           xcodebuild -workspace ClashFX.xcworkspace -scheme ClashFX -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/candidate-derived" \
             build CODE_SIGN_IDENTITY="-" ENABLE_HARDENED_RUNTIME=NO
