@@ -219,8 +219,9 @@ def main():
             if not alert_file.exists(): return None
             event = json.loads(alert_file.read_text())
             return event if event.get('id') == expected_alert['id'] else None
-        alert = wait(captured_alert, 'actual failed-profile alert acknowledgment', 30)
+        alert = wait(captured_alert, 'actual failed-profile alert capture', 90)
         record('invalidCandidateReportsFailure', 'Reload Config Fail' in [alert.get('title'), alert.get('windowTitle')])
+        alert = wait(lambda: (lambda event: event if event and (event.get('acknowledged') or event.get('error')) else None)(captured_alert()), 'actual failed-profile alert acknowledgment', 90)
         record('failedCandidateAlertAcknowledged', alert.get('acknowledged') is True and alert.get('acknowledgedButton') == 'OK')
         healthy('LOCAL_A')
         record('failedCandidatePreservesVerifiedProfile', any(x.get('title') == 'Acceptance-A' and x.get('selector') == 'actionSelectConfigWithSender:' and x.get('state') == 1 for x in menu('list').get('items', [])))

@@ -383,6 +383,7 @@ static void HandleExpectedReloadAlertNotification(NSNotification *notification) 
         @"info": alert[@"info"] ?: @"",
         @"windowTitle": alert[@"windowTitle"] ?: @"",
         @"buttons": alert[@"buttons"] ?: @[],
+        @"capturedAt": @([NSDate date].timeIntervalSince1970),
         @"acknowledged": @NO
     } mutableCopy];
 
@@ -394,9 +395,11 @@ static void HandleExpectedReloadAlertNotification(NSNotification *notification) 
     }
 
     event[@"acknowledgedButton"] = button.title ?: @"";
+    WriteReloadAlertEvent(event);
     @try {
         [button performClick:nil];
         event[@"acknowledged"] = @YES;
+        event[@"acknowledgedAt"] = @([NSDate date].timeIntervalSince1970);
     } @catch (NSException *exception) {
         event[@"error"] = [NSString stringWithFormat:@"reload_alert_acknowledgment_failed:%@", exception.name];
     }
