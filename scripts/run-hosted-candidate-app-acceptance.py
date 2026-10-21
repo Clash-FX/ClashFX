@@ -66,7 +66,7 @@ def main():
         if not value:
             raise AssertionError(name)
     def user(args):
-        return command(['sudo', '-u', 'runner', *args])
+        return command(['launchctl', 'asuser', str(runner.pw_uid), 'sudo', '-u', 'runner', *args])
     def wait(check, name, timeout=60):
         deadline = time.monotonic() + timeout
         last = None
@@ -158,7 +158,9 @@ def main():
             env = {k: v for k, v in os.environ.items() if k.startswith(('GITHUB_', 'RUNNER_', 'Image')) or k == 'CI'}
             env.update(HOME=str(home), DYLD_INSERT_LIBRARIES=str(dylib),
                        CLASHFX_ACCEPTANCE_COMMAND=str(request_file), CLASHFX_ACCEPTANCE_RESPONSE=str(response_file))
-            p = subprocess.Popen(['sudo', '-u', 'runner', '/usr/bin/env', *[k+'='+v for k,v in env.items()], app / 'Contents/MacOS/ClashFX'], stdout=stdout, stderr=subprocess.STDOUT)
+            # setuid alone does not adopt the Aqua bootstrap/audit session.
+            # IconServices and LaunchServices require the real GUI user context.
+            p = subprocess.Popen(['launchctl', 'asuser', str(runner.pw_uid), 'sudo', '-u', 'runner', '/usr/bin/env', *[k+'='+v for k,v in env.items()], app / 'Contents/MacOS/ClashFX'], stdout=stdout, stderr=subprocess.STDOUT)
             processes.append(p)
             report['fullAppLaunched'] = True
             return p
