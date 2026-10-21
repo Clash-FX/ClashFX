@@ -1,0 +1,92 @@
+name: Isolated Packaged App Acceptance
+
+on:
+  push:
+    branches:
+      - 'codex/candidate-app-retest-*'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  SOURCE_RUN: '39556385550'
+  SOURCE_SHA: '2a58273a96d53caf49baba5ace90727c1381c322'
+
+jobs:
+  packaged-app:
+    runs-on: macos-26-intel
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - name: Require verified package build and unchanged application source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          run = os.environ['SOURCE_RUN']; sha = os.environ['SOURCE_SHA']
+          for attempt in range(40):
+              data = json.loads(subprocess.check_output(['gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{run}']))
+              assert data['head_sha'] == sha
+              if data['status'] == 'completed': break
+              time.sleep(15)
+          else: raise RuntimeError('Source package job did not finish')
+          jobs = json.loads(subprocess.check_output(['gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{run}/jobs']))
+          required = {'Startup and rollback regressions', 'Build and verify ad hoc candidate package without publication'}
+          passed = {s['name'] for job in jobs['jobs'] for s in job['steps'] if s['conclusion'] == 'success'}
+          assert required <= passed, required - passed
+          changed = subprocess.check_output(['git', 'diff', '--name-only', sha, 'HEAD'], text=True).splitlines()
+          allowed = {'scripts/run-hosted-candidate-app-acceptance.py', '.github/workflows/packaged-app-acceptance-retest.yml'}
+          assert set(changed) <= allowed, changed
+          print('Verified original package build and test gates; only external acceptance tooling changed')
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: startup-candidate-${{ env.SOURCE_SHA }}
+          run-id: ${{ env.SOURCE_RUN }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/original-candidate-artifact
+      - name: Verify and extract the original candidate
+        run: |
+          python3 - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'original-candidate-artifact'
+          archive = root / 'ClashFX-startup-candidate.zip'
+          expected = (root / 'ClashFX-startup-candidate.sha256').read_text().split()[0]
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected
+          print('Original package SHA256:', expected)
+          PY
+          mkdir -p "$RUNNER_TEMP/original-candidate"
+          ditto -x -k "$RUNNER_TEMP/original-candidate-artifact/ClashFX-startup-candidate.zip" "$RUNNER_TEMP/original-candidate"
+          APP="$RUNNER_TEMP/original-candidate/ClashFX.app"
+          codesign --verify --deep --strict --all-architectures "$APP"
+          python3 scripts/verify-release-compatibility.py --app "$APP"
+      - name: Full candidate App startup, Remote to Local, failure and restarts
+        run: |
+          sudo -E python3 scripts/run-hosted-candidate-app-acceptance.py \
+            --app "$RUNNER_TEMP/original-candidate/ClashFX.app" \
+            --artifact-dir "$RUNNER_TEMP/candidate-app-evidence"
+      - name: Real rollback and lifecycle of the exact packaged Helper and core
+        run: |
+          APP="$RUNNER_TEMP/original-candidate/ClashFX.app"
+          sudo -E python3 scripts/run-hosted-helper-tun-acceptance.py \
+            --helper "$APP/Contents/Library/LaunchServices/com.clashfx.app.Helper" \
+            --core "$APP/Contents/Resources/mihomo_core" \
+            --artifact-dir "$RUNNER_TEMP/packaged-helper-core-evidence"
+      - name: Preserve packaged acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-app-acceptance-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/candidate-app-evidence/
+            ${{ runner.temp }}/packaged-helper-core-evidence/
+          retention-days: 7
+          if-no-files-found: warn

@@ -55,7 +55,8 @@ def main():
     artifact.mkdir(parents=True, exist_ok=True)
     artifact.chmod(0o755)
     os.chown(artifact, runner.pw_uid, runner.pw_gid)
-    report = {'status': 'running', 'source': os.environ['GITHUB_SHA'], 'assertions': [],
+    report = {'status': 'running', 'source': os.environ['GITHUB_SHA'],
+              'packageSource': os.environ.get('SOURCE_SHA', os.environ['GITHUB_SHA']), 'assertions': [],
               'fullAppLaunched': False, 'manualGUI': False, 'authorizationDialog': False,
               'instrumentation': 'external test-only dylib invokes existing NSMenuItem target/actions; candidate bundle unmodified'}
     report_path = artifact / 'report.json'
@@ -196,11 +197,11 @@ def main():
         # Local item title is localized in the actual menu; use its model-free
         # action item with state off, reported by the menu driver.
         items = remote_menu.get('items', [])
-        local = [x for x in items if x.get('selector') == 'didSelectMenuItem:' and x.get('title') != 'Acceptance-Remote']
+        local = [x for x in items if x.get('selector') == 'didSelectMenuItemWithSender:' and x.get('title') != 'Acceptance-Remote']
         assert len(local) == 1, local
         menu('invoke', title=local[0]['title'])
         healthy('LOCAL_A')
-        record('remoteToLocalFullApp', any(x.get('title') == local[0]['title'] and x.get('selector') == 'didSelectMenuItem:' and x.get('state') == 1 for x in menu('list').get('items', [])))
+        record('remoteToLocalFullApp', any(x.get('title') == local[0]['title'] and x.get('selector') == 'didSelectMenuItemWithSender:' and x.get('state') == 1 for x in menu('list').get('items', [])))
         menu('invoke', title='Acceptance-B'); healthy('LOCAL_B')
         menu('invoke', title='Acceptance-A'); healthy('LOCAL_A')
         record('continuousProfileSwitchesFullApp')
@@ -209,7 +210,7 @@ def main():
         record('invalidCandidateReportsFailure', alert['alert'].get('title') == 'Reload Config Fail')
         menu('dismiss')
         healthy('LOCAL_A')
-        record('failedCandidatePreservesVerifiedProfile', any(x.get('title') == 'Acceptance-A' and x.get('selector') == 'actionSelectConfig:' and x.get('state') == 1 for x in menu('list').get('items', [])))
+        record('failedCandidatePreservesVerifiedProfile', any(x.get('title') == 'Acceptance-A' and x.get('selector') == 'actionSelectConfigWithSender:' and x.get('state') == 1 for x in menu('list').get('items', [])))
         menu('invoke', selector='actionQuit:')
         wait(lambda: not _pid_alive(launched_pids[-1]), 'exit before saved-remote cold start')
         user(['defaults', 'write', 'com.clashfx.app', 'selectedRemoteControlConfigID', '-string', 'acceptance-remote'])
@@ -225,7 +226,7 @@ def main():
         except OSError: report['savedRemoteStartHadLocalAPI'] = False
         menu('invoke', title=local[0]['title'])
         healthy('LOCAL_A')
-        record('savedRemoteColdStartThenLocal', any(x.get('title') == local[0]['title'] and x.get('selector') == 'didSelectMenuItem:' and x.get('state') == 1 for x in menu('list').get('items', [])))
+        record('savedRemoteColdStartThenLocal', any(x.get('title') == local[0]['title'] and x.get('selector') == 'didSelectMenuItemWithSender:' and x.get('state') == 1 for x in menu('list').get('items', [])))
         for cycle in range(3):
             menu('invoke', selector='actionQuit:')
             wait(lambda: not _pid_alive(launched_pids[-1]), 'graceful app exit')
