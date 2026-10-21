@@ -83,8 +83,11 @@ def main():
         with socket.socket() as s:
             s.bind(('127.0.0.1', 0))
             return s.getsockname()[1]
+    fixture_api_secret = 'acceptance-fixture-only'
     def get(api, path):
-        with urllib.request.urlopen(f'http://127.0.0.1:{api}/{path}', timeout=1) as response:
+        headers = {'Authorization': 'Bearer ' + fixture_api_secret} if api != remote_api else {}
+        request = urllib.request.Request(f'http://127.0.0.1:{api}/{path}', headers=headers)
+        with urllib.request.urlopen(request, timeout=1) as response:
             return json.load(response)
     mixed, api, remote_api = port(), port(), port()
     while len({mixed, api, remote_api}) != 3:
@@ -128,6 +131,7 @@ def main():
         (config / 'Acceptance-Invalid.yaml').write_text('proxy-groups: [ malformed\n')
         defaults = {'selectConfigName': 'Acceptance-A', 'selectedLocalConfigName': 'Acceptance-A',
                     'proxyPortAutoSet': False, 'enhancedMode': False, 'claudeProxyLockEnabled': False,
+                    'api-secret': fixture_api_secret, 'overrideConfigSecret': True, 'apiPort': api,
                     'appLanguage': 'en', 'AppleLanguages': ['en'], 'SUEnableAutomaticChecks': False,
                     'kRemoteControls': json.dumps([{'name': 'Acceptance-Remote', 'url': f'http://127.0.0.1:{remote_api}', 'secret': '', 'uuid': 'acceptance-remote'}]).encode(),
                     'selectedRemoteControlConfigID': ''}
@@ -181,6 +185,8 @@ def main():
                               f'http://127.0.0.1:{health.server_port}/health']).decode()
             record('profile-'+group+'-real-proxy-forwarding', status == '204')
         launch()
+        try: report['initialMenuSnapshot'] = menu('list')
+        except Exception as error: report['initialMenuProbeError'] = str(error)
         healthy('LOCAL_A')
         launched_pids.append(menu('list')['pid'])
         record('coldStartFullCandidate')
@@ -251,6 +257,8 @@ def main():
     except BaseException as error:
         report['status'] = 'failed'
         report['failure'] = str(error)
+        try: report['failureMenuSnapshot'] = menu('list')
+        except Exception as probe_error: report['failureMenuProbeError'] = str(probe_error)
         raise
     finally:
         # All paths here are guarded by multiple disposable-hosted-runner signals.
@@ -282,6 +290,12 @@ def main():
         # uploader, including the install generator's private script and cache.
         for path in [artifact, *artifact.rglob('*')]:
             os.chown(path, runner.pw_uid, runner.pw_gid, follow_symlinks=False)
+        print(json.dumps(report, indent=2), flush=True)
+        if report['status'] != 'passed':
+            for path in [artifact / 'app-stdout.log', *sorted((artifact / 'app-logs').glob('*.log'))]:
+                if path.is_file():
+                    print('Guest diagnostic:', path.name, flush=True)
+                    print(path.read_text(errors='replace')[-12000:], flush=True)
         if not report['networkUnchanged']:
             raise AssertionError('Disposable guest proxy/DNS changed unexpectedly')
         if not report['candidateBundleUnmodified']:
