@@ -66,7 +66,7 @@ def main():
         if not value:
             raise AssertionError(name)
     def user(args):
-        return command(['sudo', '-u', 'runner', *args])
+        return command(['launchctl', 'asuser', str(runner.pw_uid), 'sudo', '-u', 'runner', *args])
     def wait(check, name, timeout=60):
         deadline = time.monotonic() + timeout
         last = None
@@ -158,7 +158,9 @@ def main():
             env = {k: v for k, v in os.environ.items() if k.startswith(('GITHUB_', 'RUNNER_', 'Image')) or k == 'CI'}
             env.update(HOME=str(home), DYLD_INSERT_LIBRARIES=str(dylib),
                        CLASHFX_ACCEPTANCE_COMMAND=str(request_file), CLASHFX_ACCEPTANCE_RESPONSE=str(response_file))
-            p = subprocess.Popen(['sudo', '-u', 'runner', '/usr/bin/env', *[k+'='+v for k,v in env.items()], app / 'Contents/MacOS/ClashFX'], stdout=stdout, stderr=subprocess.STDOUT)
+            # setuid alone does not adopt the Aqua bootstrap/audit session.
+            # IconServices and LaunchServices require the real GUI user context.
+            p = subprocess.Popen(['launchctl', 'asuser', str(runner.pw_uid), 'sudo', '-u', 'runner', '/usr/bin/env', *[k+'='+v for k,v in env.items()], app / 'Contents/MacOS/ClashFX'], stdout=stdout, stderr=subprocess.STDOUT)
             processes.append(p)
             report['fullAppLaunched'] = True
             return p
@@ -211,10 +213,18 @@ def main():
         menu('invoke', title='Acceptance-B'); healthy('LOCAL_B')
         menu('invoke', title='Acceptance-A'); healthy('LOCAL_A')
         record('continuousProfileSwitchesFullApp')
+        expected_alert = menu('expect_reload_alert')
+        alert_file = Path(expected_alert['eventPath'])
+        assert alert_file.parent == artifact
         menu('invoke', title='Acceptance-Invalid')
-        alert = wait(lambda: (lambda x: x if x.get('alert') else None)(menu('list')), 'invalid profile alert')
-        record('invalidCandidateReportsFailure', alert['alert'].get('title') == 'Reload Config Fail')
-        menu('dismiss')
+        def captured_alert():
+            if not alert_file.exists(): return None
+            event = json.loads(alert_file.read_text())
+            return event if event.get('id') == expected_alert['id'] else None
+        alert = wait(captured_alert, 'actual failed-profile alert capture', 90)
+        record('invalidCandidateReportsFailure', 'Reload Config Fail' in [alert.get('title'), alert.get('windowTitle')])
+        alert = wait(lambda: (lambda event: event if event and (event.get('acknowledged') or event.get('error')) else None)(captured_alert()), 'actual failed-profile alert acknowledgment', 90)
+        record('failedCandidateAlertAcknowledged', alert.get('acknowledged') is True and alert.get('acknowledgedButton') == 'OK')
         healthy('LOCAL_A')
         record('failedCandidatePreservesVerifiedProfile', any(x.get('title') == 'Acceptance-A' and x.get('selector') == 'actionSelectConfigWithSender:' and x.get('state') == 1 for x in menu('list').get('items', [])))
         menu('invoke', selector='actionQuit:')
@@ -259,6 +269,11 @@ def main():
         report['failure'] = str(error)
         try: report['failureMenuSnapshot'] = menu('list')
         except Exception as probe_error: report['failureMenuProbeError'] = str(probe_error)
+        if launched_pids:
+            try:
+                sampled = subprocess.run(['/usr/bin/sample', str(launched_pids[-1]), '1', '-file', artifact / 'app-main-sample.txt'], capture_output=True, text=True, timeout=15)
+                report['failureSampleStatus'] = sampled.returncode
+            except Exception as sample_error: report['failureSampleError'] = str(sample_error)
         raise
     finally:
         # All paths here are guarded by multiple disposable-hosted-runner signals.
