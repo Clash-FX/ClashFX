@@ -115,6 +115,8 @@ def main():
         generator.install_generator = artifact / 'install-generator'
         generator.install_fixture_path = artifact / 'install-input.json'
         generator.production_install_script = artifact / 'install.sh'
+        generator.metadata_stage_report = artifact / 'unused-install-metadata-observation.json'
+        generator.instrumented_install_script = artifact / 'unused-instrumented-install.sh'
         generator._generate_production_install_script()
         installed = True  # cleanup partial installation too
         command(['/bin/bash', generator.production_install_script])
@@ -137,6 +139,13 @@ def main():
                  ROOT / 'scripts/candidate-app-menu-driver.m', '-o', dylib])
         command(['codesign', '--force', '--sign', '-', dylib])
         request_file, response_file = artifact / 'command.json', artifact / 'response.json'
+        class Health(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(204); self.end_headers()
+            def log_message(self, *unused):
+                pass
+        health = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Health)
+        threading.Thread(target=health.serve_forever, daemon=True).start()
         def launch():
             env = {k: v for k, v in os.environ.items() if k.startswith(('GITHUB_', 'RUNNER_', 'Image')) or k == 'CI'}
             env.update(HOME=str(home), DYLD_INSERT_LIBRARIES=str(dylib),
@@ -162,6 +171,11 @@ def main():
             wait(lambda: profile(group), group+' API readiness')
             time.sleep(2)
             record('profile-'+group+'-API', profile(group))
+            status = command(['curl', '--silent', '--show-error', '--max-time', '4',
+                              '--noproxy', '', '--proxy', f'http://127.0.0.1:{mixed}',
+                              '--output', '/dev/null', '--write-out', '%{http_code}',
+                              f'http://127.0.0.1:{health.server_port}/health']).decode()
+            record('profile-'+group+'-real-proxy-forwarding', status == '204')
         launch()
         healthy('LOCAL_A')
         launched_pids.append(menu('list')['pid'])
