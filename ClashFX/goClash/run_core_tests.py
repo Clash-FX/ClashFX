@@ -25,11 +25,18 @@ def main() -> int:
         test_env = dict(os.environ, HOME=test_home,
             GOPATH=subprocess.check_output(["go", "env", "GOPATH"], text=True).strip(),
             GOCACHE=subprocess.check_output(["go", "env", "GOCACHE"], text=True).strip())
+        # macOS 26 rejects Go 1.22's internally linked test executables without
+        # LC_UUID. Match the universal builder's Darwin external-link contract.
+        link_flags = []
+        if sys.platform == "darwin":
+            test_env["CGO_ENABLED"] = "1"
+            link_flags = ["-ldflags=-linkmode=external"]
         if args.runtime_http:
             patch_runtime_http_apply_test(module_root / ".clashfx-core-workaround" / "mihomo")
         command = [
             "go",
             "test",
+            *link_flags,
             f"-modfile={modfile}",
             "./...",
             "-run",
@@ -40,7 +47,7 @@ def main() -> int:
         if result != 0 or not args.runtime_http:
             return result
         return subprocess.run([
-            "go", "test", f"-modfile={modfile}", "github.com/metacubex/mihomo/hub/route",
+            "go", "test", *link_flags, f"-modfile={modfile}", "github.com/metacubex/mihomo/hub/route",
             "-run", "^(TestRuntimeHTTP|TestConcurrentApplyConfigAndValidate)", "-count=1",
         ], cwd=module_root, env=test_env, check=False).returncode
 
