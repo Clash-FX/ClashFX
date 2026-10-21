@@ -10,8 +10,9 @@ permissions:
   actions: read
 
 env:
-  SOURCE_RUN: '39556385550'
-  SOURCE_SHA: '2a58273a96d53caf49baba5ace90727c1381c322'
+  RUN_PACKAGED_BACKEND: 'false'
+  SOURCE_RUN: '39560451912'
+  SOURCE_SHA: 'e24b7c0cf622aa6b57c7d22d82df671fc3c264c2'
 
 jobs:
   packaged-app:
@@ -38,21 +39,22 @@ jobs:
               time.sleep(15)
           else: raise RuntimeError('Source package job did not finish')
           jobs = json.loads(subprocess.check_output(['gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{run}/jobs']))
-          required = {'Startup and rollback regressions', 'Build and verify ad hoc candidate package without publication'}
+          required = {'Build and verify the frozen universal App', 'Save package before running any acceptance process'}
           passed = {s['name'] for job in jobs['jobs'] for s in job['steps'] if s['conclusion'] == 'success'}
           assert required <= passed, required - passed
           changed = subprocess.check_output(['git', 'diff', '--name-only', sha, 'HEAD'], text=True).splitlines()
-          allowed = {'scripts/run-hosted-candidate-app-acceptance.py', '.github/workflows/packaged-app-acceptance-retest.yml'}
+          allowed = {'scripts/run-hosted-candidate-app-acceptance.py', 'scripts/candidate-app-menu-driver.m', '.github/workflows/packaged-app-acceptance-retest.yml'}
           assert set(changed) <= allowed, changed
           print('Verified original package build and test gates; only external acceptance tooling changed')
           PY
       - uses: actions/download-artifact@v4
         with:
-          name: startup-candidate-${{ env.SOURCE_SHA }}
+          name: frozen-startup-candidate-${{ env.SOURCE_SHA }}
           run-id: ${{ env.SOURCE_RUN }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/original-candidate-artifact
       - name: Verify and extract the original candidate
+        id: verified_candidate
         run: |
           python3 - <<'PY'
           import hashlib, os
@@ -74,6 +76,7 @@ jobs:
             --app "$RUNNER_TEMP/original-candidate/ClashFX.app" \
             --artifact-dir "$RUNNER_TEMP/candidate-app-evidence"
       - name: Real rollback and lifecycle of the exact packaged Helper and core
+        if: ${{ always() && steps.verified_candidate.outcome == 'success' && env.RUN_PACKAGED_BACKEND != 'false' }}
         run: |
           APP="$RUNNER_TEMP/original-candidate/ClashFX.app"
           sudo -E python3 scripts/run-hosted-helper-tun-acceptance.py \

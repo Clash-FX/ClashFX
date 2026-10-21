@@ -58,7 +58,7 @@ def main():
     report = {'status': 'running', 'source': os.environ['GITHUB_SHA'],
               'packageSource': os.environ.get('SOURCE_SHA', os.environ['GITHUB_SHA']), 'assertions': [],
               'fullAppLaunched': False, 'manualGUI': False, 'authorizationDialog': False,
-              'instrumentation': 'external test-only dylib invokes existing NSMenuItem target/actions; candidate bundle unmodified'}
+              'instrumentation': 'external test-only dylib invokes existing NSMenuItem target/actions; signed payload hashes checked separately from Finder icon metadata'}
     report_path = artifact / 'report.json'
     def record(name, value=True):
         report['assertions'].append({'name': name, 'passed': bool(value)})
@@ -211,10 +211,17 @@ def main():
         menu('invoke', title='Acceptance-B'); healthy('LOCAL_B')
         menu('invoke', title='Acceptance-A'); healthy('LOCAL_A')
         record('continuousProfileSwitchesFullApp')
+        expected_alert = menu('expect_reload_alert')
+        alert_file = Path(expected_alert['eventPath'])
+        assert alert_file.parent == artifact
         menu('invoke', title='Acceptance-Invalid')
-        alert = wait(lambda: (lambda x: x if x.get('alert') else None)(menu('list')), 'invalid profile alert')
-        record('invalidCandidateReportsFailure', alert['alert'].get('title') == 'Reload Config Fail')
-        menu('dismiss')
+        def captured_alert():
+            if not alert_file.exists(): return None
+            event = json.loads(alert_file.read_text())
+            return event if event.get('id') == expected_alert['id'] else None
+        alert = wait(captured_alert, 'actual failed-profile alert acknowledgment', 30)
+        record('invalidCandidateReportsFailure', 'Reload Config Fail' in [alert.get('title'), alert.get('windowTitle')])
+        record('failedCandidateAlertAcknowledged', alert.get('acknowledged') is True and alert.get('acknowledgedButton') == 'OK')
         healthy('LOCAL_A')
         record('failedCandidatePreservesVerifiedProfile', any(x.get('title') == 'Acceptance-A' and x.get('selector') == 'actionSelectConfigWithSender:' and x.get('state') == 1 for x in menu('list').get('items', [])))
         menu('invoke', selector='actionQuit:')
@@ -259,6 +266,11 @@ def main():
         report['failure'] = str(error)
         try: report['failureMenuSnapshot'] = menu('list')
         except Exception as probe_error: report['failureMenuProbeError'] = str(probe_error)
+        if launched_pids:
+            try:
+                sampled = subprocess.run(['/usr/bin/sample', str(launched_pids[-1]), '1', '-file', artifact / 'app-main-sample.txt'], capture_output=True, text=True, timeout=15)
+                report['failureSampleStatus'] = sampled.returncode
+            except Exception as sample_error: report['failureSampleError'] = str(sample_error)
         raise
     finally:
         # All paths here are guarded by multiple disposable-hosted-runner signals.
@@ -282,7 +294,21 @@ def main():
         log_dir = home / 'Library/Logs/ClashFX'
         if log_dir.exists(): shutil.copytree(log_dir, artifact / 'app-logs', dirs_exist_ok=True)
         report['networkUnchanged'] = all(command(['scutil', '--'+x]) == value for x,value in network_before.items())
-        report['candidateBundleUnmodified'] = bundle_hashes == {str(p.relative_to(app)): backend.file_sha256(p) for p in app.rglob('*') if p.is_file()}
+        after_hashes = {str(p.relative_to(app)): backend.file_sha256(p) for p in app.rglob('*') if p.is_file()}
+        changed = [name for name, digest in bundle_hashes.items() if after_hashes.get(name) != digest]
+        added = sorted(set(after_hashes) - set(bundle_hashes))
+        report['candidateBundleUnmodified'] = bundle_hashes == after_hashes
+        report['bundleChangedFiles'] = changed
+        report['bundleAddedFiles'] = added
+        # Release AppLogoTool intentionally persists the Lab badge via the
+        # Finder custom-icon file at the bundle root, outside signed Contents.
+        report['candidateSignedPayloadUnmodified'] = not changed and set(added) <= {'Icon\r'}
+        signature = subprocess.run(['codesign', '--verify', '--deep', '--strict', '--all-architectures', app], capture_output=True, text=True)
+        report['postLaunchSignatureValid'] = signature.returncode == 0
+        report['postLaunchSignatureDetail'] = signature.stderr
+        if not report['networkUnchanged'] or not report['candidateSignedPayloadUnmodified'] or not report['postLaunchSignatureValid']:
+            report['status'] = 'failed'
+            report.setdefault('failure', 'Guest network or candidate payload/signature postconditions failed')
         report['appPIDs'] = launched_pids
         stdout.close()
         report_path.write_text(json.dumps(report, indent=2))
@@ -298,8 +324,8 @@ def main():
                     print(path.read_text(errors='replace')[-12000:], flush=True)
         if not report['networkUnchanged']:
             raise AssertionError('Disposable guest proxy/DNS changed unexpectedly')
-        if not report['candidateBundleUnmodified']:
-            raise AssertionError('Candidate bundle bytes changed during acceptance')
+        if not report['candidateSignedPayloadUnmodified'] or not report['postLaunchSignatureValid']:
+            raise AssertionError('Candidate signed payload or signature changed during acceptance')
 
 
 def _pid_alive(pid):
