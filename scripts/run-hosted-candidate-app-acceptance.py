@@ -278,6 +278,10 @@ def main():
         report['appPIDs'] = launched_pids
         stdout.close()
         report_path.write_text(json.dumps(report, indent=2))
+        # sudo-created diagnostics must be readable by the runner's artifact
+        # uploader, including the install generator's private script and cache.
+        for path in [artifact, *artifact.rglob('*')]:
+            os.chown(path, runner.pw_uid, runner.pw_gid, follow_symlinks=False)
         if not report['networkUnchanged']:
             raise AssertionError('Disposable guest proxy/DNS changed unexpectedly')
         if not report['candidateBundleUnmodified']:
