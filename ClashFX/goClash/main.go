@@ -1488,16 +1488,24 @@ func clashConvertShareLinks(content *C.char) *C.char {
 	return C.CString(header + string(data))
 }
 
+// Logging callbacks only append to the thread-safe application logger; they do
+// not mutate menus. Keep constructor errors while reload pauses UI/traffic
+// callbacks, otherwise the precise bind error is lost before rollback.
+func shouldForwardCoreLog(paused bool, level string) bool {
+	return !paused || level == "error"
+}
+
 //export clashSetupLogger
 func clashSetupLogger() {
 	sub := log.Subscribe()
 	go func() {
 		for elm := range sub {
-			if atomic.LoadInt32(&callbacksPaused) != 0 {
+			level := elm.Type()
+			if !shouldForwardCoreLog(atomic.LoadInt32(&callbacksPaused) != 0, level) {
 				continue
 			}
 			cs := C.CString(elm.Payload)
-			cl := C.CString(elm.Type())
+			cl := C.CString(level)
 			C.sendLogToUI(cs, cl)
 			C.free(unsafe.Pointer(cs))
 			C.free(unsafe.Pointer(cl))

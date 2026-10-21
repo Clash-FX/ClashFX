@@ -1,0 +1,77 @@
+name: Isolated Candidate App Startup Acceptance
+
+on:
+  push:
+    branches:
+      - 'codex/helper-tun-acceptance-*-startup*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: candidate-startup-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FASTLANE_SKIP_UPDATE_CHECK: true
+
+jobs:
+  candidate-app:
+    runs-on: macos-26-intel
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.22.0'
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - name: Install candidate dependencies on disposable Mac
+        run: |
+          python3 scripts/verify-release-compatibility.py --sdk
+          bash install_dependency.sh
+      - name: Startup and rollback regressions
+        run: |
+          python3 scripts/verify-first-startup-reload.py
+          python3 scripts/verify-builtin-resume-provenance.py
+          python3 scripts/verify-config-rollback-completion.py
+          python3 ClashFX/goClash/run_core_tests.py --run 'TestBootstrap|TestReloadPause|TestFailedEmbeddedStartup' --runtime-http
+          xcodebuild -workspace ClashFX.xcworkspace -scheme ClashFX \
+            -destination 'platform=macOS,arch=x86_64' \
+            -derivedDataPath "$RUNNER_TEMP/candidate-derived" \
+            -resultBundlePath "$RUNNER_TEMP/candidate-regressions.xcresult" \
+            -skip-testing:ClashFXTests/RealCoreMenuIntegrationTests \
+            test CODE_SIGNING_ALLOWED=NO
+      - name: Build and verify ad hoc candidate package without publication
+        run: |
+          xcodebuild -workspace ClashFX.xcworkspace -scheme ClashFX -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/candidate-derived" \
+            build CODE_SIGN_IDENTITY="-" ENABLE_HARDENED_RUNTIME=NO
+          APP="$RUNNER_TEMP/candidate-derived/Build/Products/Release/ClashFX.app"
+          codesign --verify --deep --strict --all-architectures "$APP"
+          python3 scripts/verify-release-compatibility.py --app "$APP"
+          bash scripts/verify-dashboard-compatibility-bundle.sh "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/ClashFX-startup-candidate.zip"
+          shasum -a 256 "$RUNNER_TEMP/ClashFX-startup-candidate.zip" > "$RUNNER_TEMP/ClashFX-startup-candidate.sha256"
+      - name: Actual candidate App cold start, menus, failed switch and restart
+        run: |
+          sudo -E python3 scripts/run-hosted-candidate-app-acceptance.py \
+            --app "$RUNNER_TEMP/candidate-derived/Build/Products/Release/ClashFX.app" \
+            --artifact-dir "$RUNNER_TEMP/candidate-app-evidence"
+      - name: Preserve candidate and acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-candidate-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/candidate-app-evidence/
+            ${{ runner.temp }}/ClashFX-startup-candidate.zip
+            ${{ runner.temp }}/ClashFX-startup-candidate.sha256
+            ${{ runner.temp }}/candidate-regressions.xcresult/
+          retention-days: 7
+          if-no-files-found: warn

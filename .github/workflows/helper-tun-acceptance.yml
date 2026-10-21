@@ -82,6 +82,14 @@ jobs:
             --bridge-directory "$RUNNER_TEMP/clashfx-acceptance-build"
       - name: DNS shutdown socket ownership regression
         run: python3 scripts/verify-dns-lifecycle-ownership.py --count 20
+      - name: First startup, rollback provenance and paused error delivery
+        shell: bash
+        run: |
+          python3 scripts/verify-first-startup-reload.py
+          python3 scripts/verify-builtin-resume-provenance.py
+          python3 scripts/verify-config-rollback-completion.py
+          python3 scripts/verify-first-startup-core-logging.py --bridge-directory "$RUNNER_TEMP/clashfx-acceptance-build"
+          python3 ClashFX/goClash/run_core_tests.py --run 'TestBootstrap|TestReloadPause' --runtime-http
       - name: Recovery selection, provider churn and custom IPv6 DNS regressions
         shell: bash
         run: |

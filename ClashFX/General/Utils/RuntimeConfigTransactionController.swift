@@ -49,6 +49,7 @@ final class RuntimeConfigTransactionController {
     private enum Phase: Equatable {
         case preparing
         case validating
+        case retryValidating
         case applying
         case verifying
         case rollbackApplying
@@ -78,8 +79,11 @@ final class RuntimeConfigTransactionController {
         let isCurrent: () -> Bool
         let client: Client
         let previous: Receipt?
+        let retryAfterVerifiedRollback: Bool
+        let onRetry: ((String) -> Void)?
         var completion: ((Outcome) -> Void)?
         var candidate: Receipt?
+        var restoredBaseline: Receipt?
         var phase: Phase = .preparing
         var phaseToken = UUID()
         var deadline: DispatchWorkItem?
@@ -87,6 +91,8 @@ final class RuntimeConfigTransactionController {
         var applySettled = false
         var fileMayBeInUse = false
         var rollbackReason: String?
+        var retryRejectionReason: String?
+        var retryUsed = false
         var finished = false
 
         init(
@@ -94,12 +100,16 @@ final class RuntimeConfigTransactionController {
             isCurrent: @escaping () -> Bool,
             client: Client,
             previous: Receipt?,
+            retryAfterVerifiedRollback: Bool,
+            onRetry: ((String) -> Void)?,
             completion: @escaping (Outcome) -> Void
         ) {
             self.scope = scope
             self.isCurrent = isCurrent
             self.client = client
             self.previous = previous
+            self.retryAfterVerifiedRollback = retryAfterVerifiedRollback
+            self.onRetry = onRetry
             self.completion = completion
         }
     }
@@ -249,6 +259,8 @@ final class RuntimeConfigTransactionController {
         scope: String,
         isCurrent: @escaping () -> Bool,
         client: Client,
+        retryAfterVerifiedRollback: Bool = false,
+        onRetry: ((String) -> Void)? = nil,
         completion: @escaping (Outcome) -> Void
     ) {
         onMain { [weak self] in
@@ -283,6 +295,8 @@ final class RuntimeConfigTransactionController {
                 isCurrent: isCurrent,
                 client: client,
                 previous: previous,
+                retryAfterVerifiedRollback: retryAfterVerifiedRollback,
+                onRetry: onRetry,
                 completion: completion
             )
             self.activeOperation = operation
@@ -353,15 +367,28 @@ final class RuntimeConfigTransactionController {
         }
     }
 
-    private func beginValidation(_ operation: Operation) {
-        guard ensureCurrent(operation), let candidate = operation.candidate else { return }
-        let token = beginPhase(.validating, for: operation)
+    private func beginValidation(_ operation: Operation, retry: Bool = false) {
+        guard ensureCurrent(operation) else { return }
+        guard let candidate = operation.candidate else {
+            if retry {
+                finishRetryValidation("The candidate snapshot is unavailable.", for: operation)
+            } else {
+                finish(operation, with: .rejected("The candidate snapshot is unavailable."))
+            }
+            return
+        }
+        let phase: Phase = retry ? .retryValidating : .validating
+        let token = beginPhase(phase, for: operation)
         operation.fileMayBeInUse = true
         operation.client.validate(candidate.file) { [weak self, weak operation] error in
             guard let self = self, let operation = operation else { return }
-            self.receive(operation, phase: .validating, token: token) {
+            self.receive(operation, phase: phase, token: token) {
                 if let error = error {
-                    self.finish(operation, with: .rejected(error))
+                    if retry {
+                        self.finishRetryValidation(error, for: operation)
+                    } else {
+                        self.finish(operation, with: .rejected(error))
+                    }
                 } else {
                     self.beginApply(operation)
                 }
@@ -373,6 +400,7 @@ final class RuntimeConfigTransactionController {
         guard ensureCurrent(operation), let candidate = operation.candidate else { return }
         let token = beginPhase(.applying, for: operation)
         operation.applyStarted = true
+        operation.applySettled = false
         operation.fileMayBeInUse = true
         operation.client.apply(candidate.file) { [weak self, weak operation] result in
             guard let self = self, let operation = operation else { return }
@@ -396,6 +424,9 @@ final class RuntimeConfigTransactionController {
                 // A deterministic core rejection can still leave parse or
                 // listener side effects. Reapply the last verified snapshot.
                 operation.rollbackReason = reason
+                if operation.retryAfterVerifiedRollback && !operation.retryUsed {
+                    operation.retryRejectionReason = reason
+                }
                 beginRollback(operation)
             } else {
                 finish(operation, with: .rejected(reason))
@@ -489,6 +520,28 @@ final class RuntimeConfigTransactionController {
         confirmedReceipt = restored
         uncertain = false
         advanceStateEpoch()
+        operation.restoredBaseline = restored
+
+        if operation.retryAfterVerifiedRollback,
+           !operation.retryUsed,
+           let retryReason = operation.retryRejectionReason {
+            // The retry budget belongs to this operation and is consumed before
+            // invoking caller code, which may reenter or invalidate the scope.
+            operation.retryUsed = true
+            operation.retryRejectionReason = nil
+            operation.onRetry?(retryReason)
+
+            guard ensureCurrent(operation) else { return }
+            guard confirmedReceipt?.id == restored.id,
+                  confirmedReceipt?.scope == operation.scope,
+                  !uncertain else {
+                markUnknown("The verified baseline changed before the retry could begin.", for: operation)
+                return
+            }
+            beginValidation(operation, retry: true)
+            return
+        }
+
         finish(
             operation,
             with: .rolledBack(restored, operation.rollbackReason ?? "Configuration verification failed.")
@@ -582,6 +635,12 @@ final class RuntimeConfigTransactionController {
         case .validating:
             retainSnapshot(operation.candidate)
             finish(operation, with: .rejected("Configuration validation timed out."), keepCandidate: true)
+        case .retryValidating:
+            finishRetryValidation(
+                "Configuration validation timed out.",
+                for: operation,
+                keepCandidate: true
+            )
         case .applying:
             markUnknown("Configuration apply timed out; no concurrent rollback was attempted.", for: operation)
         case .verifying:
@@ -593,6 +652,29 @@ final class RuntimeConfigTransactionController {
         case .finished:
             return
         }
+    }
+
+    private func finishRetryValidation(
+        _ reason: String,
+        for operation: Operation,
+        keepCandidate: Bool = false
+    ) {
+        guard let baseline = operation.restoredBaseline else {
+            finish(operation, with: .rejected(reason), keepCandidate: keepCandidate)
+            return
+        }
+        let originalRejection = operation.rollbackReason ?? "The candidate apply was rejected."
+        if keepCandidate {
+            retainSnapshot(operation.candidate)
+        }
+        finish(
+            operation,
+            with: .rolledBack(
+                baseline,
+                "Candidate apply was rejected: \(originalRejection). Retry validation failed: \(reason)"
+            ),
+            keepCandidate: keepCandidate
+        )
     }
 
     private func markUnknown(_ reason: String, for operation: Operation) {
