@@ -463,6 +463,7 @@ static void InstallCandidateAppMenuDriver(void) {
             // NSAlert.runModal spins a nested modal-panel run loop. Registering
             // in common modes keeps list/dismiss commands available there.
             [[NSRunLoop mainRunLoop] addTimer:gPollTimer forMode:NSRunLoopCommonModes];
+            [[NSRunLoop mainRunLoop] addTimer:gPollTimer forMode:NSModalPanelRunLoopMode];
         });
     }
 }
