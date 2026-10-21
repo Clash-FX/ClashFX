@@ -53,6 +53,7 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/original-candidate-artifact
       - name: Verify and extract the original candidate
+        id: verified_candidate
         run: |
           python3 - <<'PY'
           import hashlib, os
@@ -74,6 +75,7 @@ jobs:
             --app "$RUNNER_TEMP/original-candidate/ClashFX.app" \
             --artifact-dir "$RUNNER_TEMP/candidate-app-evidence"
       - name: Real rollback and lifecycle of the exact packaged Helper and core
+        if: ${{ always() && steps.verified_candidate.outcome == 'success' }}
         run: |
           APP="$RUNNER_TEMP/original-candidate/ClashFX.app"
           sudo -E python3 scripts/run-hosted-helper-tun-acceptance.py \

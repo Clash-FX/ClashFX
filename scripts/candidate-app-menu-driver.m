@@ -316,7 +316,9 @@ static NSDictionary *HandleRequest(NSDictionary *request,
     response[@"action"] = action;
 
     NSMenu *menu = StatusMenu(nil);
-    if (menu != nil && ![action isEqualToString:@"dismiss"]) { RefreshStatusMenu(menu); }
+    // A status query must stay read-only, especially while NSAlert owns a
+    // modal loop. Updating NSMenu there can wait for that same alert to end.
+    if (menu != nil && [action isEqualToString:@"invoke"] && NSApp.modalWindow == nil) { RefreshStatusMenu(menu); }
     response[@"items"] = menu == nil ? @[] : MenuItems(menu);
 
     NSDictionary *alert = CurrentAlert();
