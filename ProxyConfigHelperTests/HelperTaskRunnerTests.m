@@ -425,6 +425,11 @@ static void AppendTestCString(NSMutableData *data, NSString *value) {
                          matchExpectedHome:home
                        expectedBinaryPath:bundledBinary]);
 
+    NSArray<NSString *> *trailingHome = @[protectedBinary, @"-f", config, @"-d", [home stringByAppendingString:@"/"]];
+    XCTAssertTrue([helper mihomoArguments:trailingHome matchExpectedHome:home expectedBinaryPath:protectedBinary]);
+    NSArray<NSString *> *relativeHome = @[protectedBinary, @"-f", config, @"-d", @"relative/home"];
+    XCTAssertFalse([helper mihomoArguments:relativeHome matchExpectedHome:home expectedBinaryPath:protectedBinary]);
+
     NSArray<NSString *> *wrongArgvZero = @[@"mihomo_core", @"-f", config, @"-d", home];
     XCTAssertFalse([helper mihomoArguments:wrongArgvZero
                           matchExpectedHome:home
@@ -480,7 +485,7 @@ static void AppendTestCString(NSMutableData *data, NSString *value) {
 
     NSString *validConfig = [home stringByAppendingPathComponent:
         @".enhanced_config.12345678-1234-1234-1234-123456789abc.yaml"];
-    NSTask *ownedTask = [self launchScannerFixtureWithHome:home configPath:validConfig];
+    NSTask *ownedTask = [self launchScannerFixtureWithHome:[home stringByAppendingString:@"/"] configPath:validConfig];
     NSTask *unownedTask = [self launchScannerFixtureWithHome:home configPath:foreignConfig];
     XCTAssertTrue(ownedTask.isRunning);
     XCTAssertTrue(unownedTask.isRunning);

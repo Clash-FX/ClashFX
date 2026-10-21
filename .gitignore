@@ -14,6 +14,7 @@ ClashFX/clash/
 ClashFX/goClash/goClash.h
 ClashFX/goClash/goClash.a
 ClashFX/goClash/mihomo_core
+ClashFX/goClash/.mihomo_core
 ClashFX/goClash/.clashfx-core-workaround/
 fastlane/report.xml
 ClashFX/Resources/Country.mmdb.gz

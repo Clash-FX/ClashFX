@@ -34,11 +34,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private struct EnhancedModePreparedConfig {
-        let runtimeConfigPath: String
-        let tunRouteExcludes: String
-        let expectedProxyPorts: [Int]
-        let customLaunchPath: String?
-        let customLaunchInfo: EnhancedModeLaunchPreparation?
+        let launchPath: String
+        let launchInfo: EnhancedModeLaunchPreparation
     }
 
     private enum EnhancedModeConfigPreparationResult {
@@ -93,6 +90,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let apiPort: String
         let secret: String
         let dnsPort: Int
+        let dnsHost: String
         let proxyPorts: [Int]
         let configPath: String
         let deadline: Date
@@ -260,6 +258,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var runAfterConfigReload: (() -> Void)?
     var isConfigUpdating = false
     private let configUpdateTransaction = ConfigUpdateTransactionCoordinator()
+    private var runtimeCoreSessionID = UUID()
+    private var confirmedRuntimeProfileName: String?
+    private var lastConfirmedEnhancedData: Data?
+    private var lastConfirmedEnhancedAPIPort: Int?
+    private var builtInRecoveryCheckpoint: Data?
+    private var builtInRecoveryProfileName: String?
+    private var enhancedPreparationProfileName: String?
+    private var runtimeValidationOperations = [UUID: RuntimeConfigValidationOperation]()
+    private lazy var runtimeConfigTransactions = RuntimeConfigTransactionController(
+        directory: URL(fileURLWithPath: kConfigFolderPath).appendingPathComponent(".runtime-transactions", isDirectory: true),
+        timeout: 25
+    )
+
     private var activeConfigUpdateID: UUID? {
         configUpdateTransaction.activeID
     }
@@ -288,6 +299,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var startupHelperRecoveryDisposable: Disposable?
     private var isBuiltInCoreResumeRetryAvailable = false
     private var isWakeEnhancedModeRestarting = false
+    // Frozen across retries. Never replace a failed recovery checkpoint with
+    // the replacement core's default/first-member selection.
+    private var automaticRecoverySelections: [String: String]?
+    private var automaticRecoveryConfigName: String?
+    private var automaticRecoveryID: UUID?
+    private var automaticRecoveryTrigger = "wake-or-network"
+    private var deferredAutomaticRecoveryID: UUID?
+    private var automaticRecoveryNeedsRetry = false
     private var enhancedModeHealthTimer: Timer?
     private var isEnhancedModeHealthCheckInFlight = false
     private var isCoreCPUStatusCheckInFlight = false
@@ -320,7 +339,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     var isRestoringProxySelection: Bool {
-        selectionMemoryRestoration != nil
+        selectionMemoryRestoration != nil || automaticRecoverySelections != nil || automaticRecoveryNeedsRetry
     }
 
     var canSwitchProxyControlScope: Bool {
@@ -378,6 +397,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             cancelDeferredConfigUpdate(reason: "Deferred config update cancelled or timed out.")
             return
         }
+        if let recoveryError = automaticRecoveryConfigurationReloadError() {
+            cancelDeferredConfigUpdate(reason: recoveryError)
+            return
+        }
         guard claudeLockChange == nil, !isConfigUpdating, !isRestoringProxySelection,
               !ProxyGroupSelectionController.isAnyOperationInProgress else {
             let work = DispatchWorkItem { [weak self] in
@@ -397,6 +420,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     var isEnhancedModeTransitionInProgress: Bool {
         enhancedModeLifecycle.isTransitionInProgress ||
+            deferredAutomaticRecoveryID != nil ||
             isWakeEnhancedModeRestarting ||
             isEnhancedModeRuntimeRecoveryPending ||
             isStartupCoreHandoffRetryInProgress || claudeLockChange != nil
@@ -490,7 +514,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private static let enhancedModeHelperRestartDelay: TimeInterval = 1
     private static let enhancedModeDiagnosticTimeout: TimeInterval = 8
     private static let enhancedModeHelperRequestTimeout: TimeInterval = 5
-    private static let enhancedModeConfigPreparationTimeout: TimeInterval = 15
+    private static let enhancedModeConfigPreparationTimeout: TimeInterval = 30
     private static let tunDNSRestoreTimeout: TimeInterval = 8
     private static let staleEnhancedCoreCleanupTimeout: TimeInterval = 3
     private static let staleEnhancedCoreCleanupMaxAttempts = 3
@@ -885,6 +909,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func cancelConfigUpdateForLifecycle(_ reason: String) {
+        ApiRequest.cancelRuntimeConfigOperations()
+        runtimeValidationOperations.values.forEach { $0.cancel() }
+        runtimeValidationOperations.removeAll()
+        runtimeConfigTransactions.invalidate()
         guard let transactionID = activeConfigUpdateID else { return }
         finishConfigUpdate(
             transactionID: transactionID,
@@ -1586,7 +1614,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func startProxy() {
+        guard automaticRecoverySelections == nil, !automaticRecoveryNeedsRetry else {
+            Logger.log("[Automatic Recovery] stage=blocked outcome=blocked code=builtin-fallback built-in start requires verified recovery or explicit scope change", level: .error)
+            return
+        }
         if ConfigManager.shared.isRunning { return }
+        ApiRequest.cancelRuntimeConfigOperations()
+        runtimeConfigTransactions.invalidate()
+        runtimeCoreSessionID = UUID()
+        isCoreConfigSnapshotVerified = false
+        confirmedRuntimeProfileName = nil
 
         if !Settings.isApiSecretSet {
             if #available(macOS 11.0, *), let password = SecCreateSharedWebCredentialPassword() as? String {
@@ -1665,6 +1702,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ConfigManager.shared.apiPort = port
             ConfigManager.shared.apiSecret = res.secret
             ConfigManager.shared.isRunning = true
+            if let restoreError = restoreBuiltInRecoveryCheckpoint() {
+                ConfigManager.shared.isRunning = false
+                isBuiltInCoreResumeRetryAvailable = true
+                Logger.log(restoreError, level: .error)
+                return
+            }
             isBuiltInCoreResumeRetryAvailable = false
             proxyModeMenuItem.isEnabled = true
             dashboardMenuItem.isEnabled = true
@@ -1681,6 +1724,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func syncConfig(completeHandler: (() -> Void)? = nil) {
         let interactionGeneration = proxySelectionGeneration
         let configName = ConfigManager.selectConfigName
+        let readbackIdentity = configSyncReadbackIdentity
         let apiURL = ConfigManager.apiUrl
         let remoteID = RemoteControlManager.selectConfig?.uuid
         let modeRequestSequence = outboundModeRequestSequence
@@ -1691,7 +1735,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         ApiRequest.requestConfig { [weak self] config in
             guard let self = self else { return }
+            let currentReadbackIdentity = self.configSyncReadbackIdentity
             guard interactionGeneration == self.proxySelectionGeneration,
+                  readbackIdentity == currentReadbackIdentity,
                   ConfigManager.selectConfigName == configName, ConfigManager.apiUrl == apiURL,
                   RemoteControlManager.selectConfig?.uuid == remoteID,
                   modeRequestSequence == self.outboundModeRequestSequence,
@@ -1699,13 +1745,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                   self.outboundModeChangeQueue.isEmpty
             else {
                 Logger.log(
-                    "Discarded stale config sync while outbound mode was changing",
+                    "Discarded stale config sync after runtime or outbound-mode scope changed",
                     level: .debug
                 )
                 self.scheduleConfigSyncRetry(completeHandler: completeHandler)
                 return
             }
 
+            guard RuntimeConfigReadbackPolicy.canPromoteSyncReadback(
+                captured: readbackIdentity,
+                current: currentReadbackIdentity,
+                transactionBusy: self.runtimeConfigTransactions.isBusy,
+                transactionUncertain: self.runtimeConfigTransactions.isUncertain
+            ) else {
+                completeHandler?()
+                return
+            }
             self.isCoreConfigSnapshotVerified = true
             ConfigManager.shared.currentConfig = config
             self.requestSystemProxyAutoRecovery()
@@ -1803,11 +1858,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             completeHandler?("Config update cancelled: runtime is unavailable.")
             return
         }
+        if let recoveryError = automaticRecoveryConfigurationReloadError() {
+            completeHandler?(recoveryError)
+            return
+        }
         guard RemoteControlManager.selectConfig == nil else {
             completeHandler?("Local config reload is unavailable in remote control mode.")
             return
         }
-        if claudeLockChange != nil || isConfigUpdating || isRestoringProxySelection || ProxyGroupSelectionController.isAnyOperationInProgress {
+        if claudeLockChange != nil || isEnhancedModeTransitionInProgress || isConfigUpdating || isRestoringProxySelection || isOutboundModeChangeInFlight || !outboundModeChangeQueue.isEmpty || ProxyGroupSelectionController.isAnyOperationInProgress {
             deferConfigUpdate(configName: configName, showNotification: showNotification, completion: completeHandler)
             return
         }
@@ -1824,6 +1883,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clashPauseCallbacks()
         let transactionID = configUpdateTransaction.begin()
         let lifecycleGeneration = enhancedModeGeneration
+        let reloadRuntimeScope = runtimeConfigurationScope
+        var validatedBaselineID: UUID?
         activeConfigUpdateCompletion = completeHandler
         let config = configName ?? ConfigManager.selectConfigName
 
@@ -1844,32 +1905,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             if let err {
+                if let validatedBaselineID {
+                    self.restoreVerifiedRuntimeBaselineIfAvailable(scope: reloadRuntimeScope, receiptID: validatedBaselineID)
+                }
                 UpdateConfigAction.showError(text: err, configName: config)
                 MenuItemFactory.recreateProxyMenuItems()
                 self.finishConfigUpdate(transactionID: transactionID, error: err)
                 return
             }
             if let newConfigName = configName { ConfigManager.selectConfigName = newConfigName }
-            self.selectProxyGroupWithMemory { [weak self] _ in
-                guard let self, self.activeConfigUpdateID == transactionID,
-                      !self.isTerminating, !self.isRestarting,
-                      self.enhancedModeGeneration == lifecycleGeneration else { return }
-                self.restoreSelectedOutboundModeAfterCoreChange { [weak self] in
-                    guard let self, self.activeConfigUpdateID == transactionID,
-                          !self.isTerminating, !self.isRestarting,
-                          self.enhancedModeGeneration == lifecycleGeneration else { return }
-                    self.finishReloadAfterConfigReadback(transactionID: transactionID, showNotification: showNotification)
-                }
-            }
+            self.finishReloadAfterConfigReadback(transactionID: transactionID, showNotification: showNotification)
         }
 
-        requestConfigUpdateApplyingRuntimePatch(configName: config, callback: reloadCallback)
+        requestConfigUpdateApplyingRuntimePatch(configName: config,
+                                                baselineState: { validatedBaselineID = $0 }, callback: reloadCallback)
     }
 
     private func finishReloadAfterConfigReadback(transactionID: UUID, showNotification: Bool) {
         let readback = ManagedOperationSettlement<Bool> { [weak self] verified in
             guard let self, self.activeConfigUpdateID == transactionID,
                   !self.isTerminating, !self.isRestarting else { return }
+            if verified, self.automaticRecoverySelections == nil, self.automaticRecoveryNeedsRetry {
+                self.automaticRecoveryNeedsRetry = false
+                self.enhancedModeMenuItem.state = ConfigManager.shared.isEnhancedModeActive ? .on : .off
+            }
             self.resetStreamApi()
             self.runAfterConfigReload?()
             self.runAfterConfigReload = nil
@@ -1926,188 +1985,456 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    private func requestConfigUpdateApplyingRuntimePatch(configName: String, callback: @escaping ((ErrorString?) -> Void)) {
+    private func requestConfigUpdateApplyingRuntimePatch(configName: String,
+                                                         baselineState: ((UUID?) -> Void)? = nil, callback: @escaping ((ErrorString?) -> Void)) {
         let generation = proxySelectionGeneration
         let selectedConfig = ConfigManager.selectConfigName
-        let apiURL = ConfigManager.apiUrl
+        let scope = runtimeConfigurationScope
+        let context = ApiRequest.runtimeConfigContext()
         let remoteID = RemoteControlManager.selectConfig?.uuid
-        let isCurrent: () -> Bool = { [weak self] in
-            guard let self else { return false }
-            return !self.isTerminating && !self.isRestarting &&
-                self.proxySelectionGeneration == generation && ConfigManager.selectConfigName == selectedConfig &&
-                ConfigManager.apiUrl == apiURL &&
-                RemoteControlManager.selectConfig?.uuid == remoteID
-        }
         let lockChange = claudeLockChange
         let lockSettings = lockChange?.runtimeSettings
+        let enhanced = ConfigManager.shared.isEnhancedModeActive
+        let custom = Settings.enhancedModeUseCustomConfig
+        let mtu = Settings.tunMTU
+        let device = Settings.tunInterfaceName
+        let bypass = Settings.bypassChineseApps
+        let fallbackPort = Int(Settings.proxyPort)
+        let mode = lockSettings?.mode ?? desiredOutboundMode ?? ConfigManager.selectOutBoundMode
+        let isCurrent: () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return self.ownsRuntimeControl && !self.isTerminating && !self.isRestarting &&
+                self.proxySelectionGeneration == generation && ConfigManager.selectConfigName == selectedConfig &&
+                self.runtimeConfigurationScope == scope && ApiRequest.runtimeConfigContext() == context &&
+                RemoteControlManager.selectConfig?.uuid == remoteID &&
+                (lockChange == nil || self.isCurrentClaudeLockChange(lockChange!))
+        }
         let callbackGate = EnhancedModeCompletionGate()
         let finish: (ErrorString?) -> Void = { error in
             guard callbackGate.claim() else { return }
-            DispatchQueue.main.async {
-                callback(isCurrent() ? error : "Config update cancelled: core/API scope changed.")
-            }
+            DispatchQueue.main.async { callback(isCurrent() ? error : "Config update cancelled: core/API scope changed.") }
         }
-        ConfigManager.getConfigPath(configName: configName) { [weak self] sourcePath in
-            guard let self = self else {
-                finish("Config update cancelled: application unavailable")
-                return
+        baselineState?(nil)
+        ensureConfirmedRuntimeBaseline(scope: scope, context: context, isCurrent: isCurrent) { baselineError in
+            guard isCurrent(), baselineError == nil else { finish(baselineError ?? "Runtime scope changed"); return }
+            baselineState?(self.runtimeConfigTransactions.confirmed?.id)
+            let confirmed = self.confirmedRuntimeRoot(scope: scope)
+            let plan = confirmed.flatMap {
+                RuntimeConfigReadbackPolicy.portPlan(config: $0,
+                                                     apiPort: Int(ConfigManager.shared.apiPort) ?? 0, owned: true)
             }
-            guard isCurrent() else { finish("Config update cancelled: core/API scope changed."); return }
-            if let lockChange, !self.isCurrentClaudeLockChange(lockChange) {
-                finish("Config update cancelled: Claude Proxy Lock change was superseded")
-                return
-            }
-            if ConfigManager.shared.isEnhancedModeActive {
-                let launchID = UUID()
-                let generation = self.enhancedModeGeneration
-                let runtimePath = kConfigFolderPath + ".runtime_config.\(launchID.uuidString).yaml"
-                let enhancedPath = kConfigFolderPath + ".enhanced_config.\(launchID.uuidString).yaml"
-                if Settings.enhancedModeUseCustomConfig {
-                    let expectedDNSPort = self.expectedEnhancedDNSPort
-                    let activeAPIPort = ConfigManager.shared.apiPort
-                    let activeAPISecret = ConfigManager.shared.apiSecret
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        let patch = self.writeRuntimePatchedConfigIfNeeded(
-                            for: configName,
-                            sourcePath: sourcePath,
-                            includeRulePatch: false,
-                            outputPath: runtimePath,
-                            lockSettings: lockSettings
-                        )
-                        if let error = patch.error { finish(error); return }
-                        let inputPath = patch.path ?? sourcePath
-                        let result: Result<Void, Error> = Result {
-                            let yaml = try String(contentsOfFile: inputPath, encoding: .utf8)
-                            guard var root = try Yams.load(yaml: yaml) as? [String: Any],
-                                  let tun = root["tun"] as? [String: Any],
-                                  tun["enable"] as? Bool == true,
-                                  expectedDNSPort > 0,
-                                  EnhancedModeDNSReadinessPolicy.preserveDNSListenPort(
-                                      in: &root,
-                                      port: expectedDNSPort
-                                  ) else {
-                                throw NSError(
-                                    domain: "ClashFX.EnhancedModeReload",
-                                    code: 1,
-                                    userInfo: [NSLocalizedDescriptionKey:
-                                        "Custom Enhanced Mode reload must keep TUN enabled and its active DNS listener configured."]
-                                )
-                            }
-                            root["external-controller"] = "127.0.0.1:\(activeAPIPort)"
-                            root["secret"] = activeAPISecret
-                            let stableYAML = try Yams.dump(object: root)
-                            try stableYAML.write(toFile: enhancedPath, atomically: true, encoding: .utf8)
-                        }
-                        DispatchQueue.main.async {
-                            if let lockChange, !self.isCurrentClaudeLockChange(lockChange) {
-                                finish("Config update cancelled: Claude Proxy Lock change was superseded")
-                                return
-                            }
-                            guard generation == self.enhancedModeGeneration,
-                                  ConfigManager.shared.isEnhancedModeActive,
-                                  !self.isTerminating else {
-                                finish("Config update cancelled: enhanced mode lifecycle changed")
-                                return
-                            }
-                            switch result {
-                            case .success:
-                                Logger.log(
-                                    "Custom Enhanced Mode reload source=\(configName) launch=\(launchID) " +
-                                        "tun=preserved dnsPort=\(expectedDNSPort) controller=unchanged"
-                                )
-                                guard isCurrent() else { finish("Config update cancelled: core/API scope changed."); return }
-                                ApiRequest.requestConfigUpdate(configPath: enhancedPath, callback: finish)
-                            case let .failure(error):
-                                finish("Custom Enhanced Mode reload refused: \(error.localizedDescription)")
-                            }
-                        }
-                    }
-                    return
+            if enhanced && plan == nil { finish("The enhanced core has no verified port plan"); return }
+            let planJSON = plan.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+                .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let apiAddress = confirmed?["external-controller"] as? String
+                ?? "127.0.0.1:\(ConfigManager.shared.apiPort)"
+            ConfigManager.getConfigPath(configName: configName) { sourcePath in
+                guard isCurrent() else { finish("Config update scope changed"); return }
+                let id = UUID().uuidString
+                let runtimePath = kConfigFolderPath + ".runtime_config.\(id).yaml"
+                let enhancedPath = kConfigFolderPath + ".enhanced_config.\(id).yaml"
+                let cleanup = {
+                    try? FileManager.default.removeItem(atPath: runtimePath)
+                    try? FileManager.default.removeItem(atPath: enhancedPath)
                 }
                 DispatchQueue.global(qos: .userInitiated).async {
-                    let patch = self.writeRuntimePatchedConfigIfNeeded(
-                        for: configName,
-                        sourcePath: sourcePath,
-                        includeRulePatch: false,
-                        outputPath: runtimePath,
-                        lockSettings: lockSettings
-                    )
-                    if let error = patch.error { finish(error); return }
-                    let inputPath = patch.path ?? sourcePath
-                    let excludes = self.mergedTunRouteExcludeList(patch.routeExcludeEntries)
-                    let generated = clashWriteEnhancedConfig(
-                        inputPath.goStringBuffer(),
-                        enhancedPath.goStringBuffer(),
-                        excludes.goStringBuffer(),
-                        GoUint32(Settings.tunMTU),
-                        Settings.tunInterfaceName.goStringBuffer(),
-                        Settings.bypassChineseApps ? 1 : 0
-                    )?.toString() ?? ""
-                    DispatchQueue.main.async {
-                        if let lockChange, !self.isCurrentClaudeLockChange(lockChange) {
-                            finish("Config update cancelled: Claude Proxy Lock change was superseded")
-                            return
+                    do {
+                        let patch = self.writeRuntimePatchedConfigIfNeeded(for: configName, sourcePath: sourcePath,
+                                                                           includeRulePatch: !enhanced, outputPath: runtimePath, lockSettings: lockSettings)
+                        if let error = patch.error { throw NSError(domain: "ClashFX.RuntimeConfig", code: 1,
+                                                                   userInfo: [NSLocalizedDescriptionKey: error]) }
+                        let text = try String(contentsOfFile: patch.path ?? sourcePath, encoding: .utf8)
+                        guard var root = try Yams.load(yaml: text) as? [String: Any] else {
+                            throw NSError(domain: "ClashFX.RuntimeConfig", code: 2)
                         }
-                        guard generation == self.enhancedModeGeneration,
-                              ConfigManager.shared.isEnhancedModeActive,
-                              !self.isTerminating else {
-                            finish("Config update cancelled: enhanced mode lifecycle changed")
-                            return
-                        }
-                        guard !generated.hasPrefix("error:") else {
-                            Logger.log("Enhanced config reload generation failed: \(generated)", level: .error)
-                            finish(generated)
-                            return
-                        }
-                        guard self.expectedEnhancedDNSPort > 0 else {
-                            finish("Enhanced config reload has no active DNS listener identity")
-                            return
-                        }
-                        do {
-                            let generatedYAML = try String(contentsOfFile: enhancedPath, encoding: .utf8)
-                            guard var root = try Yams.load(yaml: generatedYAML) as? [String: Any],
-                                  EnhancedModeDNSReadinessPolicy.preserveDNSListenPort(
-                                      in: &root,
-                                      port: self.expectedEnhancedDNSPort
-                                  ) else {
-                                finish("Unable to preserve the active Enhanced Mode DNS port")
-                                return
+                        root = RuntimeConfigReadbackPolicy.preservingImplicitPorts(in: root,
+                                                                                   confirmed: confirmed, fallback: fallbackPort)
+                        root["mode"] = mode.rawValue
+                        root["external-controller"] = apiAddress
+                        root["secret"] = context.secret
+                        try Yams.dump(object: root).write(toFile: runtimePath, atomically: true, encoding: .utf8)
+                        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: runtimePath)
+                        var candidatePath = runtimePath
+                        if enhanced {
+                            if custom {
+                                guard (root["tun"] as? [String: Any])?["enable"] as? Bool == true,
+                                      (root["dns"] as? [String: Any])?["enable"] as? Bool == true else {
+                                    throw NSError(domain: "ClashFX.RuntimeConfig", code: 3,
+                                                  userInfo: [NSLocalizedDescriptionKey: "Custom enhanced reload must keep TUN and DNS enabled"])
+                                }
+                                try Self.retargetEnhancedDNSConfig(at: runtimePath, port: (plan?["dnsPort"] as? Int) ?? 0)
+                            } else {
+                                let generated = clashWriteEnhancedConfigWithPorts(runtimePath.goStringBuffer(),
+                                                                                  enhancedPath.goStringBuffer(), self.mergedTunRouteExcludeList(patch.routeExcludeEntries).goStringBuffer(),
+                                                                                  GoUint32(mtu), device.goStringBuffer(), bypass ? 1 : 0, planJSON.goStringBuffer())?.toString()
+                                guard let generated, !generated.hasPrefix("error:") else {
+                                    throw NSError(domain: "ClashFX.RuntimeConfig", code: 4,
+                                                  userInfo: [NSLocalizedDescriptionKey: generated ?? "Could not prepare the confirmed listener plan"])
+                                }
+                                candidatePath = enhancedPath
                             }
-                            root["external-controller"] =
-                                "127.0.0.1:\(ConfigManager.shared.apiPort)"
-                            root["secret"] = ConfigManager.shared.apiSecret
-                            let stableYAML = try Yams.dump(object: root)
-                            try stableYAML.write(toFile: enhancedPath, atomically: true, encoding: .utf8)
-                        } catch {
-                            finish("Unable to prepare Enhanced Mode reload: \(error.localizedDescription)")
-                            return
                         }
-                        Logger.log(
-                            "Enhanced config reload source=\(configName) launch=\(launchID) " +
-                                "tun=preserved dnsPort=\(self.expectedEnhancedDNSPort) " +
-                                "controller=unchanged (Mihomo ApplyConfig keeps the API listener)"
-                        )
-                        guard isCurrent() else { finish("Config update cancelled: core/API scope changed."); return }
-                        ApiRequest.requestConfigUpdate(configPath: enhancedPath, callback: finish)
+                        DispatchQueue.main.async {
+                            guard isCurrent() else { cleanup(); finish("Config update scope changed"); return }
+                            self.applyRuntimeConfiguration(path: candidatePath, profile: configName, isCurrent: isCurrent, baselineState: baselineState) { error in
+                                cleanup()
+                                finish(error)
+                            }
+                        }
+                    } catch {
+                        cleanup()
+                        DispatchQueue.main.async { finish(error.localizedDescription) }
                     }
                 }
-                return
-            }
-            let patch = self.writeRuntimePatchedConfigIfNeeded(
-                for: configName,
-                sourcePath: sourcePath,
-                includeRulePatch: true,
-                lockSettings: lockSettings
-            )
-            if let error = patch.error { finish(error); return }
-            if let patchedPath = patch.path {
-                guard isCurrent() else { finish("Config update cancelled: core/API scope changed."); return }
-                ApiRequest.requestConfigUpdate(configPath: patchedPath, callback: finish)
-            } else {
-                guard isCurrent() else { finish("Config update cancelled: core/API scope changed."); return }
-                ApiRequest.requestConfigUpdate(configPath: sourcePath, callback: finish)
             }
         }
+    }
+
+    private var runtimeConfigurationScope: String {
+        let core = ConfigManager.shared.isEnhancedModeActive
+            ? "enhanced:\(activeEnhancedModeLaunchID?.uuidString ?? "unknown")"
+            : "builtin:\(runtimeCoreSessionID.uuidString)"
+        let context = ApiRequest.runtimeConfigContext()
+        return core + ":" + context.apiURL + ":" + String(context.direct)
+    }
+
+    private var configSyncReadbackIdentity: RuntimeConfigReadbackPolicy.SyncIdentity {
+        let context = ApiRequest.runtimeConfigContext()
+        return RuntimeConfigReadbackPolicy.SyncIdentity(
+            runtimeScope: runtimeConfigurationScope,
+            apiURL: context.apiURL,
+            directAPI: context.direct,
+            secret: context.secret,
+            selectedConfig: ConfigManager.selectConfigName,
+            coreUpdateEpoch: ApiRequest.currentRuntimeConfigReadbackEpoch(),
+            configurationGeneration: runtimeConfigTransactions.readbackGeneration
+        )
+    }
+
+    private func confirmedRuntimeRoot(scope: String) -> [String: Any]? {
+        guard let receipt = runtimeConfigTransactions.confirmed, receipt.scope == scope,
+              let text = String(data: receipt.data, encoding: .utf8) else { return nil }
+        return (try? Yams.load(yaml: text)) as? [String: Any]
+    }
+
+    private func validateRuntimeCandidate(file: URL, isCurrent: @escaping () -> Bool,
+                                          completion: @escaping (String?) -> Void) {
+        guard isCurrent(), let binary = Bundle.main.url(forResource: "mihomo_core", withExtension: nil) else {
+            completion("Runtime validation cancelled or its validator is unavailable"); return
+        }
+        let id = UUID()
+        let enhanced = ConfigManager.shared.isEnhancedModeActive
+        DispatchQueue.global(qos: .userInitiated).async {
+            if enhanced {
+                guard let text = try? String(contentsOf: file, encoding: .utf8),
+                      let root = (try? Yams.load(yaml: text)) as? [String: Any],
+                      let dns = root["dns"] as? [String: Any], let listen = dns["listen"] as? String,
+                      EnhancedDNSProbeTargetPolicy.host(from: listen) != nil else {
+                    DispatchQueue.main.async { completion("The configured DNS listener has no supported probe address") }
+                    return
+                }
+            }
+            let endpointError = clashValidateRuntimeConfig(file.path.goStringBuffer())?.toString()
+            DispatchQueue.main.async {
+                guard isCurrent() else { completion("Runtime validation scope changed"); return }
+                guard endpointError == "" else {
+                    completion(endpointError?.hasPrefix("error:[port_conflict]") == true
+                        ? endpointError : "Runtime configuration structure or endpoints are invalid")
+                    return
+                }
+                let runner = RuntimeConfigValidationRunner(binary: binary,
+                                                           resourceDirectory: URL(fileURLWithPath: kConfigFolderPath), timeout: 10)
+                self.runtimeValidationOperations[id] = runner.validate(file: file) { error in
+                    self.runtimeValidationOperations[id] = nil
+                    completion(isCurrent() ? error : "Runtime validation scope changed")
+                }
+            }
+        }
+    }
+
+    private func verifyRuntimeCandidate(file: URL, context: ApiRequest.RuntimeConfigContext,
+                                        isCurrent: @escaping () -> Bool,
+                                        readback: (([String: Any]) -> Void)? = nil,
+                                        completion: @escaping (RuntimeConfigTransactionController.VerificationResult) -> Void) {
+        guard isCurrent(), let text = try? String(contentsOf: file, encoding: .utf8),
+              let root = (try? Yams.load(yaml: text)) as? [String: Any] else {
+            completion(.failed("Runtime candidate scope or snapshot is unavailable")); return
+        }
+        ApiRequest.readRuntimeConfig(context: context) { actual, error in
+            guard isCurrent(), let actual else {
+                completion(.failed(error ?? "Core configuration readback is unavailable")); return
+            }
+            if let error = RuntimeConfigReadbackPolicy.readbackError(expected: root, actual: actual) {
+                completion(.failed(error)); return
+            }
+            readback?(actual)
+            let finish: () -> Void = {
+                guard isCurrent() else { completion(.failed("Runtime scope changed during verification")); return }
+                ApiRequest.probeRuntimeConfigDataPlane(context: context,
+                                                       authenticationRequired: !(root["authentication"] as? [String] ?? []).isEmpty,
+                                                       completion: completion)
+            }
+            guard ConfigManager.shared.isEnhancedModeActive,
+                  let launchID = self.activeEnhancedModeLaunchID,
+                  let launchPath = self.activeEnhancedModeConfigPath else { finish(); return }
+            let dns = root["dns"] as? [String: Any]
+            let dnsPort = self.listenPort(from: dns?["listen"] as? String)
+            guard let dnsHost = EnhancedDNSProbeTargetPolicy.host(from: dns?["listen"] as? String ?? "") else {
+                completion(.failed("The configured DNS listener has no supported probe address")); return
+            }
+            let probeContext = EnhancedModeLaunchContext(generation: self.enhancedModeGeneration,
+                                                         launchID: launchID, apiPort: ConfigManager.shared.apiPort, secret: context.secret,
+                                                         dnsPort: dnsPort,
+                                                         dnsHost: dnsHost,
+                                                         proxyPorts: Self.readProxyPorts(from: root), configPath: launchPath,
+                                                         deadline: Date().addingTimeInterval(4))
+            let device = (actual["tun"] as? [String: Any])?["device"] as? String
+            let readinessHelper = self.captureCoreReadinessHelper()
+            DispatchQueue.global(qos: .userInitiated).async {
+                let owned = self.currentCoreOwnsExpectedListeners(probeContext, using: readinessHelper) == .ready
+                let protocolReady = owned && self.expectedEnhancedDNSPortResponses(dnsPort, host: probeContext.dnsHost) != nil
+                let tunReady = self.hasUsableEnhancedTunInterface(expectedDevice: device)
+                DispatchQueue.main.async {
+                    guard isCurrent() else { completion(.failed("Runtime scope changed during listener verification")); return }
+                    guard protocolReady, tunReady else {
+                        completion(.failed("Core listener ownership, TUN interface or DNS UDP/TCP verification failed")); return
+                    }
+                    finish()
+                }
+            }
+        }
+    }
+
+    private func confirmEnhancedRuntimeConfiguration(at path: String, completion: @escaping (String?) -> Void) {
+        let scope = runtimeConfigurationScope
+        let context = ApiRequest.runtimeConfigContext()
+        let profile = enhancedPreparationProfileName
+        let current: () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return self.ownsRuntimeControl && !self.isTerminating && self.runtimeConfigurationScope == scope &&
+                ConfigManager.shared.isEnhancedModeActive && context == ApiRequest.runtimeConfigContext()
+        }
+        verifyRuntimeCandidate(file: URL(fileURLWithPath: path), context: context, isCurrent: current) { result in
+            guard current() else { completion("Enhanced checkpoint scope changed"); return }
+            guard case let .verified(dataPlane) = result else {
+                if case let .failed(error) = result { completion(error) }
+                return
+            }
+            DispatchQueue.global(qos: .userInitiated).async {
+                let data = try? Data(contentsOf: URL(fileURLWithPath: path))
+                DispatchQueue.main.async {
+                    guard current(), let data else { completion("Enhanced checkpoint snapshot is unavailable"); return }
+                    self.runtimeConfigTransactions.adoptConfirmed(data: data, scope: scope, dataPlane: dataPlane, isCurrent: current) { result in
+                        switch result {
+                        case let .success(receipt):
+                            self.lastConfirmedEnhancedData = receipt.data
+                            self.lastConfirmedEnhancedAPIPort = Int(ConfigManager.shared.apiPort)
+                            self.saveConfirmedEnhancedPortPreference()
+                            self.confirmedRuntimeProfileName = profile
+                            self.isCoreConfigSnapshotVerified = true
+                            Logger.log("Enhanced configuration checkpoint confirmed; data plane=\(dataPlane)")
+                            completion(nil)
+                        case .failure: completion("Could not save the enhanced configuration checkpoint")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func saveConfirmedEnhancedPortPreference() {
+        guard let root = confirmedRuntimeRoot(scope: runtimeConfigurationScope),
+              let plan = RuntimeConfigReadbackPolicy.portPlan(config: root,
+                                                              apiPort: lastConfirmedEnhancedAPIPort ?? 0, owned: false) else { return }
+        UserDefaults.standard.set(plan, forKey: "ClashFX.ConfirmedEnhancedPorts")
+    }
+
+    private func captureBuiltInRecoveryCheckpoint() {
+        let receipt = runtimeConfigTransactions.confirmed.flatMap { $0.scope == runtimeConfigurationScope ? $0 : nil }
+        guard !runtimeConfigTransactions.isBusy, !runtimeConfigTransactions.isUncertain,
+              let data = receipt?.data ?? clashGetLastSubmittedConfig()?.toString().data(using: .utf8),
+              let text = String(data: data, encoding: .utf8),
+              let root = (try? Yams.load(yaml: text)) as? [String: Any],
+              let current = clashGetConfigs()?.toString().data(using: .utf8),
+              let actual = (try? JSONSerialization.jsonObject(with: current)) as? [String: Any],
+              let refreshed = RuntimeConfigReadbackPolicy.refreshedConfirmedRoot(root, actual: actual),
+              let frozen = try? Yams.dump(object: refreshed) else {
+            builtInRecoveryCheckpoint = nil; builtInRecoveryProfileName = nil; return
+        }
+        builtInRecoveryCheckpoint = Data(frozen.utf8)
+        // A bootstrap config is not evidence that a selected profile was applied.
+        builtInRecoveryProfileName = receipt == nil ? nil : confirmedRuntimeProfileName
+    }
+
+    private func ensureConfirmedRuntimeBaseline(scope: String, context: ApiRequest.RuntimeConfigContext,
+                                                isCurrent: @escaping () -> Bool,
+                                                completion: @escaping (String?) -> Void) {
+        guard !runtimeConfigTransactions.isUncertain else {
+            completion("Previous configuration apply is unconfirmed; restart the core before another configuration switch"); return
+        }
+        let previous = runtimeConfigTransactions.confirmed.flatMap { $0.scope == scope ? $0 : nil }
+        guard previous != nil || !ConfigManager.shared.isEnhancedModeActive else {
+            completion("The enhanced core has no confirmed configuration checkpoint"); return
+        }
+        let seed = ManagedOperationSettlement<String?> { error in
+            DispatchQueue.main.async { completion(error) }
+        }
+        seed.scheduleTimeout(after: 12, queue: .main) { "Runtime baseline confirmation timed out" }
+        let fresh: () -> Bool = { !seed.isSettled && isCurrent() }
+        let inspect: (Data?) -> Void = { data in
+            guard fresh(), let data, let text = String(data: data, encoding: .utf8),
+                  let root = (try? Yams.load(yaml: text)) as? [String: Any] else {
+                _ = seed.finish("No immutable configuration baseline is available from this core session"); return
+            }
+            ApiRequest.readRuntimeConfig(context: context) { actual, error in
+                guard fresh() else { _ = seed.finish("Runtime baseline scope changed"); return }
+                guard let actual else {
+                    _ = seed.finish(error ?? "Core configuration readback was unavailable"); return
+                }
+                guard let refreshed = RuntimeConfigReadbackPolicy.refreshedConfirmedRoot(root, actual: actual) else {
+                    Logger.log("[Runtime Checkpoint] stage=readback_comparison result=mismatch", level: .warning)
+                    _ = seed.finish("The running core no longer matches its confirmed listener checkpoint"); return
+                }
+                guard let text = try? Yams.dump(object: refreshed) else {
+                    Logger.log("[Runtime Checkpoint] stage=yaml_encoding result=failed", level: .error)
+                    _ = seed.finish("Could not serialize the confirmed runtime configuration checkpoint"); return
+                }
+                self.runtimeConfigTransactions.adoptConfirmed(data: Data(text.utf8), scope: scope, isCurrent: fresh) { result in
+                    switch result {
+                    case .success: _ = seed.finish(nil)
+                    case .failure: _ = seed.finish("The confirmed configuration checkpoint could not be saved")
+                    }
+                }
+            }
+        }
+        if let previous { inspect(previous.data) }
+        else { ApiRequest.lastSubmittedRuntimeConfig(completion: inspect) }
+    }
+
+    private func applyRuntimeConfiguration(path: String, profile: String, isCurrent: @escaping () -> Bool,
+                                           baselineState: ((UUID?) -> Void)? = nil,
+                                           completion: @escaping (String?) -> Void) {
+        let scope = runtimeConfigurationScope
+        let context = ApiRequest.runtimeConfigContext()
+        let current: () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return isCurrent() && self.ownsRuntimeControl && !self.isTerminating && !self.isRestarting &&
+                self.runtimeConfigurationScope == scope && context == ApiRequest.runtimeConfigContext()
+        }
+        baselineState?(nil)
+        ensureConfirmedRuntimeBaseline(scope: scope, context: context, isCurrent: current) { error in
+            guard current(), error == nil else { completion(error ?? "Runtime scope changed"); return }
+            baselineState?(self.runtimeConfigTransactions.confirmed?.id)
+            ApiRequest.readRuntimeProxySelections(context: context) { previousSelections, selectionError in
+                guard current(), let previousSelections else { completion(selectionError ?? "Current manual proxy selections could not be confirmed"); return }
+                let confirmedRoot = self.confirmedRuntimeRoot(scope: scope)
+                let mode = self.claudeLockChange?.runtimeSettings.mode ?? self.desiredOutboundMode ?? ConfigManager.selectOutBoundMode
+                let apiAddress = (confirmedRoot?["external-controller"] as? String)
+                    ?? "127.0.0.1:\(ConfigManager.shared.apiPort)"
+                let fallback = Int(Settings.proxyPort)
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let result: Result<Data, Error> = Result {
+                        let text = try String(contentsOfFile: path, encoding: .utf8)
+                        guard var root = try Yams.load(yaml: text) as? [String: Any] else {
+                            throw NSError(domain: "ClashFX.RuntimeConfig", code: 1)
+                        }
+                        root = RuntimeConfigReadbackPolicy.preservingImplicitPorts(in: root, confirmed: confirmedRoot, fallback: fallback)
+                        root["mode"] = mode.rawValue
+                        root["external-controller"] = apiAddress
+                        root["secret"] = context.secret
+                        if let error = RuntimeConfigReadbackPolicy.candidateError(root) {
+                            throw NSError(domain: "ClashFX.RuntimeConfig", code: 5, userInfo: [NSLocalizedDescriptionKey: error])
+                        }
+                        // The built-in bridge applies the session's IPv6 setting.
+                        if context.direct {
+                            root = RuntimeConfigReadbackPolicy.preservingBuiltInSessionIPv6(in: root, confirmed: confirmedRoot)
+                        }
+                        return try Data(Yams.dump(object: root).utf8)
+                    }
+                    DispatchQueue.main.async {
+                        guard current() else { completion("Runtime scope changed while preparing configuration"); return }
+                        guard case let .success(data) = result else { completion("The candidate runtime configuration could not be prepared"); return }
+                        let previousProfile = self.confirmedRuntimeProfileName
+                        let previousFile = self.runtimeConfigTransactions.confirmed?.file
+                        let previousReceiptID = self.runtimeConfigTransactions.confirmed?.id
+                        var desiredSelections = [String: String]()
+                        for record in ConfigManager.selectedProxyRecords where record.config == profile {
+                            desiredSelections[record.group] = record.selected
+                        }
+                        var verifiedReadbacks = [String: [String: Any]]()
+                        let publish: (RuntimeConfigTransactionController.Receipt) -> Void = { receipt in
+                            guard let actual = verifiedReadbacks[receipt.file.path],
+                                  let bytes = try? JSONSerialization.data(withJSONObject: actual),
+                                  let config = ClashConfig.fromData(bytes) else { return }
+                            ConfigManager.shared.currentConfig = config
+                        }
+                        let client = RuntimeConfigTransactionController.Client(
+                            validate: { file, done in self.validateRuntimeCandidate(file: file, isCurrent: current, completion: done) },
+                            apply: { file, done in
+                                guard current() else { done(.uncertain("Runtime scope changed before configuration apply")); return }
+                                ApiRequest.applyRuntimeConfig(file: file, context: context) { result in
+                                    guard current() else { done(.uncertain("Runtime scope changed during configuration apply")); return }
+                                    guard case .accepted = result else { done(result); return }
+                                    let restoring = file == previousFile
+                                    ApiRequest.restoreRuntimeProxySelections(records: restoring ? previousSelections : desiredSelections,
+                                                                             strict: restoring, context: context, isCurrent: current, completion: done)
+                                }
+                            },
+                            verify: { file, done in
+                                self.verifyRuntimeCandidate(file: file, context: context, isCurrent: current,
+                                                            readback: { verifiedReadbacks[file.path] = $0 }, completion: done)
+                            }
+                        )
+                        self.runtimeConfigTransactions.submit(data: data, scope: scope, isCurrent: current, client: client) { outcome in
+                            switch outcome {
+                            case let .applied(receipt):
+                                publish(receipt)
+                                self.confirmedRuntimeProfileName = profile
+                                if ConfigManager.shared.isEnhancedModeActive {
+                                    self.lastConfirmedEnhancedData = receipt.data
+                                    self.lastConfirmedEnhancedAPIPort = Int(ConfigManager.shared.apiPort)
+                                    self.saveConfirmedEnhancedPortPreference()
+                                }
+                                self.isCoreConfigSnapshotVerified = true
+                                completion(nil)
+                            case let .rolledBack(receipt, reason):
+                                publish(receipt)
+                                if let previousProfile { ConfigManager.selectConfigName = previousProfile }
+                                self.isCoreConfigSnapshotVerified = true
+                                self.syncConfig()
+                                completion("Configuration switch failed; the previous verified configuration was restored. \(reason)")
+                            case let .rejected(reason):
+                                if current(), let previousReceiptID {
+                                    self.restoreVerifiedRuntimeBaselineIfAvailable(scope: scope, receiptID: previousReceiptID)
+                                }
+                                completion(reason)
+                            case let .unknown(reason):
+                                ApiRequest.cancelRuntimeConfigOperations()
+                                self.isCoreConfigSnapshotVerified = false
+                                completion("Configuration state is unknown; no new settings were committed. \(reason)")
+                            case .cancelled: completion("Configuration transaction was cancelled")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func restoreVerifiedRuntimeBaselineIfAvailable(scope: String, receiptID: UUID) {
+        guard RuntimeConfigReadbackPolicy.baselineMatchesReadback(
+            confirmedID: runtimeConfigTransactions.confirmed?.id, validatedID: receiptID
+        ), RuntimeConfigReadbackPolicy.canRestoreVerifiedBaseline(
+            scopeMatches: ownsRuntimeControl && !isTerminating && !isRestarting && runtimeConfigurationScope == scope,
+            hasConfirmedBaseline: confirmedRuntimeRoot(scope: scope) != nil,
+            transactionBusy: runtimeConfigTransactions.isBusy,
+            transactionUncertain: runtimeConfigTransactions.isUncertain
+        ), let root = confirmedRuntimeRoot(scope: scope),
+        let metadata = RuntimeConfigReadbackPolicy.confirmedBasicMetadata(root),
+        let bytes = try? JSONSerialization.data(withJSONObject: metadata),
+        let baseline = ClashConfig.fromData(bytes) else { return }
+        ConfigManager.shared.currentConfig = baseline
+        isCoreConfigSnapshotVerified = true
     }
 
     private struct RuntimeConfigPatch {
@@ -3067,9 +3394,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive,
               !enhancedModeLifecycle.isTransitionInProgress,
               !isWakeEnhancedModeRestarting,
-              !isEnhancedModeRuntimeRecoveryPending else {
+              !isEnhancedModeRuntimeRecoveryPending, deferredAutomaticRecoveryID == nil else {
             return
         }
+
+        if deferAutomaticRecoveryForModeQueue({ [weak self] in
+            self?.captureAndRestartEnhancedMode(reason: reason)
+        }) { return }
 
         let now = Date()
         guard now.timeIntervalSince(lastEnhancedModeRuntimeRecoveryTime) >=
@@ -3083,6 +3414,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         lastEnhancedModeRuntimeRecoveryTime = now
+        automaticRecoveryTrigger = reason.hasPrefix("sustained core CPU:") ? "cpu-watchdog"
+            : (reason.hasPrefix("runtime data plane failed") ? "data-plane" : "runtime-health")
+        Logger.log("[Automatic Recovery] stage=request trigger=\(automaticRecoveryTrigger) generation=\(enhancedModeGeneration)", level: .warning)
         isEnhancedModeRuntimeRecoveryPending = true
         let generation = enhancedModeGeneration
         enhancedModeRuntimeHealthSummary =
@@ -3399,15 +3733,84 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func restartEnhancedModeAfterWake(attemptsLeft: Int) {
-        guard claudeLockChange == nil else { return }
-        if attemptsLeft == Self.wakeEnhancedModeRestartMaxAttempts {
-            guard !isWakeEnhancedModeRestarting,
-                  !isEnhancedModeRuntimeRecoveryPending else { return }
-            isWakeEnhancedModeRestarting = true
+        guard claudeLockChange == nil, !isTerminating, !isRestarting else { return }
+        if attemptsLeft != Self.wakeEnhancedModeRestartMaxAttempts {
+            continueEnhancedModeRecovery(attemptsLeft: attemptsLeft)
+            return
+        }
+        guard !isWakeEnhancedModeRestarting, !isEnhancedModeRuntimeRecoveryPending,
+              deferredAutomaticRecoveryID == nil,
+              !isConfigUpdating, !isConfigUpdateQueued, selectionMemoryRestoration == nil,
+              !ProxyGroupSelectionController.isAnyOperationInProgress else { return }
+        if deferAutomaticRecoveryForModeQueue({ [weak self] in
+            self?.restartEnhancedModeAfterWake(attemptsLeft: attemptsLeft)
+        }) { return }
+        isWakeEnhancedModeRestarting = true
+        cancelActiveSpeedTest(reason: "Enhanced Mode core recovery")
+        let configName = ConfigManager.selectConfigName
+        // Explicit retry retains the original intent; a dead core cannot
+        // provide a trustworthy new snapshot.
+        if automaticRecoverySelections != nil, automaticRecoveryConfigName == configName {
             enhancedModeLifecycle.invalidate()
             didRestartHelperDuringEnhancedLaunch = false
-            cancelActiveSpeedTest(reason: "Enhanced Mode core recovery")
+            continueEnhancedModeRecovery(attemptsLeft: attemptsLeft)
+            return
         }
+        automaticRecoverySelections = nil
+        automaticRecoveryConfigName = nil
+        let recoveryID = UUID()
+        automaticRecoveryID = recoveryID
+        let generation = enhancedModeGeneration
+        let context = ApiRequest.runtimeConfigContext()
+        var saved = [String: String]()
+        for record in ConfigManager.selectedProxyRecords where record.config == configName {
+            saved[record.group] = record.selected
+        }
+        let confirmedRoot = lastConfirmedEnhancedData.flatMap { String(data: $0, encoding: .utf8) }
+            .flatMap { (try? Yams.load(yaml: $0)) as? [String: Any] }
+        let groups = confirmedRoot?["proxy-groups"] as? [[String: Any]]
+        let required = Set((groups ?? []).compactMap { group -> String? in
+            guard group["type"] as? String == "select" else { return nil }
+            return group["name"] as? String
+        })
+        let requireGlobal = (desiredOutboundMode ?? ConfigManager.selectOutBoundMode) == .global
+        Logger.log("[Automatic Recovery] id=\(recoveryID) stage=capture begin trigger=\(automaticRecoveryTrigger) generation=\(generation)")
+        ApiRequest.readRuntimeProxySnapshot(context: context) { [weak self] data, _ in
+            guard let self, self.automaticRecoveryID == recoveryID,
+                  self.enhancedModeGeneration == generation, !self.isTerminating, !self.isRestarting,
+                  ConfigManager.selectConfigName == configName else { return }
+            do {
+                // No snapshot and no confirmed topology is not an empty policy.
+                guard data != nil || confirmedRoot != nil else {
+                    throw NSError(domain: "ClashFX.AutomaticRecovery", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: "No confirmed proxy selection checkpoint is available."])
+                }
+                let selections = try AutomaticRecoverySelectionPolicy.checkpoint(
+                    snapshotData: data, saved: saved, expectedSelectors: required, requireGlobal: requireGlobal
+                )
+                self.automaticRecoverySelections = selections
+                self.automaticRecoveryConfigName = configName
+                Logger.log("[Automatic Recovery] id=\(recoveryID) stage=capture accepted groups=\(selections.count) source=\(data == nil ? "profile-memory" : "fresh-runtime+profile-memory")")
+                self.enhancedModeLifecycle.invalidate()
+                self.didRestartHelperDuringEnhancedLaunch = false
+                self.continueEnhancedModeRecovery(attemptsLeft: attemptsLeft)
+            } catch {
+                self.isWakeEnhancedModeRestarting = false
+                self.automaticRecoveryID = nil
+                self.automaticRecoveryNeedsRetry = true
+                self.enhancedModeMenuItem.state = .mixed
+                self.enhancedModeMenuItem.isEnabled = true
+                self.enhancedModeRuntimeHealthSummary = "recovery blocked: proxy selections unconfirmed"
+                Logger.log("[Automatic Recovery] id=\(recoveryID) stage=capture outcome=blocked code=checkpoint-unavailable old core retained; no fallback selection: \(error.localizedDescription)", level: .error)
+                NSUserNotificationCenter.default.post(title: "ClashFX recovery paused",
+                                                      info: "Proxy selections could not be confirmed. No fallback selection was applied; retry recovery after checking the profile.")
+            }
+        }
+    }
+
+    private func continueEnhancedModeRecovery(attemptsLeft: Int) {
+        guard automaticRecoverySelections != nil,
+              automaticRecoveryConfigName == ConfigManager.selectConfigName else { return }
         let generation = enhancedModeGeneration
         guard !isTerminating else { return }
 
@@ -3468,6 +3871,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.activeEnhancedModeClientLaunchID = nil
                 self.activeEnhancedModeConfigPath = nil
                 ConfigManager.shared.isEnhancedModeActive = false
+                ConfigManager.shared.isRunning = false
+                self.isCoreConfigSnapshotVerified = false
                 self.refreshStatusItemViewStatus()
 
                 let completion: (String?) -> Void = { [weak self] error in
@@ -3483,6 +3888,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.isWakeEnhancedModeRestarting = false
                     self.enhancedModeMenuItem.isEnabled = true
                     self.enhancedModeMenuItem.state = .on
+                    Logger.log("[Automatic Recovery] id=\(self.automaticRecoveryID?.uuidString ?? "unknown") stage=commit verified; proxy selections preserved")
+                    self.automaticRecoverySelections = nil
+                    self.automaticRecoveryConfigName = nil
+                    self.automaticRecoveryID = nil
+                    self.automaticRecoveryNeedsRetry = false
+                    self.automaticRecoveryTrigger = "wake-or-network"
                     Logger.log("Wake recovery: Enhanced Mode rebuilt successfully")
                     self.scheduleEnhancedModePostToggleRefresh()
                 }
@@ -3574,9 +3985,11 @@ extension AppDelegate {
     }
 
     @IBAction func actionToggleEnhancedMode(_ sender: NSMenuItem?) {
-        guard ownsRuntimeControl, !isEnhancedModeTransitionInProgress, !isConfigUpdating, !isConfigUpdateQueued,
+        guard ownsRuntimeControl, !isEnhancedModeTransitionInProgress, !isConfigUpdating,
               !ProxyGroupSelectionController.isAnyOperationInProgress,
               !isTerminating, !isRestarting else { return }
+        if retryAutomaticRecoveryIfNeeded() { return }
+        guard !isConfigUpdateQueued else { return }
         if startupCoreHandoffRetryAvailable, !ConfigManager.shared.isRunning {
             retryStartupCoreHandoff(resetRecoveryBudget: true)
             return
@@ -4390,10 +4803,16 @@ extension AppDelegate {
             completion(enhancedModeGeneration, "Enhanced Mode launch cancelled: restore superseded")
             return
         }
-        // Allow one retry: each attempt regenerates .enhanced_config.yaml, which
-        // re-picks the controller port (stable 19090, or a fresh free port if it
-        // is occupied by a stale core). This absorbs transient port races and
-        // leftover mihomo_core processes that would otherwise fail the launch.
+        if !ConfigManager.shared.isEnhancedModeActive {
+            guard !runtimeConfigTransactions.isUncertain else {
+                completion(enhancedModeGeneration, "Restart the unconfirmed built-in core before enabling Enhanced Mode")
+                return
+            }
+            captureBuiltInRecoveryCheckpoint()
+        }
+        enhancedPreparationProfileName = ConfigManager.selectConfigName
+        // Retry only after exact prior launch cleanup; new incarnations may prefer
+        // old confirmed endpoints but must recheck availability before reuse.
         cancelActiveSpeedTest(reason: "core transition", refreshMenu: false)
         completeActiveEnhancedModeLaunch("Enhanced Mode launch superseded by a newer request")
         didRestartHelperDuringEnhancedLaunch = false
@@ -4493,6 +4912,22 @@ extension AppDelegate {
         let selectedConfigName = ConfigManager.selectConfigName
         let lockSettings = claudeLockChange?.runtimeSettings
         let useCustomConfig = Settings.enhancedModeUseCustomConfig
+        let recoverySelections = automaticRecoverySelections
+        let preferredData = lastConfirmedEnhancedData
+        let preferredRoot = preferredData.flatMap { String(data: $0, encoding: .utf8) }
+            .flatMap { (try? Yams.load(yaml: $0)) as? [String: Any] }
+        let preferredPlan = preferredRoot.flatMap {
+            RuntimeConfigReadbackPolicy.portPlan(config: $0, apiPort: lastConfirmedEnhancedAPIPort ?? 0, owned: false)
+        } ?? RuntimeConfigReadbackPolicy.startupPortPreference(
+            UserDefaults.standard.dictionary(forKey: "ClashFX.ConfirmedEnhancedPorts")
+        )
+        let preferredPlanJSON = preferredPlan.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let preparedMode = lockSettings?.mode ?? desiredOutboundMode ?? ConfigManager.selectOutBoundMode
+        let fallbackPort = Int(Settings.proxyPort)
+        let tunMTU = Settings.tunMTU
+        let tunDevice = Settings.tunInterfaceName
+        let bypassChinese = Settings.bypassChineseApps
         let preparationDeadline = ProcessInfo.processInfo.systemUptime + Self.enhancedModeConfigPreparationTimeout
         let cleanupSourceSnapshot = {
             try? FileManager.default.removeItem(atPath: sourceSnapshotPath)
@@ -4541,108 +4976,18 @@ extension AppDelegate {
                     )
                     completion(self.combiningFailure(error, resumeError: resumeError))
                 case let .prepared(prepared):
+                    // Structural, endpoint and isolated semantic validation are
+                    // complete before the current core releases any listener.
                     if !initialSuspended {
-                        // Config resolution and validation are complete. Release
-                        // our listeners only now, before Go allocates new ones.
                         clashPauseCallbacks()
                         clashSuspendCore()
                     }
                     self.enhancedModeReadinessLock.lock()
                     self.enhancedModeLastMissingProxyPorts = []
                     self.enhancedModeReadinessLock.unlock()
-
-                    if let customLaunchInfo = prepared.customLaunchInfo,
-                       let customLaunchPath = prepared.customLaunchPath {
-                        if case let .success(_, _, dnsPort, _) = customLaunchInfo {
-                            self.expectedEnhancedDNSPort = dnsPort
-                        }
-                        self.finishEnhancedModeLaunchPreparation(
-                            result: customLaunchInfo,
-                            configPath: customLaunchPath,
-                            attemptsLeft: attemptsLeft,
-                            alreadySuspended: true,
-                            generation: generation,
-                            launchID: launchID,
-                            completion: completion,
-                            resumeGate: resumeGate
-                        )
-                        return
-                    }
-
-                    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                        guard let self = self else { return }
-                        let writeResult = clashWriteEnhancedConfig(
-                            prepared.runtimeConfigPath.goStringBuffer(),
-                            tempConfigPath.goStringBuffer(),
-                            prepared.tunRouteExcludes.goStringBuffer(),
-                            GoUint32(Settings.tunMTU),
-                            Settings.tunInterfaceName.goStringBuffer(),
-                            Settings.bypassChineseApps ? 1 : 0
-                        )?.toString() ?? ""
-
-                        DispatchQueue.main.async {
-                            guard generation == self.enhancedModeGeneration,
-                                  self.activeEnhancedModeLaunchID == launchID,
-                                  !self.isTerminating else {
-                                cleanupPreparationFiles()
-                                completion("Enhanced Mode launch cancelled: lifecycle changed")
-                                return
-                            }
-                            cleanupSourceSnapshot()
-                            let failAfterSuspension: (String) -> Void = { error in
-                                cleanupPreparationFiles()
-                                let resumeError = self.resumeEnhancedModeCallbacksIfNeeded(
-                                    alreadySuspended: true,
-                                    resumeGate: resumeGate
-                                )
-                                completion(self.combiningFailure(error, resumeError: resumeError))
-                            }
-                            guard !writeResult.hasPrefix("error:") else {
-                                failAfterSuspension(writeResult)
-                                return
-                            }
-                            guard let jsonData = writeResult.data(using: .utf8),
-                                  let portInfo = try? JSONSerialization.jsonObject(with: jsonData) as? [String: String],
-                                  let extController = portInfo["externalController"],
-                                  let port = extController.components(separatedBy: ":").last else {
-                                failAfterSuspension(NSLocalizedString("Failed to parse enhanced config", comment: ""))
-                                return
-                            }
-                            let dnsPort = self.listenPort(from: portInfo["dnsListen"])
-                            let proxyPorts = self.readProxyPorts(configPath: tempConfigPath)
-                            guard !proxyPorts.isEmpty else {
-                                failAfterSuspension(NSLocalizedString(
-                                    "Enhanced config must define at least one proxy port",
-                                    comment: ""
-                                ))
-                                return
-                            }
-                            guard Set(proxyPorts) == Set(prepared.expectedProxyPorts) else {
-                                failAfterSuspension(NSLocalizedString(
-                                    "Generated proxy listener ports do not match the prepared configuration",
-                                    comment: ""
-                                ))
-                                return
-                            }
-                            self.expectedEnhancedDNSPort = dnsPort
-
-                            self.finishEnhancedModeLaunchPreparation(
-                                result: .success(
-                                    port: port,
-                                    secret: portInfo["secret"] ?? "",
-                                    dnsPort: dnsPort,
-                                    proxyPorts: proxyPorts
-                                ),
-                                configPath: tempConfigPath,
-                                attemptsLeft: attemptsLeft,
-                                alreadySuspended: true,
-                                generation: generation,
-                                launchID: launchID,
-                                completion: completion,
-                                resumeGate: resumeGate
-                            )
-                        }
-                    }
+                    self.finishEnhancedModeLaunchPreparation(result: prepared.launchInfo,
+                                                             configPath: prepared.launchPath, attemptsLeft: attemptsLeft, alreadySuspended: true,
+                                                             generation: generation, launchID: launchID, completion: completion, resumeGate: resumeGate)
                 }
             }
         }
@@ -4705,8 +5050,8 @@ extension AppDelegate {
                             }
                             return
                         }
-                        let runtimeConfigPath = runtimePatch.path ?? sourceSnapshotPath
-                        let runtimeData = try Data(contentsOf: URL(fileURLWithPath: runtimeConfigPath))
+                        let patchedPath = runtimePatch.path ?? sourceSnapshotPath
+                        var runtimeData = try Data(contentsOf: URL(fileURLWithPath: patchedPath))
                         guard let runtimeYAML = String(data: runtimeData, encoding: .utf8) else {
                             throw NSError(
                                 domain: "ClashFX.EnhancedModePreparation",
@@ -4714,17 +5059,23 @@ extension AppDelegate {
                                 userInfo: [NSLocalizedDescriptionKey: "The prepared runtime configuration is not valid UTF-8 YAML."]
                             )
                         }
-                        guard let runtimeRoot = try Yams.load(yaml: runtimeYAML) as? [String: Any] else {
+                        guard var runtimeRoot = try Yams.load(yaml: runtimeYAML) as? [String: Any] else {
                             throw NSError(
                                 domain: "ClashFX.EnhancedModePreparation",
                                 code: 4,
                                 userInfo: [NSLocalizedDescriptionKey: "The prepared runtime configuration is not a valid YAML dictionary."]
                             )
                         }
+                        runtimeRoot = RuntimeConfigReadbackPolicy.preservingImplicitPorts(in: runtimeRoot,
+                                                                                          confirmed: preferredRoot, fallback: fallbackPort)
+                        runtimeRoot["mode"] = preparedMode.rawValue
+                        runtimeData = try Data(Yams.dump(object: runtimeRoot).utf8)
+                        try runtimeData.write(to: URL(fileURLWithPath: launchRuntimeConfigPath), options: .atomic)
+                        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: launchRuntimeConfigPath)
                         // verifyClashConfig calls Mihomo ParseRawConfig, which
                         // temporarily changes core-wide configuration and may
-                        // load geodata while parsing rules. Keep preflight
-                        // validation local and let core startup do full semantic validation.
+                        // load geodata while parsing rules. Run full semantic
+                        // validation in the isolated -t process below.
                         let proxyPortValidation = Self.validatedEnhancedModeProxyPorts(from: runtimeRoot)
                         if let error = proxyPortValidation.error {
                             if !preparationSettlement.finish(.failed(error)) {
@@ -4738,54 +5089,62 @@ extension AppDelegate {
                         }
 
                         if useCustomConfig {
-                            let customLaunchPath = tempConfigPath
-                            try runtimeData.write(to: URL(fileURLWithPath: customLaunchPath), options: .atomic)
-                            guard !preparationSettlement.isSettled else {
-                                cleanupPreparationFiles()
-                                return
+                            guard (runtimeRoot["tun"] as? [String: Any])?["enable"] as? Bool == true,
+                                  (runtimeRoot["dns"] as? [String: Any])?["enable"] as? Bool == true else {
+                                throw NSError(domain: "ClashFX.EnhancedModePreparation", code: 7,
+                                              userInfo: [NSLocalizedDescriptionKey: "Custom enhanced configuration must enable TUN and DNS"])
                             }
-                            let launchInfo = self.readCustomEnhancedModeLaunchInfo(configPath: customLaunchPath)
-                            guard case let .success(port, _, dnsPort, proxyPorts) = launchInfo else {
-                                if case let .failure(error) = launchInfo {
-                                    if !preparationSettlement.finish(.failed(error)) {
-                                        cleanupPreparationFiles()
-                                    }
-                                }
-                                return
+                            try runtimeData.write(to: URL(fileURLWithPath: tempConfigPath), options: .atomic)
+                        } else {
+                            let generated = clashWriteEnhancedConfigWithPorts(launchRuntimeConfigPath.goStringBuffer(),
+                                                                              tempConfigPath.goStringBuffer(),
+                                                                              self.mergedTunRouteExcludeList(runtimePatch.routeExcludeEntries).goStringBuffer(),
+                                                                              GoUint32(tunMTU), tunDevice.goStringBuffer(), bypassChinese ? 1 : 0,
+                                                                              preferredPlanJSON.goStringBuffer())?.toString()
+                            guard let generated, !generated.hasPrefix("error:") else {
+                                throw NSError(domain: "ClashFX.EnhancedModePreparation", code: 6,
+                                              userInfo: [NSLocalizedDescriptionKey: generated ?? "Could not prepare enhanced listener plan"])
                             }
-                            if let error = RuntimeEndpointSet(
-                                apiPort: Int(port) ?? 0,
-                                dnsPort: dnsPort,
-                                proxyPorts: proxyPorts
-                            ).validationError {
-                                if !preparationSettlement.finish(.failed(error)) {
+                        }
+                        guard !preparationSettlement.isSettled else { cleanupPreparationFiles(); return }
+                        // Only our frozen recovery checkpoint may request startup
+                        // selection restoration. Strip any subscription-supplied key.
+                        let launchData = try Data(contentsOf: URL(fileURLWithPath: tempConfigPath))
+                        guard let launchYAML = String(data: launchData, encoding: .utf8),
+                              var launchRoot = try Yams.load(yaml: launchYAML) as? [String: Any] else {
+                            throw NSError(domain: "ClashFX.AutomaticRecovery", code: 2,
+                                          userInfo: [NSLocalizedDescriptionKey: "Cannot freeze the enhanced launch configuration."])
+                        }
+                        launchRoot.removeValue(forKey: "x-clashfx-recovery-selections")
+                        if let recoverySelections {
+                            launchRoot["x-clashfx-recovery-selections"] = recoverySelections
+                        }
+                        try Yams.dump(object: launchRoot).write(toFile: tempConfigPath, atomically: true, encoding: .utf8)
+                        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tempConfigPath)
+                        let launchInfo = self.readCustomEnhancedModeLaunchInfo(configPath: tempConfigPath)
+                        guard case let .success(port, _, dnsPort, proxyPorts) = launchInfo else {
+                            if case let .failure(error) = launchInfo { _ = preparationSettlement.finish(.failed(error)) }
+                            cleanupPreparationFiles(); return
+                        }
+                        if let error = RuntimeEndpointSet(apiPort: Int(port) ?? 0, dnsPort: dnsPort, proxyPorts: proxyPorts).validationError {
+                            _ = preparationSettlement.finish(.failed(error)); cleanupPreparationFiles(); return
+                        }
+                        let prepared = EnhancedModePreparedConfig(launchPath: tempConfigPath, launchInfo: launchInfo)
+                        DispatchQueue.main.async {
+                            let isCurrent: () -> Bool = { [weak self] in
+                                guard let self else { return false }
+                                return !preparationSettlement.isSettled && self.ownsRuntimeControl &&
+                                    self.enhancedModeGeneration == generation && self.activeEnhancedModeLaunchID == launchID && !self.isTerminating
+                            }
+                            guard isCurrent() else { cleanupPreparationFiles(); return }
+                            self.validateRuntimeCandidate(file: URL(fileURLWithPath: tempConfigPath), isCurrent: isCurrent) { error in
+                                cleanupSourceSnapshot()
+                                if let error {
+                                    if !preparationSettlement.finish(.failed(error)) { cleanupPreparationFiles() }
+                                } else if !preparationSettlement.finish(.prepared(prepared)) {
                                     cleanupPreparationFiles()
                                 }
-                                return
                             }
-                            let prepared = EnhancedModePreparedConfig(
-                                runtimeConfigPath: runtimeConfigPath,
-                                tunRouteExcludes: "",
-                                expectedProxyPorts: proxyPorts,
-                                customLaunchPath: customLaunchPath,
-                                customLaunchInfo: launchInfo
-                            )
-                            cleanupSourceSnapshot()
-                            if !preparationSettlement.finish(.prepared(prepared)) {
-                                cleanupPreparationFiles()
-                            }
-                            return
-                        }
-
-                        let prepared = EnhancedModePreparedConfig(
-                            runtimeConfigPath: runtimeConfigPath,
-                            tunRouteExcludes: self.mergedTunRouteExcludeList(runtimePatch.routeExcludeEntries),
-                            expectedProxyPorts: proxyPortValidation.ports,
-                            customLaunchPath: nil,
-                            customLaunchInfo: nil
-                        )
-                        if !preparationSettlement.finish(.prepared(prepared)) {
-                            cleanupPreparationFiles()
                         }
                     } catch {
                         if !preparationSettlement.finish(.failed(error.localizedDescription)) {
@@ -4794,6 +5153,30 @@ extension AppDelegate {
                     }
                 }
             }
+        }
+    }
+
+    /// Custom startup keeps its configured addresses and shares Go's endpoint checks.
+    private static func validateEnhancedListenerConfig(at path: String) throws {
+        let result = clashValidateEnhancedListenerConfig(path.goStringBuffer())?.toString()
+        guard result == "" else {
+            throw NSError(domain: "ClashFX.EnhancedModePreparation", code: 5,
+                          userInfo: [NSLocalizedDescriptionKey:
+                              result ?? "Unable to validate Enhanced Mode listener endpoints"])
+        }
+    }
+
+    /// Reload pins the active port using the same scoped DNS reference rules as startup.
+    private static func retargetEnhancedDNSConfig(at path: String, port: Int) throws {
+        guard (1 ... 65535).contains(port) else {
+            throw NSError(domain: "ClashFX.EnhancedModeReload", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid active Enhanced Mode DNS port"])
+        }
+        let result = clashRetargetEnhancedDNSConfig(path.goStringBuffer(), Int32(port))?.toString()
+        guard result == "" else {
+            throw NSError(domain: "ClashFX.EnhancedModeReload", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey:
+                              result ?? "Unable to retarget Enhanced Mode DNS references"])
         }
     }
 
@@ -4813,7 +5196,7 @@ extension AppDelegate {
                   let dnsListen = dns["listen"] as? String,
                   let dnsPortComponent = dnsListen.split(separator: ":").last,
                   let dnsPort = Int(dnsPortComponent),
-                  dnsPort > 0 else {
+                  dnsPort > 0, EnhancedDNSProbeTargetPolicy.host(from: dnsListen) != nil else {
                 return .failure(NSLocalizedString("Custom config must set a DNS listen port for Enhanced Mode", comment: ""))
             }
             let proxyPorts = Self.readProxyPorts(from: root)
@@ -4892,7 +5275,139 @@ extension AppDelegate {
         }
     }
 
+    /// Restore the frozen, previously verified routing graph, not a mutable profile file.
+    private func restoreBuiltInRecoveryCheckpoint() -> String? {
+        if let metadata = clashGetLastSubmittedConfig()?.toString(),
+           let root = (try? Yams.load(yaml: metadata)) as? [String: Any],
+           let address = root["external-controller"] as? String {
+            ConfigManager.shared.apiPort = String(listenPort(from: address))
+            ConfigManager.shared.apiSecret = root["secret"] as? String ?? ""
+            if let checkpoint = builtInRecoveryCheckpoint, let text = String(data: checkpoint, encoding: .utf8),
+               var restored = (try? Yams.load(yaml: text)) as? [String: Any] {
+                restored["external-controller"] = address
+                restored["secret"] = ConfigManager.shared.apiSecret
+                let temporary = URL(fileURLWithPath: kConfigFolderPath).appendingPathComponent(".runtime-recovery-\(UUID().uuidString).yaml")
+                defer { try? FileManager.default.removeItem(at: temporary) }
+                do {
+                    try Yams.dump(object: restored).write(to: temporary, atomically: true, encoding: .utf8)
+                    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+                    let apply = clashUpdateConfig(temporary.path.goStringBuffer())?.toString()
+                    guard apply == "success", let live = clashGetConfigs()?.toString().data(using: .utf8),
+                          let actual = (try? JSONSerialization.jsonObject(with: live)) as? [String: Any],
+                          RuntimeConfigReadbackPolicy.readbackError(expected: restored, actual: actual) == nil else {
+                        fenceFailedBuiltInRecovery()
+                        return "The previous built-in configuration could not be restored and verified"
+                    }
+                    confirmedRuntimeProfileName = builtInRecoveryProfileName
+                } catch {
+                    fenceFailedBuiltInRecovery()
+                    return "The built-in recovery checkpoint could not be prepared"
+                }
+            }
+        }
+        return nil
+    }
+
+    private func fenceFailedBuiltInRecovery() {
+        RuntimeConfigRecoveryFailureController.fence(
+            suspendCore: { clashSuspendCore() },
+            invalidateScope: {
+                ApiRequest.cancelRuntimeConfigOperations()
+                self.runtimeConfigTransactions.invalidate()
+                self.runtimeCoreSessionID = UUID()
+                self.isCoreConfigSnapshotVerified = false
+            },
+            reportStopped: {
+                ConfigManager.shared.isRunning = false
+                self.isBuiltInCoreResumeRetryAvailable = true
+                self.refreshStatusItemViewStatus()
+            }
+        )
+    }
+
+    private func retryAutomaticRecoveryIfNeeded() -> Bool {
+        guard automaticRecoverySelections != nil || automaticRecoveryNeedsRetry else { return false }
+        // A reload queued during the failed attempt must not make the retry
+        // wait behind a selection fence that only this retry can release.
+        cancelDeferredConfigUpdate(reason: "Deferred reload cancelled for explicit automatic recovery retry.")
+        // Uncertain ownership may still report isRunning=true. The retained
+        // checkpoint always means retry, never the ordinary disable action.
+        restartEnhancedModeAfterWake(attemptsLeft: Self.wakeEnhancedModeRestartMaxAttempts)
+        return true
+    }
+
+    private func deferAutomaticRecoveryForModeQueue(
+        _ operation: @escaping () -> Void, timeout: TimeInterval = 20
+    ) -> Bool {
+        guard isOutboundModeChangeInFlight || !outboundModeChangeQueue.isEmpty else { return false }
+        guard deferredAutomaticRecoveryID == nil else { return true }
+        let id = UUID()
+        deferredAutomaticRecoveryID = id
+        let generation = enhancedModeGeneration
+        let configName = ConfigManager.selectConfigName
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        Logger.log("[Automatic Recovery] id=\(id) stage=request outcome=accepted code=mode-queue-wait generation=\(generation)")
+        func poll() {
+            guard deferredAutomaticRecoveryID == id else { return }
+            guard !isTerminating, !isRestarting, ownsRuntimeControl,
+                  enhancedModeGeneration == generation, ConfigManager.selectConfigName == configName else {
+                deferredAutomaticRecoveryID = nil
+                Logger.log("[Automatic Recovery] id=\(id) stage=cancelled code=explicit-scope-change")
+                return
+            }
+            if !isOutboundModeChangeInFlight, outboundModeChangeQueue.isEmpty {
+                deferredAutomaticRecoveryID = nil
+                Logger.log("[Automatic Recovery] id=\(id) stage=request outcome=verified code=mode-queue-drained")
+                operation()
+                return
+            }
+            guard ProcessInfo.processInfo.systemUptime < deadline else {
+                deferredAutomaticRecoveryID = nil
+                enhancedModeRuntimeHealthSummary = "recovery blocked: outbound mode acknowledgement timed out"
+                automaticRecoveryNeedsRetry = true
+                enhancedModeMenuItem.isEnabled = true
+                enhancedModeMenuItem.state = .mixed
+                Logger.log("[Automatic Recovery] id=\(id) stage=request outcome=blocked code=mode-queue-timeout", level: .error)
+                NSUserNotificationCenter.default.post(title: "ClashFX recovery paused",
+                                                      info: "An outbound mode change did not finish. Automatic recovery was paused; retry Enhanced Mode after checking the core.")
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: poll)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: poll)
+        return true
+    }
+
+    private func automaticRecoveryConfigurationReloadError() -> String? {
+        guard automaticRecoverySelections != nil || automaticRecoveryNeedsRetry,
+              !isWakeEnhancedModeRestarting else { return nil }
+        return "Automatic recovery has not verified its proxy selections. Retry Enhanced Mode recovery before reloading configuration."
+    }
+
+    private func verifyAutomaticRecoverySelections(port: String, secret: String,
+                                                   generation: UInt64, launchID: UUID, completion: @escaping (String?) -> Void) {
+        guard let records = automaticRecoverySelections else { completion(nil); return }
+        let context = ApiRequest.RuntimeConfigContext(direct: false, apiURL: "http://127.0.0.1:\(port)", secret: secret)
+        ApiRequest.readRuntimeProxySnapshot(context: context, requireCurrentContext: false) { [weak self] data, _ in
+            guard let self, self.enhancedModeGeneration == generation,
+                  self.activeEnhancedModeLaunchID == launchID, !self.isTerminating,
+                  self.automaticRecoveryConfigName == ConfigManager.selectConfigName else { return }
+            guard let snapshot = RuntimeProxySelectionPolicy(data: data), snapshot.confirms(records) else {
+                completion("Recovered core did not confirm every protected proxy selection.")
+                return
+            }
+            Logger.log("[Automatic Recovery] id=\(self.automaticRecoveryID?.uuidString ?? "unknown") stage=readback verified launch=\(launchID) groups=\(records.count)")
+            completion(nil)
+        }
+    }
+
     private func checkedResumeBuiltInCore() -> String? {
+        guard automaticRecoverySelections == nil, !automaticRecoveryNeedsRetry else {
+            return "Automatic recovery is isolated until its proxy selections are verified; built-in fallback blocked"
+        }
+        guard enhancedModeOwnershipBlock == nil else {
+            return "Cannot resume the built-in core while external ownership is uncertain"
+        }
         guard let responsePointer = clashResumeCore() else {
             ConfigManager.shared.isRunning = false
             isBuiltInCoreResumeRetryAvailable = true
@@ -4912,6 +5427,12 @@ extension AppDelegate {
             Logger.log("Built-in core resume failed: \(reason)", level: .error)
             return reason.isEmpty ? "Built-in core resume failed" : reason
         }
+        ApiRequest.cancelRuntimeConfigOperations()
+        runtimeConfigTransactions.invalidate()
+        runtimeCoreSessionID = UUID()
+        isCoreConfigSnapshotVerified = false
+        if let restoreError = restoreBuiltInRecoveryCheckpoint() { return restoreError }
+        ConfigManager.shared.isEnhancedModeActive = false
         ConfigManager.shared.isRunning = true
         isBuiltInCoreResumeRetryAvailable = false
         refreshStatusItemViewStatus()
@@ -5272,6 +5793,7 @@ extension AppDelegate {
                         apiPort: port,
                         secret: secret,
                         dnsPort: self.expectedEnhancedDNSPort,
+                        dnsHost: self.enhancedDNSProbeHost(configPath: configPath),
                         proxyPorts: proxyPorts,
                         configPath: configPath,
                         deadline: Date().addingTimeInterval(25)
@@ -5281,52 +5803,75 @@ extension AppDelegate {
                               self.activeEnhancedModeLaunchID == launchID,
                               !self.isTerminating else { return }
                         if success {
-                            ConfigManager.shared.apiPort = port
-                            ConfigManager.shared.apiSecret = secret
-                            ConfigManager.shared.isEnhancedModeActive = true
-                            ConfigManager.shared.isRunning = true
-                            self.refreshStatusItemViewStatus()
-                            clashResumeCallbacks()
-                            if Settings.enhancedModeUseCustomConfig {
-                                Logger.log("Enhanced Mode started with custom config as-is; applying TUN checks and system DNS override")
-                            } else {
-                                Logger.log("Enhanced Mode started with generated enhanced config")
-                            }
-                            self.overrideDNSForTun(generation: generation, launchID: launchID) { dnsError in
-                                guard generation == self.enhancedModeGeneration,
-                                      self.activeEnhancedModeLaunchID == launchID,
-                                      !self.isTerminating else { return }
-                                if let dnsError {
-                                    self.rollbackEnhancedModeDNSFailure(error: dnsError, generation: generation,
-                                                                        launchID: launchID, completion: completion,
-                                                                        resumeGate: resumeGate)
-                                    return
+                            let finishLaunch = {
+                                ConfigManager.shared.apiPort = port
+                                ConfigManager.shared.apiSecret = secret
+                                ConfigManager.shared.isEnhancedModeActive = true
+                                ConfigManager.shared.isRunning = true
+                                self.refreshStatusItemViewStatus()
+                                clashResumeCallbacks()
+                                if Settings.enhancedModeUseCustomConfig {
+                                    Logger.log("Enhanced Mode started with custom config as-is; applying TUN checks and system DNS override")
+                                } else {
+                                    Logger.log("Enhanced Mode started with generated enhanced config")
                                 }
-                                self.verifySystemDNSTakeover(generation: generation, launchID: launchID) { takeoverError in
+                                self.overrideDNSForTun(generation: generation, launchID: launchID) { dnsError in
                                     guard generation == self.enhancedModeGeneration,
-                                          self.activeEnhancedModeLaunchID == launchID, !self.isTerminating else { return }
-                                    if let takeoverError {
-                                        self.rollbackEnhancedModeDNSFailure(error: takeoverError, generation: generation,
+                                          self.activeEnhancedModeLaunchID == launchID,
+                                          !self.isTerminating else { return }
+                                    if let dnsError {
+                                        self.rollbackEnhancedModeDNSFailure(error: dnsError, generation: generation,
                                                                             launchID: launchID, completion: completion,
                                                                             resumeGate: resumeGate)
                                         return
                                     }
-                                    Logger.log("Runtime listeners verified for launch \(launchID): API=127.0.0.1:\(endpoints.apiPort), DNS=127.0.0.1:\(endpoints.dnsPort) TCP/UDP, proxy=\(endpoints.proxyPorts)")
-                                    // A verified new launch supersedes startup recovery;
-                                    // an old retry must never clean up this live core.
-                                    self.didCompleteStaleEnhancedCoreCleanup = true
-                                    self.startupCoreRecovery.cancel()
-                                    self.startupCoreHandoffRetryAvailable = false
-                                    self.startupHelperRecoveryDisposable?.dispose()
-                                    self.startupHelperRecoveryDisposable = nil
-                                    self.verifyTunStatus(port: port, secret: secret, generation: generation, launchID: launchID)
-                                    self.restoreSelectedOutboundModeAfterCoreChange {
+                                    self.verifySystemDNSTakeover(generation: generation, launchID: launchID) { takeoverError in
                                         guard generation == self.enhancedModeGeneration,
-                                              self.activeEnhancedModeLaunchID == launchID,
-                                              !self.isTerminating else { return }
-                                        self.clearEnhancedModeOwnershipBlock(requestID: requestID)
-                                        completion(nil)
+                                              self.activeEnhancedModeLaunchID == launchID, !self.isTerminating else { return }
+                                        if let takeoverError {
+                                            self.rollbackEnhancedModeDNSFailure(error: takeoverError, generation: generation,
+                                                                                launchID: launchID, completion: completion,
+                                                                                resumeGate: resumeGate)
+                                            return
+                                        }
+                                        Logger.log("Runtime listeners verified for launch \(launchID): API=127.0.0.1:\(endpoints.apiPort), DNS=\(launchContext.dnsHost):\(endpoints.dnsPort) TCP/UDP, proxy=\(endpoints.proxyPorts)")
+                                        // A verified new launch supersedes startup recovery;
+                                        // an old retry must never clean up this live core.
+                                        self.didCompleteStaleEnhancedCoreCleanup = true
+                                        self.startupCoreRecovery.cancel()
+                                        self.startupCoreHandoffRetryAvailable = false
+                                        self.startupHelperRecoveryDisposable?.dispose()
+                                        self.startupHelperRecoveryDisposable = nil
+                                        self.verifyTunStatus(port: port, secret: secret, generation: generation, launchID: launchID)
+                                        self.restoreSelectedOutboundModeAfterCoreChange {
+                                            guard generation == self.enhancedModeGeneration,
+                                                  self.activeEnhancedModeLaunchID == launchID,
+                                                  !self.isTerminating else { return }
+                                            self.confirmEnhancedRuntimeConfiguration(at: configPath) { checkpointError in
+                                                guard generation == self.enhancedModeGeneration,
+                                                      self.activeEnhancedModeLaunchID == launchID, !self.isTerminating else { return }
+                                                if let checkpointError {
+                                                    self.rollbackEnhancedModeDNSFailure(error: checkpointError, generation: generation,
+                                                                                        launchID: launchID, completion: completion, resumeGate: resumeGate)
+                                                } else {
+                                                    self.clearEnhancedModeOwnershipBlock(requestID: requestID)
+                                                    completion(nil)
+                                                }
+                                            }
+                                        }
                                     }
+                                }
+                            }
+                            self.verifyAutomaticRecoverySelections(port: port, secret: secret,
+                                                                   generation: generation, launchID: launchID) { selectionError in
+                                guard generation == self.enhancedModeGeneration,
+                                      self.activeEnhancedModeLaunchID == launchID, !self.isTerminating else { return }
+                                if let selectionError {
+                                    Logger.log("[Automatic Recovery] stage=readback outcome=rejected code=selection-mismatch stopping candidate before commit: \(selectionError)", level: .error)
+                                    self.rollbackEnhancedModeDNSFailure(error: selectionError, generation: generation,
+                                                                        launchID: launchID, completion: completion, resumeGate: resumeGate)
+                                } else {
+                                    finishLaunch()
                                 }
                             }
                         } else {
@@ -5379,9 +5924,13 @@ extension AppDelegate {
                                     }
 
                                     ConfigManager.shared.isRunning = false
-                                    clashReopenCacheDB()
-                                    clashResumeCallbacks()
-                                    self.startProxy()
+                                    if self.automaticRecoverySelections == nil {
+                                        clashReopenCacheDB()
+                                        clashResumeCallbacks()
+                                        self.startProxy()
+                                    } else {
+                                        Logger.log("[Automatic Recovery] stage=launch outcome=failed code=listener-readiness built-in fallback blocked", level: .error)
+                                    }
                                     let coreError = missingProxyPorts.isEmpty
                                         ? NSLocalizedString("Enhanced Mode failed: core not responding", comment: "")
                                         : String(
@@ -5625,7 +6174,7 @@ extension AppDelegate {
         context: EnhancedModeLaunchContext,
         ready: @escaping (Bool) -> Void
     ) {
-        guard isCurrentEnhancedModeLaunch(context) else { return }
+        guard isCurrentEnhancedModeLaunch(context) else { ready(false); return }
         let url = URL(string: "http://127.0.0.1:\(context.apiPort)/configs")!
         var request = URLRequest(url: url, timeoutInterval: 2)
         if !context.secret.isEmpty {
@@ -5633,7 +6182,7 @@ extension AppDelegate {
         }
         URLSession.shared.dataTask(with: request) { data, response, _ in
             DispatchQueue.main.async {
-                guard self.isCurrentEnhancedModeLaunch(context) else { return }
+                guard self.isCurrentEnhancedModeLaunch(context) else { ready(false); return }
                 // mihomo's REST server can answer /configs while listeners are still being created,
                 // returning port=0. Require port>0 so the GUI never observes that transient.
                 let listenersUp: Bool = {
@@ -5663,12 +6212,16 @@ extension AppDelegate {
         apiTunInterfaceReady: Bool,
         ready: @escaping (Bool) -> Void
     ) {
+        let readinessHelper = captureCoreReadinessHelper()
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self = self else { return }
-            let ownership = self.currentCoreOwnsExpectedListeners(context)
+            guard let self = self else {
+                DispatchQueue.main.async { ready(false) }
+                return
+            }
+            let ownership = self.currentCoreOwnsExpectedListeners(context, using: readinessHelper)
             let ownedByCurrentLaunch = ownership == .ready
             let dnsResponses = ownedByCurrentLaunch
-                ? self.expectedEnhancedDNSPortResponses(context.dnsPort)
+                ? self.expectedEnhancedDNSPortResponses(context.dnsPort, host: context.dnsHost)
                 : nil
             let dnsReady = EnhancedModeDNSReadinessPolicy.launchProtocolReady(
                 ownsCurrentLaunchListeners: ownedByCurrentLaunch,
@@ -5676,7 +6229,7 @@ extension AppDelegate {
                 tcp: dnsResponses?.tcp
             )
             DispatchQueue.main.async {
-                guard self.isCurrentEnhancedModeLaunch(context) else { return }
+                guard self.isCurrentEnhancedModeLaunch(context) else { ready(false); return }
                 if apiTunInterfaceReady && dnsReady {
                     let udp = dnsResponses?.udp
                     let tcp = dnsResponses?.tcp
@@ -5727,14 +6280,15 @@ extension AppDelegate {
                         Logger.log("External core API/TUN/interface is not ready", level: .debug)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                        self?.waitForExternalCore(context: context, ready: ready)
+                        guard let self else { ready(false); return }
+                        self.waitForExternalCore(context: context, ready: ready)
                     }
                 } else {
                     Logger.log("External core listeners not ready after bounded startup deadline", level: .error)
                     self.captureExternalCoreDiagnostic(
                         reason: "launch \(context.launchID) API/TUN/DNS not ready on controller port \(context.apiPort)"
                     ) {
-                        guard self.isCurrentEnhancedModeLaunch(context) else { return }
+                        guard self.isCurrentEnhancedModeLaunch(context) else { ready(false); return }
                         self.waitForExternalCoreFinalCheck(context: context, ready: ready)
                     }
                 }
@@ -5755,7 +6309,7 @@ extension AppDelegate {
         }
         URLSession.shared.dataTask(with: request) { data, response, _ in
             DispatchQueue.main.async {
-                guard self.isCurrentEnhancedModeLaunch(context) else { return }
+                guard self.isCurrentEnhancedModeLaunch(context) else { ready(false); return }
                 let apiTunInterfaceReady: Bool = {
                     guard (response as? HTTPURLResponse)?.statusCode == 200,
                           let data,
@@ -5768,12 +6322,16 @@ extension AppDelegate {
                     else { return false }
                     return true
                 }()
+                let readinessHelper = self.captureCoreReadinessHelper()
                 DispatchQueue.global(qos: .utility).async { [weak self] in
-                    guard let self = self else { return }
-                    let ownership = self.currentCoreOwnsExpectedListeners(context)
+                    guard let self = self else {
+                        DispatchQueue.main.async { ready(false) }
+                        return
+                    }
+                    let ownership = self.currentCoreOwnsExpectedListeners(context, using: readinessHelper)
                     let ownsListeners = ownership == .ready
                     let dnsResponses = ownsListeners
-                        ? self.expectedEnhancedDNSPortResponses(context.dnsPort)
+                        ? self.expectedEnhancedDNSPortResponses(context.dnsPort, host: context.dnsHost)
                         : nil
                     let dnsReady = EnhancedModeDNSReadinessPolicy.launchProtocolReady(
                         ownsCurrentLaunchListeners: ownsListeners,
@@ -5781,7 +6339,7 @@ extension AppDelegate {
                         tcp: dnsResponses?.tcp
                     )
                     DispatchQueue.main.async {
-                        guard self.isCurrentEnhancedModeLaunch(context) else { return }
+                        guard self.isCurrentEnhancedModeLaunch(context) else { ready(false); return }
                         ready(apiTunInterfaceReady && dnsReady)
                     }
                 }
@@ -5954,10 +6512,16 @@ extension AppDelegate {
         return Int(port) ?? 0
     }
 
+    private func captureCoreReadinessHelper() -> ProxyConfigRemoteProcessProtocol? {
+        dispatchPrecondition(condition: .onQueue(.main))
+        return PrivilegedHelperManager.shared.helper()
+    }
+
     private func currentCoreOwnsExpectedListeners(
-        _ context: EnhancedModeLaunchContext
+        _ context: EnhancedModeLaunchContext,
+        using helper: ProxyConfigRemoteProcessProtocol?
     ) -> EnhancedModeListenerOwnership {
-        guard let helper = PrivilegedHelperManager.shared.helper() else { return .unknown }
+        guard let helper else { return .unknown }
         let semaphore = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var status: [String: Any]?
@@ -6035,6 +6599,15 @@ extension AppDelegate {
             return .missingProxyPorts(missingProxyPorts)
         }
         return .ready
+    }
+
+    private func enhancedDNSProbeHost(configPath: String) -> String {
+        guard let text = try? String(contentsOfFile: configPath, encoding: .utf8),
+              let root = (try? Yams.load(yaml: text)) as? [String: Any],
+              let dns = root["dns"] as? [String: Any],
+              let listen = dns["listen"] as? String,
+              let host = EnhancedDNSProbeTargetPolicy.host(from: listen) else { return "127.0.0.1" }
+        return host
     }
 
     private func expectedEnhancedDNSPortResponses(
@@ -6736,6 +7309,19 @@ extension AppDelegate {
     }
 
     private func finishFailedEnhancedModeRestore(error: String) {
+        if automaticRecoverySelections != nil {
+            automaticRecoveryNeedsRetry = true
+            Settings.enhancedMode = true
+            if enhancedModeOwnershipBlock == nil { ConfigManager.shared.isRunning = false }
+            enhancedModeMenuItem.isEnabled = true
+            enhancedModeMenuItem.state = .mixed
+            enhancedModeRuntimeHealthSummary = "recovery failed; proxy selection checkpoint retained"
+            Logger.log("[Automatic Recovery] id=\(automaticRecoveryID?.uuidString ?? "unknown") stage=failed outcome=blocked code=runtime-restore-failed checkpoint retained; no bypass/built-in fallback: \(error)", level: .error)
+            NSUserNotificationCenter.default.post(title: "ClashFX recovery failed",
+                                                  info: "The selected proxy could not be restored. Automatic fallback was blocked. Use Enhanced Mode to retry; check diagnostic logs for details.")
+            refreshStatusItemViewStatus()
+            return
+        }
         if enhancedModeOwnershipBlock != nil {
             // DNS rollback or core exit could not be confirmed. Do not report
             // an inactive tunnel or forget its recovery identity.
@@ -6757,11 +7343,17 @@ extension AppDelegate {
 
     @IBAction func actionAllowFromLan(_ sender: NSMenuItem) {
         guard claudeLockChange == nil else { return }
-        ApiRequest.updateAllowLan(allow: !ConfigManager.allowConnectFromLan) {
-            [weak self] in
-            guard let self = self else { return }
+        let requested = !ConfigManager.allowConnectFromLan
+        let scope = runtimeConfigurationScope
+        ApiRequest.updateAllowLan(allow: requested) { [weak self] succeeded in
+            guard let self, self.runtimeConfigurationScope == scope else { return }
+            if succeeded {
+                ConfigManager.allowConnectFromLan = requested
+            } else {
+                self.isCoreConfigSnapshotVerified = false
+                Logger.log("Core rejected the requested LAN listener change", level: .warning)
+            }
             self.syncConfig()
-            ConfigManager.allowConnectFromLan = !ConfigManager.allowConnectFromLan
         }
     }
 
@@ -6795,7 +7387,8 @@ extension AppDelegate {
             return
         }
 
-        guard claudeLockChange == nil else { return }
+        guard claudeLockChange == nil, !isEnhancedModeTransitionInProgress,
+              !isRestoringProxySelection else { return }
         guard !Settings.claudeProxyLockEnabled || mode == .rule else {
             presentClaudeProxyLockProtectionNotice()
             return
@@ -7540,9 +8133,11 @@ extension AppDelegate {
     }
 
     func selectAllowLanWithMenory() {
-        ApiRequest.updateAllowLan(allow: ConfigManager.allowConnectFromLan) {
-            [weak self] in
-            self?.syncConfig()
+        let scope = runtimeConfigurationScope
+        ApiRequest.updateAllowLan(allow: ConfigManager.allowConnectFromLan) { [weak self] succeeded in
+            guard let self, self.runtimeConfigurationScope == scope else { return }
+            if !succeeded { self.isCoreConfigSnapshotVerified = false }
+            self.syncConfig()
         }
     }
 
@@ -7644,7 +8239,8 @@ extension AppDelegate: NSMenuItemValidation {
                 coreIsRunning: ConfigManager.shared.isRunning,
                 ownershipRetryAvailable: enhancedModeOwnershipBlock != nil,
                 startupCleanupRetryAvailable: startupCoreHandoffRetryAvailable,
-                builtInResumeRetryAvailable: isBuiltInCoreResumeRetryAvailable
+                builtInResumeRetryAvailable: isBuiltInCoreResumeRetryAvailable,
+                automaticRecoveryRetryAvailable: automaticRecoverySelections != nil || automaticRecoveryNeedsRetry
             )
         }
 

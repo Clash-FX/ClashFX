@@ -12,6 +12,7 @@ struct AutomaticGroupBenchmarkPresentation {
     let selectedPath: [ClashProxyName]
     let finalLeaf: ClashProxyName?
     let finalLeafID: String?
+    let finalLeafIdentity: LeafProxyBenchmarkIdentity?
     let sessionIdentifier: UUID
     let rowState: ProxyBenchmarkRowState
     let publishedAt: Date
@@ -28,6 +29,7 @@ struct AutomaticGroupBenchmarkPresentation {
          selectedPath: [ClashProxyName],
          finalLeaf: ClashProxyName?,
          finalLeafID: String? = nil,
+         finalLeafIdentity: LeafProxyBenchmarkIdentity? = nil,
          sessionIdentifier: UUID,
          rowState: ProxyBenchmarkRowState,
          publishedAt: Date = .init()) {
@@ -35,13 +37,17 @@ struct AutomaticGroupBenchmarkPresentation {
         self.selectedPath = selectedPath
         self.finalLeaf = finalLeaf
         self.finalLeafID = finalLeafID
+        self.finalLeafIdentity = finalLeafIdentity ?? finalLeaf.map {
+            LeafProxyBenchmarkIdentity(endpoint: .inline, providerName: nil, proxyName: $0, coreID: finalLeafID)
+        }
         self.sessionIdentifier = sessionIdentifier
         self.rowState = rowState
         self.publishedAt = publishedAt
     }
 
     func isValid(for group: ClashProxy) -> Bool {
-        return finalLeaf.flatMap { group.enclosingResp?.proxiesMap[$0]?.id } == finalLeafID
+        let currentIdentity = finalLeaf.flatMap { group.enclosingResp?.proxiesMap[$0] }.map(LeafProxyBenchmarkIdentity.init)
+        return currentIdentity == finalLeafIdentity
             && identity == AutomaticGroupBenchmarkIdentity(
                 group: group,
                 fallbackBenchmarkURL: Settings.benchMarkUrl
@@ -65,6 +71,7 @@ enum AutomaticGroupBenchmarkPresentationStore {
             selectedPath: path,
             finalLeaf: path.last,
             finalLeafID: path.last.flatMap { group.enclosingResp?.proxiesMap[$0]?.id },
+            finalLeafIdentity: path.last.flatMap { group.enclosingResp?.proxiesMap[$0] }.map(LeafProxyBenchmarkIdentity.init),
             sessionIdentifier: sessionIdentifier,
             rowState: .testing(displayName: displayName(groupName: group.name, finalLeaf: path.last))
         )
@@ -92,6 +99,7 @@ enum AutomaticGroupBenchmarkPresentationStore {
             selectedPath: presentation.selectedPath,
             finalLeaf: finalLeaf ?? presentation.finalLeaf,
             finalLeafID: presentation.finalLeafID,
+            finalLeafIdentity: presentation.finalLeafIdentity,
             sessionIdentifier: presentation.sessionIdentifier,
             rowState: .unavailable(displayName: displayName(
                 groupName: groupName,
@@ -119,17 +127,17 @@ enum AutomaticGroupBenchmarkPresentationStore {
             case .testing:
                 replacement = .testing(displayName: displayName(groupName: group.name, finalLeaf: finalLeaf))
             case .measured, .failed, .timedOut, .unavailable:
-                Logger.log(
-                    "[Proxy Delay] Automatic group '\(group.name)' changed its selected path without current-run evidence",
-                    level: .warning
-                )
-                replacement = .unavailable(displayName: displayName(groupName: group.name, finalLeaf: finalLeaf))
+                // Keep completed evidence bound to the path actually probed.
+                // render() will use the fresh core path and its matching leaf
+                // evidence, without inventing a newer unavailable attempt.
+                return current
             }
             let presentation = AutomaticGroupBenchmarkPresentation(
                 identity: current.identity,
                 selectedPath: path,
                 finalLeaf: finalLeaf,
                 finalLeafID: group.enclosingResp?.proxiesMap[finalLeaf ?? ""]?.id,
+                finalLeafIdentity: group.enclosingResp?.proxiesMap[finalLeaf ?? ""].map(LeafProxyBenchmarkIdentity.init),
                 sessionIdentifier: current.sessionIdentifier,
                 rowState: replacement
             )
@@ -326,30 +334,41 @@ class ProxyGroupMenuItemView: MenuItemBaseView {
 
         let selection = selectionPresentation(for: group)
         let leaf: ClashProxyName
+        let selectedPath: [ClashProxyName]
         if let selection {
             renderSelection(selection)
             guard selection.isResolved else { return }
             guard let resolvedLeaf = selection.leaf else { return }
             leaf = resolvedLeaf
+            selectedPath = selection.path
         } else {
             guard let latestSnapshot,
-                  case let .resolved(_, resolvedLeaf) = latestSnapshot.resolveSelectedPath(from: groupName) else { return }
+                  case let .resolved(path, resolvedLeaf) = latestSnapshot.resolveSelectedPath(from: groupName) else { return }
             leaf = resolvedLeaf.name
+            selectedPath = path
             renderLegacySelection("\(leaf) ·")
         }
-        let conditions = BenchmarkConditions(url: presentation.identity.benchmarkURL,
-                                             expectedStatus: presentation.identity.expectedStatus)
+        // A late presentation may belong to an earlier group configuration.
+        // Its identity gates contextual evidence; lookup conditions always come
+        // from the current group, never from that stale notification.
+        let conditions = BenchmarkConditions(url: group.effectiveBenchmarkURL(fallback: Settings.benchMarkUrl),
+                                             expectedStatus: group.expectedStatus)
         let proxy = latestSnapshot?.proxiesMap[leaf]
         let cached = proxy.flatMap { GlobalLeafBenchmarkPresentationStore.presentation(for: $0, conditions: conditions) }
-        let benchmarkMatchesRoute = presentation.finalLeaf == leaf && presentation.isValid(for: group)
+        let benchmarkMatchesRoute = presentation.selectedPath == selectedPath
+            && presentation.finalLeaf == leaf && presentation.isValid(for: group)
         let benchmarkEvidence: BenchmarkRowResolver.Evidence? = benchmarkMatchesRoute
             ? BenchmarkRowResolver.Evidence(state: presentation.rowState, measuredAt: presentation.publishedAt)
             : nil
+        let leafAttempt = proxy.flatMap { GlobalLeafBenchmarkPresentationStore.attempt(for: $0, conditions: conditions) }
+        let activity = [benchmarkEvidence, leafAttempt.map {
+            BenchmarkRowResolver.Evidence(state: $0.rowState, measuredAt: $0.publishedAt)
+        }].compactMap { $0 }.max { $0.measuredAt < $1.measuredAt }
         let resolved = BenchmarkRowResolver.resolve(
             name: leaf, core: conditions.expectedStatus == nil ? proxy?.testState(for: conditions.url) : nil,
             cached: cached.map { .init(state: $0.rowState, measuredAt: $0.publishedAt) },
             contextual: benchmarkEvidence,
-            activity: benchmarkEvidence
+            activity: activity
         )
         delayLabel.stringValue = BenchmarkRowDelayPresentation.applyingHistoryMarker(
             to: resolved.state.delayDisplay,

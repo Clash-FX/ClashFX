@@ -52,11 +52,12 @@ var (
 	tunMTUValue uint32 = 0
 	// tunInterfaceName: empty preserves auto-detect. Non-empty pins the WAN interface
 	// and forces auto-detect OFF (mihomo issue #1011: macOS sleep/wake -> lo0 loopback).
-	tunInterfaceName string = ""
-	tunMu            sync.Mutex
-	savedUIPath      string
-	callbacksPaused  int32        // atomic: 0=active, 1=paused
-	userTunStackRaw  atomic.Value // string; race-free across config reload vs enhanced-mode toggle
+	tunInterfaceName  string = ""
+	tunMu             sync.Mutex
+	savedUIPath       string
+	callbacksPaused   int32        // atomic: 0=active, 1=paused
+	userTunStackRaw   atomic.Value // string; race-free across config reload vs enhanced-mode toggle
+	configUpdateEpoch atomic.Uint64
 )
 
 const defaultTunMTU uint32 = 1500
@@ -105,6 +106,38 @@ func checkPortAvailable(port int) bool {
 	return true
 }
 
+// Mixed proxy startup needs both transports; API controllers remain TCP-only.
+func checkMixedPortAvailable(port int) bool {
+	return checkMixedPortAvailableAt(port, true, "*")
+}
+
+// Probe exactly the same binding as Mihomo's global mixed listener. A
+// loopback-only core must not be rejected by an unrelated IPv6/LAN listener.
+func checkMixedPortAvailableAt(port int, allowLan bool, bindAddress string) bool {
+	if port < 1 || port > 65535 {
+		return false
+	}
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	if allowLan {
+		if bindAddress == "*" {
+			address = ":" + strconv.Itoa(port)
+		} else {
+			address = fmt.Sprintf("%s:%d", bindAddress, port)
+		}
+	}
+	tcp, err := net.Listen("tcp", address)
+	if err != nil {
+		return false
+	}
+	defer tcp.Close()
+	udp, err := net.ListenPacket("udp", address)
+	if err != nil {
+		return false
+	}
+	defer udp.Close()
+	return true
+}
+
 func checkLoopbackTCPPortAvailable(port int) bool {
 	if port < 1 || port > 65535 {
 		return false
@@ -132,16 +165,17 @@ func checkDNSPortAvailable(port int) bool {
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	tcp, err := net.Listen("tcp", address)
 	if err != nil {
-		log.Warnln("check DNS TCP port fail %s: %v", address, err)
+		log.Warnln("dns_listener_probe address=127.0.0.1 port=%d transport=tcp result=unavailable error=%v", port, err)
 		return false
 	}
 	_ = tcp.Close()
 	udp, err := net.ListenPacket("udp", address)
 	if err != nil {
-		log.Warnln("check DNS UDP port fail %s: %v", address, err)
+		log.Warnln("dns_listener_probe address=127.0.0.1 port=%d transport=udp result=unavailable error=%v", port, err)
 		return false
 	}
 	_ = udp.Close()
+	log.Infoln("dns_listener_probe address=127.0.0.1 port=%d result=available transports=tcp,udp", port)
 	return true
 }
 
@@ -149,26 +183,54 @@ func alignEnhancedDNSListenWith(dns map[string]interface{}, available func(int) 
 	return alignEnhancedDNSListenWithReserved(dns, nil, available, freePort)
 }
 
-func alignEnhancedDNSListenWithReserved(dns map[string]interface{}, reservedPorts []int, available func(int) bool, freePort func() (int, error)) error {
+func alignEnhancedDNSListenWithReserved(dns map[string]interface{}, reservedPorts []int, available func(int) bool, freePort func() (int, error), topology ...map[string]interface{}) error {
 	bootstrapReferences := declaredProxyDNSBootstrapReferences(dns)
-	chosen, err := chooseEnhancedDNSPortWithBootstrap(dns, reservedPorts, bootstrapReferences, available, freePort)
+	chosen, err := chooseEnhancedDNSPortWithBootstrap(dns, reservedPorts, bootstrapReferences, available, freePort, topology...)
 	if err != nil {
 		log.Errorln("%v", err)
 		return err
 	}
-	rewriteLoopbackDNSPorts(dns, chosen, bootstrapReferences...)
-	dns["listen"] = "127.0.0.1:" + strconv.Itoa(chosen)
-	return nil
+	return retargetEnhancedDNSListen(dns, chosen, reservedPorts...)
 }
 
 func chooseEnhancedDNSPort(dns map[string]interface{}, reservedPorts []int, available func(int) bool, freePort func() (int, error)) (int, error) {
 	return chooseEnhancedDNSPortWithBootstrap(dns, reservedPorts, declaredProxyDNSBootstrapReferences(dns), available, freePort)
 }
 
-func chooseEnhancedDNSPortWithBootstrap(dns map[string]interface{}, reservedPorts []int, bootstrapReferences []dnsBootstrapReference, available func(int) bool, freePort func() (int, error)) (int, error) {
+// Keep source-cycle validation identical for cold startup and persisted-port
+// preferences. Moving the listener must not turn a known self-cycle into a
+// dangling resolver. An occupied source may be an independent local resolver;
+// preserve that supported case rather than rewriting or rejecting it.
+func validateEnhancedDNSSourceCycle(dns map[string]interface{}, reserved []int, bootstrapReferences []dnsBootstrapReference, available func(int) bool, topology ...map[string]interface{}) error {
+	listen, ok := dns["listen"].(string)
+	if !ok {
+		return nil
+	}
+	host, port, valid := enhancedDNSListenAddress(listen)
+	// Generated listeners bind IPv4 loopback. IPv6 and non-loopback source
+	// resolvers remain independent endpoints after projection; probing their
+	// numeric port on IPv4 cannot establish ownership or a self-cycle.
+	if !valid || !dnsBootstrapHostsMatch(host, "127.0.0.1") {
+		return nil
+	}
+	if dnsHasGeneralSelfReference(dns, host, port, bootstrapReferences) {
+		conflict := containsInt(reserved, port)
+		if len(topology) > 0 {
+			// Allocation reserves both DNS transports, but a source resolver
+			// only conflicts with an actual endpoint of its own transport.
+			conflict = enhancedDNSSourceResolverConflicts(dns, topology[0], bootstrapReferences)
+		}
+		if conflict || available(port) {
+			return fmt.Errorf("[dns_self_cycle] address=%s port=%d", host, port)
+		}
+	}
+	return nil
+}
+
+func chooseEnhancedDNSPortWithBootstrap(dns map[string]interface{}, reservedPorts []int, bootstrapReferences []dnsBootstrapReference, available func(int) bool, freePort func() (int, error), topology ...map[string]interface{}) (int, error) {
 	// The preferred port and the two fallback probes keep selection bounded.
 	// 7874 is the runtime default. Only a plain proxy-server-nameserver entry
-	// that exactly matches dns.listen is treated as the declared bootstrap path.
+	// that matches dns.listen (including its IPv4 aliases) is a bootstrap path.
 	candidates := []int{preferredEnhancedDNSPort}
 	seen := make(map[int]struct{}, 3)
 	reserved := make(map[int]struct{}, len(reservedPorts))
@@ -178,14 +240,8 @@ func chooseEnhancedDNSPortWithBootstrap(dns map[string]interface{}, reservedPort
 		}
 	}
 	cyclePorts := make([]int, 0, len(candidates))
-	if listen, ok := dns["listen"].(string); ok {
-		listenHost, listenPort, valid := dnsServerAddress(listen)
-		if valid && dnsHasGeneralSelfReference(dns, listenHost, listenPort, bootstrapReferences) {
-			_, collision := reserved[listenPort]
-			if collision || available(listenPort) {
-				return 0, fmt.Errorf("[dns_self_cycle] address=%s port=%d", listenHost, listenPort)
-			}
-		}
+	if err := validateEnhancedDNSSourceCycle(dns, reservedPorts, bootstrapReferences, available, topology...); err != nil {
+		return 0, err
 	}
 	tryCandidate := func(port int) bool {
 		if port < 1 || port > 65535 {
@@ -195,7 +251,7 @@ func chooseEnhancedDNSPortWithBootstrap(dns map[string]interface{}, reservedPort
 			return false
 		}
 		seen[port] = struct{}{}
-		if _, collision := reserved[port]; collision {
+		if validateEnhancedDNSListenerPort(port, reservedPorts) != nil {
 			return false
 		}
 		if dnsHasReferenceAtPort(dns, port, bootstrapReferences) {
@@ -240,8 +296,8 @@ type dnsResolverReference struct {
 	Value     string
 }
 
-// dnsBootstrapReference is derived in memory from an exact plain resolver
-// match to the profile's DNS listen endpoint. No YAML field can assert this
+// dnsBootstrapReference is derived in memory from a plain resolver match
+// to the profile's DNS listen endpoint or its IPv4 alias. No YAML field can assert this
 // provenance on its own.
 type dnsBootstrapReference struct {
 	DNSKey          string
@@ -251,27 +307,157 @@ type dnsBootstrapReference struct {
 	SourceDNSListen string
 }
 
-// rewriteLoopbackDNSPorts only changes a reference when in-memory provenance
-// records its exact profile listener and plain DNS transport. All other
-// profile resolvers remain intact.
-func rewriteLoopbackDNSPorts(dns map[string]interface{}, port int, bootstrapReferences ...dnsBootstrapReference) {
+// retargetEnhancedDNSListen is shared by startup alignment and reload. It only
+// retargets proxy bootstrap resolvers whose provenance matches the current DNS
+// listener, and rejects independent loopback resolvers that would collide with
+// the requested listener port.
+func validateEnhancedDNSListenerPort(port int, reservedPorts []int) error {
 	if port < 1 || port > 65535 {
-		return
+		return portConflictError{service: "dns_listener", address: "127.0.0.1", port: port, reason: "invalid_port"}
+	}
+	if containsInt(reservedPorts, port) {
+		return portConflictError{service: "dns_listener", address: "127.0.0.1", port: port, reason: "reserved_listener"}
+	}
+	return nil
+}
+
+func retargetEnhancedDNSListen(dns map[string]interface{}, port int, reservedPorts ...int) error {
+	if err := validateEnhancedDNSListenerPort(port, reservedPorts); err != nil {
+		return err
+	}
+	if dns == nil {
+		return fmt.Errorf("invalid DNS config: missing dns map")
+	}
+	listenValue, hasListen := dns["listen"]
+	if hasListen && listenValue != nil {
+		listen, ok := listenValue.(string)
+		if !ok {
+			return fmt.Errorf("invalid DNS config: invalid listen address %v", listenValue)
+		}
+		if strings.TrimSpace(listen) != "" {
+			if _, _, ok := enhancedDNSListenAddress(listen); !ok {
+				return fmt.Errorf("invalid DNS config: invalid listen address %q", listen)
+			}
+		}
+	}
+	bootstrapReferences := declaredProxyDNSBootstrapReferences(dns)
+	if dnsHasReferenceAtPort(dns, port, bootstrapReferences) {
+		return fmt.Errorf("[dns_self_cycle] address=127.0.0.1 port=%d", port)
+	}
+	sourceHostClass := "unspecified"
+	sourcePort := 0
+	if listen, ok := dns["listen"].(string); ok {
+		if host, currentPort, valid := enhancedDNSListenAddress(listen); valid {
+			sourceHostClass = "other"
+			if host == "0.0.0.0" {
+				sourceHostClass = "wildcard"
+			} else if isLoopbackHost(host) {
+				sourceHostClass = "loopback"
+			}
+			sourcePort = currentPort
+		}
+	}
+	retargetedReferences := rewriteLoopbackDNSPorts(dns, port, bootstrapReferences...)
+	dns["listen"] = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	if sourceHostClass != "loopback" || sourcePort != port || retargetedReferences != 0 {
+		log.Infoln("dns_listener_transition source_host_class=%s source_port=%d target_address=127.0.0.1 target_port=%d bootstrap_references_retargeted=%d",
+			sourceHostClass, sourcePort, port, retargetedReferences)
+	}
+	return nil
+}
+
+func retargetEnhancedDNSConfigFile(configPath string, port int) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("empty enhanced DNS config path")
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("[port_conflict] service=dns_listener address=127.0.0.1 port=%d reason=invalid_port", port)
+	}
+	fileInfo, err := os.Stat(configPath)
+	if err != nil {
+		return err
+	}
+	if !fileInfo.Mode().IsRegular() {
+		return fmt.Errorf("enhanced DNS config is not a regular file")
+	}
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	var rawMap map[string]interface{}
+	if err := yaml.Unmarshal(contents, &rawMap); err != nil {
+		return err
+	}
+	dns, ok := rawMap["dns"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid enhanced DNS config: missing dns map")
+	}
+	handledIPv6, err := retargetCustomIPv6DNSConfig(rawMap, dns, port)
+	if err != nil {
+		return err
+	}
+	if !handledIPv6 {
+		if err := validateEnhancedListenerPortConflicts(rawMap, port); err != nil {
+			return err
+		}
+		if err := retargetEnhancedDNSListen(dns, port, enhancedDNSReservedPorts(rawMap)...); err != nil {
+			return err
+		}
+	}
+	encoded, err := yaml.Marshal(rawMap)
+	if err != nil {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(configPath), ".clashfx-dns-retarget-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(fileInfo.Mode().Perm()); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(encoded); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, configPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+// rewriteLoopbackDNSPorts only changes a reference when in-memory provenance
+// records its profile listener, IPv4 alias and plain DNS transport. All other
+// profile resolvers remain intact.
+func rewriteLoopbackDNSPorts(dns map[string]interface{}, port int, bootstrapReferences ...dnsBootstrapReference) int {
+	if port < 1 || port > 65535 {
+		return 0
 	}
 	listen, ok := dns["listen"].(string)
 	if !ok {
-		return
+		return 0
 	}
-	listenHost, listenPort, ok := dnsServerAddress(listen)
-	if !ok || listenHost != "127.0.0.1" {
-		return
+	listenHost, listenPort, ok := enhancedDNSListenAddress(listen)
+	if !ok {
+		return 0
 	}
+	retargeted := 0
 	for _, reference := range bootstrapReferences {
 		if reference.SourceDNSListen != listen || reference.Value == "" {
 			continue
 		}
 		refHost, refPort, ok := dnsServerAddress(reference.Value)
-		if !ok || refHost != listenHost || refPort != listenPort || !isPlainDNSTransport(reference.Value) {
+		if !ok || !dnsBootstrapHostsMatch(listenHost, refHost) || refPort != listenPort || !isPlainDNSTransport(reference.Value) {
 			continue
 		}
 		if reference.PolicyKey != "" {
@@ -285,6 +471,7 @@ func rewriteLoopbackDNSPorts(dns map[string]interface{}, port int, bootstrapRefe
 			}
 			if rewritten, changed := rewriteDNSReferenceAtIndex(value, reference.Index, reference.Value, listenPort, port); changed {
 				policy[reference.PolicyKey] = rewritten
+				retargeted++
 			}
 			continue
 		}
@@ -294,8 +481,10 @@ func rewriteLoopbackDNSPorts(dns map[string]interface{}, port int, bootstrapRefe
 		}
 		if rewritten, changed := rewriteDNSReferenceAtIndex(value, reference.Index, reference.Value, listenPort, port); changed {
 			dns[reference.DNSKey] = rewritten
+			retargeted++
 		}
 	}
+	return retargeted
 }
 
 func rewriteDNSReferenceAtIndex(value interface{}, index int, expected string, oldPort, newPort int) (interface{}, bool) {
@@ -304,13 +493,13 @@ func rewriteDNSReferenceAtIndex(value interface{}, index int, expected string, o
 		if index != -1 || servers != expected {
 			return value, false
 		}
-		return retargetLoopbackDNSServerAtPort(servers, oldPort, newPort), true
+		return retargetEnhancedBootstrapDNSServerAtPort(servers, oldPort, newPort), true
 	case []string:
 		if index < 0 || index >= len(servers) || servers[index] != expected {
 			return value, false
 		}
 		rewritten := append([]string(nil), servers...)
-		rewritten[index] = retargetLoopbackDNSServerAtPort(rewritten[index], oldPort, newPort)
+		rewritten[index] = retargetEnhancedBootstrapDNSServerAtPort(rewritten[index], oldPort, newPort)
 		return rewritten, true
 	case []interface{}:
 		if index < 0 || index >= len(servers) {
@@ -321,7 +510,7 @@ func rewriteDNSReferenceAtIndex(value interface{}, index int, expected string, o
 			return value, false
 		}
 		rewritten := append([]interface{}(nil), servers...)
-		rewritten[index] = retargetLoopbackDNSServerAtPort(server, oldPort, newPort)
+		rewritten[index] = retargetEnhancedBootstrapDNSServerAtPort(server, oldPort, newPort)
 		return rewritten, true
 	default:
 		return value, false
@@ -333,8 +522,8 @@ func declaredProxyDNSBootstrapReferences(dns map[string]interface{}) []dnsBootst
 	if !ok {
 		return nil
 	}
-	listenHost, listenPort, ok := dnsServerAddress(listen)
-	if !ok || listenHost != "127.0.0.1" {
+	listenHost, listenPort, ok := enhancedDNSListenAddress(listen)
+	if !ok {
 		return nil
 	}
 	var references []dnsBootstrapReference
@@ -343,7 +532,7 @@ func declaredProxyDNSBootstrapReferences(dns map[string]interface{}) []dnsBootst
 			continue
 		}
 		serverHost, serverPort, ok := dnsServerAddress(reference.Value)
-		if !ok || serverHost != listenHost || serverPort != listenPort {
+		if !ok || !dnsBootstrapHostsMatch(listenHost, serverHost) || serverPort != listenPort {
 			continue
 		}
 		references = append(references, dnsBootstrapReference{
@@ -355,6 +544,33 @@ func declaredProxyDNSBootstrapReferences(dns map[string]interface{}) []dnsBootst
 		})
 	}
 	return references
+}
+
+func enhancedDNSListenAddress(raw string) (string, int, bool) {
+	listen := strings.TrimSpace(raw)
+	if listen == "" || strings.Contains(listen, "://") || strings.ContainsAny(listen, "/?#@") {
+		return "", 0, false
+	}
+	host, port, ok := dnsServerAddress(listen)
+	if !ok {
+		return "", 0, false
+	}
+	if host == "" {
+		// Mihomo accepts :port as the all-IPv4-interfaces listener form.
+		host = "0.0.0.0"
+	}
+	return host, port, true
+}
+
+func dnsBootstrapHostsMatch(listenHost, serverHost string) bool {
+	listenHost = strings.ToLower(strings.Trim(listenHost, "[]"))
+	serverHost = strings.ToLower(strings.Trim(serverHost, "[]"))
+	if !isLoopbackHost(serverHost) {
+		return false
+	}
+	// IPv4 wildcard listeners cover the IPv4 loopback resolver spellings, but
+	// do not imply ownership of an independent IPv6 listener.
+	return listenHost == "0.0.0.0" || isLoopbackHost(listenHost)
 }
 
 func isPlainDNSTransport(raw string) bool {
@@ -389,32 +605,20 @@ var dnsServerPolicyKeys = []string{
 	"proxy-server-nameserver-policy",
 }
 
-func retargetLoopbackDNSServerAtPort(raw string, ownedPort, port int) string {
+func retargetEnhancedBootstrapDNSServerAtPort(raw string, ownedPort, port int) string {
 	if ownedPort < 1 || ownedPort > 65535 || port < 1 || port > 65535 || !isPlainDNSTransport(raw) {
 		return raw
 	}
 	trimmed := strings.TrimSpace(raw)
+	host, currentPort, ok := dnsServerAddress(trimmed)
+	if !ok || !isLoopbackHost(host) || currentPort != ownedPort {
+		return raw
+	}
 	scheme := ""
-	rest := trimmed
-	if i := strings.Index(rest, "://"); i >= 0 {
-		scheme = rest[:i+3]
-		rest = rest[i+3:]
+	if i := strings.Index(trimmed, "://"); i >= 0 {
+		scheme = trimmed[:i+3]
 	}
-	hostport := rest
-	suffix := ""
-	if slash := strings.Index(rest, "/"); slash >= 0 {
-		hostport = rest[:slash]
-		suffix = rest[slash:]
-	}
-	currentHost, current, ok := dnsServerAddress(trimmed)
-	if !ok || currentHost != "127.0.0.1" || current != ownedPort || current == port {
-		return raw
-	}
-	host, _, err := net.SplitHostPort(hostport)
-	if err != nil || host != "127.0.0.1" {
-		return raw
-	}
-	return scheme + net.JoinHostPort(host, strconv.Itoa(port)) + suffix
+	return scheme + net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 }
 
 func dnsResolverReferences(dns map[string]interface{}) []dnsResolverReference {
@@ -455,6 +659,39 @@ func dnsHasReferenceAtPort(dns map[string]interface{}, port int, bootstrapRefere
 			continue
 		}
 		return true
+	}
+	return false
+}
+
+func enhancedDNSSourceResolverConflicts(dns, rawMap map[string]interface{}, bootstrapReferences []dnsBootstrapReference) bool {
+	listen, _ := dns["listen"].(string)
+	listenHost, listenPort, valid := enhancedDNSListenAddress(listen)
+	if !valid {
+		return false
+	}
+	planned := append(enhancedProxyListenerEndpoints(rawMap), enhancedControllerListenerEndpoints(rawMap, true)...)
+	for _, ref := range dnsResolverReferences(dns) {
+		if ref.DNSKey == "proxy-server-nameserver" || isDeclaredBootstrapReference(ref, bootstrapReferences) || !isPlainDNSTransport(ref.Value) {
+			continue
+		}
+		host, port, ok := dnsServerAddress(ref.Value)
+		sameHost := host == listenHost || (isLoopbackHost(host) && (listenHost == "0.0.0.0" || isLoopbackHost(listenHost)))
+		if !ok || !sameHost || port != listenPort {
+			continue
+		}
+		protocol := listenerUDP
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(ref.Value)), "tcp://") {
+			protocol = listenerTCP
+		}
+		endpoint, ok := newListenerEndpoint(protocol, listenerFamilyGeneric, host, listenerPortRange{first: port, last: port}, "dns-source-resolver")
+		if !ok {
+			continue
+		}
+		for _, other := range planned {
+			if listenerEndpointsOverlap(endpoint, other) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -517,7 +754,10 @@ func isLoopbackHost(host string) bool {
 	case "127.0.0.1", "localhost":
 		return true
 	default:
-		return false
+		// IPv4-mapped IPv6 is the same bind domain as IPv4 loopback;
+		// native ::1 remains an independent resolver endpoint.
+		ip := net.ParseIP(strings.Trim(host, "[]"))
+		return ip != nil && ip.To4() != nil && ip.Equal(net.IPv4(127, 0, 0, 1))
 	}
 }
 
@@ -555,6 +795,22 @@ func configuredProxyListenerPorts(rawMap map[string]interface{}) []int {
 		}
 	}
 	return ports
+}
+
+func enhancedControllerTCPPort(raw interface{}) int {
+	address, ok := raw.(string)
+	if !ok {
+		return 0
+	}
+	_, portText, err := net.SplitHostPort(strings.TrimSpace(address))
+	if err != nil {
+		return 0
+	}
+	port := portValueOrZero(portText)
+	if port < 1 || port > 65535 {
+		return 0
+	}
+	return port
 }
 
 func mergeUniqueStrings(base []string, additions []string) []string {
@@ -803,8 +1059,19 @@ func mergePrefixInterfaceSlice(base interface{}, additions []netip.Prefix) []int
 	return result
 }
 
+// HTTP mutations capture the embedded core epoch before request-body decoding.
+// Parsing and mutation then use the same cache/core fence as direct updates.
+func installEmbeddedRuntimeMutationGate() {
+	executor.SetRuntimeMutationGateFactory(func() func(func() error) error {
+		epoch := configUpdateEpoch.Load()
+		lifecycle := currentCacheDBLifecycle()
+		return func(body func() error) error { return applyActiveConfigUpdate(lifecycle, epoch, body) }
+	})
+}
+
 //export initClashCore
 func initClashCore() {
+	installEmbeddedRuntimeMutationGate()
 	// Reserve at least one CPU core for the UI thread to prevent Go goroutines
 	// from saturating all cores during heavy operations (config switch, health checks)
 	numCPU := runtime.NumCPU()
@@ -863,7 +1130,7 @@ func loadUserTunStackRaw() string {
 	return s
 }
 
-func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint32, externalController string) (*config.Config, error) {
+func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint32, externalController string, lifecycleEpoch uint64) (*config.Config, error) {
 	rawCfg, err := getRawCfg()
 	if err != nil {
 		return nil, err
@@ -905,7 +1172,6 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 	rawCfg.ExternalUIURL = ""
 	rawCfg.ExternalUIName = ""
 	rawCfg.Profile.StoreSelected = true
-	enableIPV6 = ipv6
 	rawCfg.IPv6 = ipv6
 	if len(externalController) > 0 {
 		rawCfg.ExternalController = externalController
@@ -921,7 +1187,9 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 		}
 		rawCfg.AllowLan = allowLan
 
-		if port, err := resolveConfiguredMixedPort(rawCfg.MixedPort, checkPortAvailable); err != nil {
+		if port, err := resolveConfiguredMixedPort(rawCfg.MixedPort, func(port int) bool {
+			return checkMixedPortAvailableAt(port, rawCfg.AllowLan, rawCfg.BindAddress)
+		}); err != nil {
 			return nil, err
 		} else {
 			rawCfg.MixedPort = port
@@ -943,18 +1211,35 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 	if err != nil {
 		return nil, err
 	}
+	submittedConfig, err := yaml.Marshal(rawCfg)
+	if err != nil {
+		return nil, err
+	}
 
-	// Start the RESTful API server
-	route.ReCreateServer(&route.Config{
-		Addr:   cfg.Controller.ExternalController,
-		Secret: cfg.Controller.Secret,
-	})
-
-	executor.ApplyConfig(cfg, true)
-
-	// Re-apply UI path after server recreation (ReCreateServer resets it)
-	if savedUIPath != "" {
-		route.SetUIPath(savedUIPath)
+	if err := withCoreMutation(func() error {
+		if configUpdateEpoch.Load() != lifecycleEpoch {
+			return errCoreLifecycleCancelled
+		}
+		enableIPV6 = ipv6
+		// Confirm every listener before exposing a management endpoint. A failed
+		// cold start must not leave an asynchronously launched REST server behind.
+		if err := applyAndRecordSubmittedConfig(&lastSubmittedConfig, submittedConfig, func() error {
+			if err := executor.ApplyConfigAndValidate(cfg, true); err != nil {
+				return err
+			}
+			return route.ReCreateServerAndValidate(&route.Config{
+				Addr:   cfg.Controller.ExternalController,
+				Secret: cfg.Controller.Secret,
+			})
+		}); err != nil {
+			return err
+		}
+		if savedUIPath != "" {
+			route.SetUIPath(savedUIPath)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
@@ -963,11 +1248,20 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 // startDefaultCoreWithCache holds the cache lifecycle lock through config and
 // core startup so a concurrent suspend cannot close the DB between reopening
 // it and bringing listeners back.
-func startDefaultCoreWithCache(checkPort, allowLan, ipv6 bool, proxyPort uint32, externalController string) (*config.Config, error) {
+func startDefaultCoreWithCache(checkPort, allowLan, ipv6 bool, proxyPort uint32, externalController string, lifecycleEpoch uint64) (*config.Config, error) {
+	installEmbeddedRuntimeMutationGate()
 	var cfg *config.Config
 	err := currentCacheDBLifecycle().withOpen(func() error {
 		var err error
-		cfg, err = parseDefaultConfigThenStart(checkPort, allowLan, ipv6, proxyPort, externalController)
+		cfg, err = parseDefaultConfigThenStart(checkPort, allowLan, ipv6, proxyPort, externalController, lifecycleEpoch)
+		if err != nil {
+			// Still under the lifecycle lock: a replacement core cannot start
+			// between failed listener application and releasing its resources.
+			_ = withCoreMutation(func() error {
+				stopBuiltinListenersForSuspend()
+				return nil
+			})
+		}
 		return err
 	})
 	return cfg, err
@@ -1258,7 +1552,8 @@ func clash_setSecret(secret *C.char) {
 
 //export run
 func run(checkConfig, allowLan, ipv6 bool, portOverride uint32, externalController *C.char) *C.char {
-	cfg, err := startDefaultCoreWithCache(checkConfig, allowLan, ipv6, portOverride, C.GoString(externalController))
+	epoch := configUpdateEpoch.Add(1)
+	cfg, err := startDefaultCoreWithCache(checkConfig, allowLan, ipv6, portOverride, C.GoString(externalController), epoch)
 	if err != nil {
 		return C.CString(err.Error())
 	}
@@ -1284,24 +1579,61 @@ func setUIPath(path *C.char) {
 
 //export clashUpdateConfig
 func clashUpdateConfig(path *C.char) *C.char {
-	cfg, err := executor.ParseWithPath(C.GoString(path))
+	return updateConfigAtEpoch(C.GoString(path), configUpdateEpoch.Load())
+}
+
+//export clashCurrentConfigUpdateEpoch
+func clashCurrentConfigUpdateEpoch() C.ulonglong {
+	return C.ulonglong(configUpdateEpoch.Load())
+}
+
+//export clashUpdateConfigWithEpoch
+func clashUpdateConfigWithEpoch(path *C.char, epochToken C.ulonglong) *C.char {
+	return updateConfigAtEpoch(C.GoString(path), uint64(epochToken))
+}
+
+func updateConfigAtEpoch(configPath string, epoch uint64) *C.char {
+	raw, err := os.ReadFile(configPath)
 	if err != nil {
 		return C.CString(err.Error())
 	}
-	cfg.General.IPv6 = enableIPV6
-	cfg.Controller.ExternalUI = ""
-	cfg.Controller.ExternalUIURL = ""
-	cfg.Controller.ExternalUIName = ""
-	executor.ApplyConfig(cfg, false)
-	if savedUIPath != "" {
-		route.SetUIPath(savedUIPath)
+	if err := applyActiveConfigUpdate(currentCacheDBLifecycle(), epoch, func() error {
+		cfg, err := executor.ParseWithBytes(raw)
+		if err != nil {
+			return err
+		}
+		cfg.General.IPv6 = enableIPV6
+		cfg.Controller.ExternalUI = ""
+		cfg.Controller.ExternalUIURL = ""
+		cfg.Controller.ExternalUIName = ""
+		return applyAndRecordSubmittedConfig(&lastSubmittedConfig, raw, func() error {
+			if err := executor.ApplyConfigAndValidate(cfg, true); err != nil {
+				return err
+			}
+			if savedUIPath != "" {
+				route.SetUIPath(savedUIPath)
+			}
+			return nil
+		})
+	}); err != nil {
+		return C.CString(err.Error())
 	}
 	return C.CString("success")
 }
 
+//export clashCancelPendingConfigUpdate
+func clashCancelPendingConfigUpdate() {
+	configUpdateEpoch.Add(1)
+}
+
+//export clashGetLastSubmittedConfig
+func clashGetLastSubmittedConfig() *C.char {
+	return C.CString(string(lastSubmittedConfig.bytes()))
+}
+
 //export clashGetConfigs
 func clashGetConfigs() *C.char {
-	general := executor.GetGeneral()
+	general := executor.GetGeneralSafe()
 	jsonString, err := json.Marshal(general)
 	if err != nil {
 		return C.CString(err.Error())
@@ -1351,56 +1683,71 @@ func clash_getProggressInfo() *C.char {
 
 //export clashPresetTunEnabled
 func clashPresetTunEnabled(enabled bool) {
-	tunMu.Lock()
-	tunEnabled = enabled
-	tunMu.Unlock()
+	_ = currentCacheDBLifecycle().withActive(func() error {
+		tunMu.Lock()
+		tunEnabled = enabled
+		tunMu.Unlock()
+		return nil
+	})
 }
 
 //export clashSetTunEnabled
 func clashSetTunEnabled(enabled bool) *C.char {
-	tunMu.Lock()
-	tunEnabled = enabled
-	tunMu.Unlock()
-
-	// Re-parse and apply the config with TUN settings
-	rawCfg, err := getRawCfg()
-	if err != nil {
-		return C.CString(err.Error())
-	}
-
-	// Apply port/secret overrides from the currently running config
-	if secretOverride != "" {
-		rawCfg.Secret = secretOverride
-	}
-	rawCfg.Profile.StoreSelected = false
-	rawCfg.IPv6 = enableIPV6
-	rawCfg.ExternalUI = ""
-	rawCfg.ExternalUIURL = ""
-	rawCfg.ExternalUIName = ""
-
-	tunMu.Lock()
-	if tunEnabled {
-		applyTunConfig(rawCfg)
-		if err := applyTunRouteExclusions(rawCfg); err != nil {
-			tunMu.Unlock()
-			return C.CString(err.Error())
+	tunStartFailed := false
+	lifecycle := currentCacheDBLifecycle()
+	err := lifecycle.withActive(func() error {
+		epoch, err := lifecycle.advanceEpochIfActive(&configUpdateEpoch)
+		if err != nil {
+			return err
 		}
-	} else {
-		rawCfg.Tun.Enable = false
-	}
-	tunMu.Unlock()
+		return applyConfigUpdateForLifecycle(lifecycle, epoch, func() error {
+			// ParseRawConfig can update Mihomo package state, so keep it inside
+			// the core fence after both the suspend and epoch checks have passed.
+			rawCfg, err := getRawCfg()
+			if err != nil {
+				return err
+			}
 
-	cfg, err := config.ParseRawConfig(rawCfg)
+			if secretOverride != "" {
+				rawCfg.Secret = secretOverride
+			}
+			rawCfg.Profile.StoreSelected = false
+			rawCfg.IPv6 = enableIPV6
+			rawCfg.ExternalUI = ""
+			rawCfg.ExternalUIURL = ""
+			rawCfg.ExternalUIName = ""
+
+			tunMu.Lock()
+			if enabled {
+				applyTunConfig(rawCfg)
+				if err := applyTunRouteExclusions(rawCfg); err != nil {
+					tunMu.Unlock()
+					return err
+				}
+			} else {
+				rawCfg.Tun.Enable = false
+			}
+			tunMu.Unlock()
+
+			cfg, err := config.ParseRawConfig(rawCfg)
+			if err != nil {
+				return err
+			}
+			executor.ApplyConfig(cfg, false)
+			tunMu.Lock()
+			tunEnabled = enabled
+			if enabled && !listener.GetTunConf().Enable {
+				tunEnabled = false
+				tunStartFailed = true
+			}
+			tunMu.Unlock()
+			return nil
+		})
+	})
 	if err != nil {
 		return C.CString(err.Error())
 	}
-
-	executor.ApplyConfig(cfg, false)
-
-	if enabled && !listener.GetTunConf().Enable {
-		tunMu.Lock()
-		tunEnabled = false
-		tunMu.Unlock()
+	if tunStartFailed {
 		return C.CString("TUN failed: operation not permitted (requires elevated privileges)")
 	}
 
@@ -1416,20 +1763,37 @@ func clashGetTunEnabled() bool {
 
 //export clashSuspendCore
 func clashSuspendCore() {
-	err := currentCacheDBLifecycle().suspend(func() {
-		// Close listeners and the REST server before releasing cache.db so the
-		// external mihomo_core can reuse their ports and cache lock.
+	lifecycle := currentCacheDBLifecycle()
+	err := lifecycle.suspendWithEpoch(func() {
+		_ = withCoreMutation(func() error {
+			stopBuiltinListenersForSuspend()
+			return nil
+		})
+	}, &configUpdateEpoch)
+	if err != nil {
+		log.Warnln("close cache database before suspending core failed: %v", err)
+	}
+}
+
+// stopBuiltinListenersForSuspend is called under the core mutation lock before
+// releasing cache.db; custom and URL/QUIC globals must not outlive the handoff.
+func stopBuiltinListenersForSuspend() {
+	executor.WithRuntimeConfigLock(func() {
 		listener.ReCreateHTTP(0, tunnel.Tunnel)
 		listener.ReCreateSocks(0, tunnel.Tunnel)
 		listener.ReCreateMixed(0, tunnel.Tunnel)
 		listener.ReCreateRedir(0, tunnel.Tunnel)
 		listener.ReCreateTProxy(0, tunnel.Tunnel)
+		listener.PatchInboundListeners(nil, tunnel.Tunnel, true)
+		listener.Cleanup()
+		listener.ReCreateShadowSocks("", tunnel.Tunnel)
+		listener.ReCreateVmess("", tunnel.Tunnel)
+		tuic := listener.GetTuicConf()
+		tuic.Enable = false
+		listener.ReCreateTuic(tuic, tunnel.Tunnel)
 		route.ReCreateServer(&route.Config{})
 		closeBuiltinDNSListener()
 	})
-	if err != nil {
-		log.Warnln("close cache database before suspending core failed: %v", err)
-	}
 }
 
 // closeBuiltinDNSListener releases both sockets owned by Mihomo's DNS server
@@ -1452,7 +1816,8 @@ func clashReopenCacheDB() {
 //
 //export clashResumeCore
 func clashResumeCore() *C.char {
-	cfg, err := startDefaultCoreWithCache(false, false, enableIPV6, 0, "")
+	epoch := configUpdateEpoch.Add(1)
+	cfg, err := startDefaultCoreWithCache(false, false, enableIPV6, 0, "", epoch)
 	if err != nil {
 		return C.CString("error:" + err.Error())
 	}
@@ -1462,20 +1827,28 @@ func clashResumeCore() *C.char {
 
 //export clashWriteEnhancedConfig
 func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteExcludeList *C.char, tunMTUParam C.uint, tunInterfaceNameParam *C.char, bypassCnApps C.int) *C.char {
-	excludeRaw := C.GoString(tunRouteExcludeList)
-	ifaceName := strings.TrimSpace(C.GoString(tunInterfaceNameParam))
-	mtuParam := uint32(tunMTUParam)
-	tunMu.Lock()
-	tunRouteExcludeRaw = excludeRaw
-	tunMTUValue = mtuParam
-	tunInterfaceName = ifaceName
-	tunMu.Unlock()
+	return writeEnhancedConfig(C.GoString(configPath), C.GoString(outputPath), C.GoString(tunRouteExcludeList),
+		uint32(tunMTUParam), C.GoString(tunInterfaceNameParam), bypassCnApps != 0, nil)
+}
+
+//export clashWriteEnhancedConfigWithPorts
+func clashWriteEnhancedConfigWithPorts(configPath *C.char, outputPath *C.char, tunRouteExcludeList *C.char, tunMTUParam C.uint, tunInterfaceNameParam *C.char, bypassCnApps C.int, portPlanJSON *C.char) *C.char {
+	plan, err := decodeEnhancedConfigPortPlan(C.GoString(portPlanJSON))
+	if err != nil {
+		return C.CString("error:" + err.Error())
+	}
+	return writeEnhancedConfig(C.GoString(configPath), C.GoString(outputPath), C.GoString(tunRouteExcludeList),
+		uint32(tunMTUParam), C.GoString(tunInterfaceNameParam), bypassCnApps != 0, plan)
+}
+
+func writeEnhancedConfig(configPath, outputPath, excludeRaw string, mtuParam uint32, ifaceName string, bypassCnApps bool, portPlan *enhancedConfigPortPlan) *C.char {
+	ifaceName = strings.TrimSpace(ifaceName)
 
 	effectiveMTU := mtuParam
 	if effectiveMTU == 0 {
 		effectiveMTU = defaultTunMTU
 	}
-	srcPath := C.GoString(configPath)
+	srcPath := configPath
 	if srcPath == "" {
 		srcPath = constant.Path.Config()
 	}
@@ -1533,25 +1906,14 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	if dns["default-nameserver"] == nil {
 		dns["default-nameserver"] = []string{"114.114.114.114", "223.5.5.5", "119.29.29.29"}
 	}
-	ensureDefaultProxyPort(rawMap)
-	proxyPorts := configuredProxyListenerPorts(rawMap)
-
-	// The controller binds loopback, so preflight that exact address and keep
-	// its chosen port clear of configured proxy listeners.
-	ecPort := enhancedControllerPort
-	if containsInt(proxyPorts, ecPort) || !checkLoopbackTCPPortAvailable(ecPort) {
-		port, err := freeport.GetFreePort()
-		if err != nil || containsInt(proxyPorts, port) || !checkLoopbackTCPPortAvailable(port) {
-			conflict := portConflictError{service: "api_listener", address: "127.0.0.1", port: enhancedControllerPort, reason: "fallback_unavailable"}
-			log.Errorln("%v", conflict)
-			return C.CString("error:" + conflict.Error())
-		}
-		ecPort = port
+	// The legacy entry point retains its original default-port normalization.
+	// A planned write leaves every source proxy field as the user specified it.
+	if portPlan == nil {
+		ensureDefaultProxyPort(rawMap)
 	}
-	reservedDNSPorts := append(append([]int(nil), proxyPorts...), ecPort)
-	// DNS selection and alignment only affect this generated runtime config.
-	// The user's source profile is never rewritten.
-	if err := alignEnhancedDNSListen(dns, reservedDNSPorts...); err != nil {
+	lockEnhancedLanBinding(rawMap)
+	_, _, err = selectEnhancedConfigPorts(rawMap, dns, portPlan, nil, nil, nil)
+	if err != nil {
 		return C.CString("error:" + err.Error())
 	}
 	rawMap["dns"] = dns
@@ -1564,7 +1926,6 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	// Pin a stable controller port so the Yacd dashboard origin
 	// (127.0.0.1:PORT) stays constant across launches; otherwise its
 	// per-origin localStorage (theme, columns) resets every time.
-	rawMap["external-controller"] = "127.0.0.1:" + strconv.Itoa(ecPort)
 	ec := rawMap["external-controller"].(string)
 
 	if secretOverride != "" {
@@ -1574,7 +1935,6 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	if savedUIPath != "" {
 		rawMap["external-ui"] = savedUIPath
 	}
-	lockEnhancedLanBinding(rawMap)
 
 	profile, _ := rawMap["profile"].(map[string]interface{})
 	if profile == nil {
@@ -1583,7 +1943,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	profile["store-selected"] = true
 	rawMap["profile"] = profile
 
-	if bypassCnApps != 0 {
+	if bypassCnApps {
 		providers, _ := rawMap["rule-providers"].(map[string]interface{})
 		if providers == nil {
 			providers = map[string]interface{}{}
@@ -1610,7 +1970,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 		return C.CString("error:" + err.Error())
 	}
 
-	path := C.GoString(outputPath)
+	path := outputPath
 	if path == "" {
 		return C.CString("error:empty enhanced config output path")
 	}
@@ -1631,7 +1991,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 	if err := tmp.Close(); err != nil {
 		return C.CString("error:" + err.Error())
 	}
-	if err := os.Chmod(tmpPath, 0644); err != nil {
+	if err := os.Chmod(tmpPath, 0600); err != nil {
 		return C.CString("error:" + err.Error())
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
@@ -1650,6 +2010,30 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 		return C.CString("error:" + err.Error())
 	}
 	return C.CString(string(jsonString))
+}
+
+//export clashRetargetEnhancedDNSConfig
+func clashRetargetEnhancedDNSConfig(configPath *C.char, dnsPort C.int) *C.char {
+	if err := retargetEnhancedDNSConfigFile(C.GoString(configPath), int(dnsPort)); err != nil {
+		return C.CString("error:" + err.Error())
+	}
+	return C.CString("")
+}
+
+//export clashValidateEnhancedListenerConfig
+func clashValidateEnhancedListenerConfig(configPath *C.char) *C.char {
+	if err := validateEnhancedListenerConfigFile(C.GoString(configPath)); err != nil {
+		return C.CString("error:" + err.Error())
+	}
+	return C.CString("")
+}
+
+//export clashValidateRuntimeConfig
+func clashValidateRuntimeConfig(configPath *C.char) *C.char {
+	if err := validateRuntimeListenerConfigFile(C.GoString(configPath)); err != nil {
+		return C.CString("error:" + err.Error())
+	}
+	return C.CString("")
 }
 
 func main() {

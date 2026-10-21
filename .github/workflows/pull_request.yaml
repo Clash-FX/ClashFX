@@ -7,7 +7,7 @@ env:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-26-intel
     steps:
     - uses: actions/checkout@v6
 
@@ -48,7 +48,7 @@ jobs:
     - name: isolated regression tests
       run: |
         xcodebuild -workspace ClashFX.xcworkspace -scheme ClashFX \
-          -destination 'platform=macOS,arch=arm64' \
+          -destination "platform=macOS,arch=$(uname -m)" \
           -skip-testing:ClashFXTests/RealCoreMenuIntegrationTests \
           test CODE_SIGNING_ALLOWED=NO
 
@@ -93,7 +93,7 @@ jobs:
             env = dict(os.environ, CGO_ENABLED="1", GOMAXPROCS="2")
             for mode in ([], ["-race"]):
                 subprocess.run(
-                    ["go", "test", "-tags=with_gvisor", *mode,
+                    ["go", "test", "-tags=with_gvisor", "-ldflags=-linkmode=external", *mode,
                      f"-modfile={modfile}", "./..."],
                     check=True,
                     env=env,

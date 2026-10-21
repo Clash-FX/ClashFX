@@ -1,13 +1,91 @@
 import Darwin
 import Foundation
 
+/// Converts Mihomo's numeric DNS listen address into a connectable probe target.
+/// Wildcard listeners are probed through the matching loopback address; named
+/// hosts other than Mihomo's special `localhost` value are rejected.
+enum EnhancedDNSProbeTargetPolicy {
+    static func host(from listen: String) -> String? {
+        guard let (rawHost, rawPort) = splitHostPort(listen),
+              !rawPort.isEmpty,
+              rawPort.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+              let port = Int(rawPort), (0 ... 65535).contains(port) else { return nil }
+
+        let host = rawHost
+        if host.isEmpty { return "127.0.0.1" }
+        if host == "localhost" { return "127.0.0.1" }
+
+        var ipv4 = in_addr()
+        if !host.contains("%"), host.withCString({ inet_pton(AF_INET, $0, &ipv4) }) == 1 {
+            return ipv4.s_addr == 0 ? "127.0.0.1" : host
+        }
+
+        let ipv6Host: String
+        if let zoneSeparator = host.lastIndex(of: "%") {
+            guard !host[..<zoneSeparator].contains("%"),
+                  host.index(after: zoneSeparator) < host.endIndex else { return nil }
+            ipv6Host = String(host[..<zoneSeparator])
+        } else {
+            ipv6Host = host
+        }
+        var ipv6 = in6_addr()
+        guard ipv6Host.withCString({ inet_pton(AF_INET6, $0, &ipv6) }) == 1 else { return nil }
+        let isWildcard = withUnsafeBytes(of: ipv6) { bytes in
+            bytes.allSatisfy { $0 == 0 }
+        }
+        return isWildcard ? "::1" : host
+    }
+
+    private static func splitHostPort(_ listen: String) -> (String, String)? {
+        guard !listen.isEmpty else { return nil }
+
+        if listen.first == "[" {
+            guard let closingBracket = listen.firstIndex(of: "]"),
+                  closingBracket > listen.startIndex,
+                  listen[listen.index(after: closingBracket)...].first == ":" else { return nil }
+            let portStart = listen.index(closingBracket, offsetBy: 2)
+            let hostStart = listen.index(after: listen.startIndex)
+            let host = String(listen[hostStart ..< closingBracket])
+            let port = String(listen[portStart...])
+            guard !host.isEmpty, !host.contains("[") && !host.contains("]") else { return nil }
+            return (host, port)
+        }
+
+        guard let separator = listen.lastIndex(of: ":") else { return nil }
+        let host = String(listen[..<separator])
+        let port = String(listen[listen.index(after: separator)...])
+        guard !host.contains(":"), !host.contains("[") && !host.contains("]") else { return nil }
+        return (host, port)
+    }
+}
+
 /// One wall-clock budget covers connect, partial writes and fragmented reads.
 /// In particular, SO_SNDTIMEO alone does not bound a TCP connect.
 enum BoundedDNSProbe {
     static func query(host: String, port: Int, type: Int32, payload: [UInt8],
                       timeout: TimeInterval = 0.6) -> Data? {
         guard (1 ... 65535).contains(port), timeout > 0 else { return nil }
-        let fd = socket(AF_INET, type, 0)
+
+        var ipv4 = in_addr()
+        let isIPv4 = host.withCString { inet_pton(AF_INET, $0, &ipv4) == 1 }
+        var ipv6 = in6_addr()
+        var scopeID: UInt32 = 0
+        let ipv6Host: String
+        if let zoneSeparator = host.lastIndex(of: "%") {
+            guard !host[..<zoneSeparator].contains("%"),
+                  host.index(after: zoneSeparator) < host.endIndex else { return nil }
+            ipv6Host = String(host[..<zoneSeparator])
+            let zone = String(host[host.index(after: zoneSeparator)...])
+            scopeID = zone.withCString { if_nametoindex($0) }
+            guard scopeID != 0 else { return nil }
+        } else {
+            ipv6Host = host
+        }
+        let isIPv6 = !isIPv4 && ipv6Host.withCString { inet_pton(AF_INET6, $0, &ipv6) == 1 }
+        guard isIPv4 || isIPv6 else { return nil }
+
+        let family: Int32 = isIPv4 ? AF_INET : AF_INET6
+        let fd = socket(family, type, 0)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
         let flags = fcntl(fd, F_GETFL)
@@ -29,14 +107,29 @@ enum BoundedDNSProbe {
             }
             return false
         }
-        var address = sockaddr_in()
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(port).bigEndian
-        guard inet_pton(AF_INET, host, &address.sin_addr) == 1 else { return nil }
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        let connected: Int32
+        if isIPv4 {
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = in_port_t(port).bigEndian
+            address.sin_addr = ipv4
+            connected = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+        } else {
+            var address = sockaddr_in6()
+            address.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+            address.sin6_family = sa_family_t(AF_INET6)
+            address.sin6_port = in_port_t(port).bigEndian
+            address.sin6_addr = ipv6
+            address.sin6_scope_id = scopeID
+            connected = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in6>.size))
+                }
             }
         }
         if connected != 0 {
@@ -653,9 +746,9 @@ struct RuntimeEndpointSet: Equatable {
     var validationError: String? {
         guard ([apiPort, dnsPort] + proxyPorts).allSatisfy({ (1 ... 65535).contains($0) }),
               !proxyPorts.isEmpty else { return "Runtime configuration contains invalid or missing listener ports" }
-        guard apiPort != dnsPort, !proxyPorts.contains(apiPort), !proxyPorts.contains(dnsPort) else {
-            return "Runtime API, DNS and proxy listeners must use distinct ports"
-        }
+        // Binding conflicts depend on protocol and address as well as port.
+        // Go validates the full configuration before launch or reload; this
+        // manifest only carries port numbers for runtime ownership/readiness.
         return nil
     }
 }

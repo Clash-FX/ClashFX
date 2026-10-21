@@ -13,10 +13,12 @@ import (
 
 type cacheDBLifecycle struct {
 	mu      sync.Mutex
+	stateMu sync.Mutex
 	cache   *cachefile.CacheFile
 	path    string
 	timeout time.Duration
 	closing atomic.Bool
+	state   atomic.Uint64 // low bit is suspended; upper bits identify lifecycle requests.
 }
 
 func newCacheDBLifecycle(cache *cachefile.CacheFile, path string, timeout time.Duration) *cacheDBLifecycle {
@@ -28,13 +30,92 @@ func newCacheDBLifecycle(cache *cachefile.CacheFile, path string, timeout time.D
 }
 
 func (l *cacheDBLifecycle) withOpen(start func() error) error {
+	return l.withOpenRequested(l.state.Load(), start)
+}
+
+// Capture admission before waiting for mu so an explicit suspend can cancel an
+// already queued request. Keeping that token explicit also makes race tests deterministic.
+func (l *cacheDBLifecycle) withOpenRequested(requestedState uint64, start func() error) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	state := l.state.Load()
+	// Only an explicit lifecycle request invalidates a queued open. An older
+	// startup's failure can set the suspended bit while the newer open waits;
+	// its cleanup must not cancel that newer request as well.
+	if state>>1 != requestedState>>1 {
+		return errCoreLifecycleCancelled
+	}
 
 	if err := l.reopenLocked(); err != nil {
 		return err
 	}
-	return start()
+	if err := start(); err != nil {
+		// The startup callback tears down partial listeners before returning.
+		// Fence mutations and release the database while still owning mu; do
+		// not overwrite a newer suspend request published during startup.
+		l.stateMu.Lock()
+		if l.state.Load() == state {
+			l.state.Store(state | 1)
+		}
+		l.stateMu.Unlock()
+		if closeErr := l.closeLocked(); closeErr != nil {
+			return fmt.Errorf("%w; cleanup: %v", err, closeErr)
+		}
+		return err
+	}
+	if !l.activateIfUnchanged(state) {
+		return errCoreLifecycleCancelled
+	}
+	return nil
+}
+
+// withActive holds the cache lifecycle lock for active-core mutations. This
+// makes their apply order explicit relative to suspend's stop-and-close path.
+func (l *cacheDBLifecycle) withActive(mutate func() error) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.isSuspended() {
+		return errCoreSuspended
+	}
+	return mutate()
+}
+
+func (l *cacheDBLifecycle) isSuspended() bool {
+	return l.state.Load()&1 != 0
+}
+
+// advanceEpochIfActive pairs a TUN request's epoch bump with the suspend gate,
+// so a request made after suspension cannot invalidate unrelated work.
+func (l *cacheDBLifecycle) advanceEpochIfActive(epoch *atomic.Uint64) (uint64, error) {
+	l.stateMu.Lock()
+	defer l.stateMu.Unlock()
+	if l.isSuspended() {
+		return 0, errCoreSuspended
+	}
+	return epoch.Add(1), nil
+}
+
+func (l *cacheDBLifecycle) requestSuspend(invalidate func()) uint64 {
+	l.stateMu.Lock()
+	defer l.stateMu.Unlock()
+
+	state := l.state.Load()
+	nextGeneration := (state >> 1) + 1
+	requested := (nextGeneration << 1) | 1
+	l.state.Store(requested)
+	if invalidate != nil {
+		invalidate()
+	}
+	return requested
+}
+
+func (l *cacheDBLifecycle) activateIfUnchanged(state uint64) bool {
+	l.stateMu.Lock()
+	defer l.stateMu.Unlock()
+	if l.state.Load() != state {
+		return false
+	}
+	return l.state.CompareAndSwap(state, state&^uint64(1))
 }
 
 func (l *cacheDBLifecycle) reopen() error {
@@ -60,8 +141,21 @@ func (l *cacheDBLifecycle) close() error {
 }
 
 func (l *cacheDBLifecycle) suspend(stopCore func()) error {
+	requested := l.requestSuspend(nil)
+	return l.suspendRequested(requested, stopCore)
+}
+
+func (l *cacheDBLifecycle) suspendWithEpoch(stopCore func(), epoch *atomic.Uint64) error {
+	requested := l.requestSuspend(func() { epoch.Add(1) })
+	return l.suspendRequested(requested, stopCore)
+}
+
+func (l *cacheDBLifecycle) suspendRequested(requested uint64, stopCore func()) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.state.Load() != requested {
+		return errCoreLifecycleCancelled
+	}
 	stopCore()
 	return l.closeLocked()
 }

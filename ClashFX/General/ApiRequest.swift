@@ -8,6 +8,7 @@
 
 import Alamofire
 import Cocoa
+import CoreFoundation
 import Starscream
 import SwiftyJSON
 
@@ -270,14 +271,22 @@ class ApiRequest {
         let directApi: Bool
         let apiUrl: String
         let selectedConfig: String
+        let coreUpdateEpoch: UInt64?
 
         static var current: RequestConfigContext {
-            RequestConfigContext(
-                directApi: ApiRequest.useDirectApi(),
+            let directApi = ApiRequest.useDirectApi()
+            return RequestConfigContext(
+                directApi: directApi,
                 apiUrl: ConfigManager.apiUrl,
-                selectedConfig: ConfigManager.selectConfigName
+                selectedConfig: ConfigManager.selectConfigName,
+                coreUpdateEpoch: directApi ? UInt64(clashCurrentConfigUpdateEpoch()) : nil
             )
         }
+    }
+
+    static func currentRuntimeConfigReadbackEpoch() -> UInt64? {
+        guard useDirectApi() else { return nil }
+        return UInt64(clashCurrentConfigUpdateEpoch())
     }
 
     private static func requestConfigWithRetry(
@@ -313,7 +322,7 @@ class ApiRequest {
                 requestConfig(completeHandler: completeHandler)
                 return
             }
-            if config.usedHttpPort > 0 {
+            if config.usedHttpPort > 0 || config.usedSocksPort > 0 {
                 completeHandler(config)
                 return
             }
@@ -343,6 +352,10 @@ class ApiRequest {
         }
 
         clashRequestQueue.async {
+            guard context.coreUpdateEpoch == UInt64(clashCurrentConfigUpdateEpoch()) else {
+                DispatchQueue.main.async { requestConfig(completeHandler: completeHandler) }
+                return
+            }
             let data = clashGetConfigs()?.toString().data(using: .utf8) ?? Data()
             DispatchQueue.main.async {
                 guard let config = ClashConfig.fromData(data) else {
@@ -394,6 +407,381 @@ class ApiRequest {
         }
     }
 
+    struct RuntimeConfigContext: Equatable {
+        let direct: Bool
+        let apiURL: String
+        let secret: String
+    }
+
+    static func runtimeConfigContext() -> RuntimeConfigContext {
+        RuntimeConfigContext(direct: useDirectApi(), apiURL: ConfigManager.apiUrl,
+                             secret: ConfigManager.shared.overrideSecret ?? ConfigManager.shared.apiSecret)
+    }
+
+    private static let runtimeSessionsLock = NSLock()
+    private static var runtimeSessions = [UUID: URLSession]()
+
+    /// A cancelled request must never reconnect to a replacement core on the same port.
+    static func cancelRuntimeConfigOperations() {
+        clashCancelPendingConfigUpdate()
+        runtimeSessionsLock.lock()
+        let sessions = Array(runtimeSessions.values)
+        runtimeSessions.removeAll()
+        runtimeSessionsLock.unlock()
+        sessions.forEach { $0.invalidateAndCancel() }
+    }
+
+    private static func runtimeConfigHTTP(
+        path: String, method: String = "GET", body: [String: Any]? = nil,
+        context: RuntimeConfigContext, timeout: TimeInterval = 8,
+        completion: @escaping (Data?, Int?, Error?) -> Void
+    ) {
+        guard let url = URL(string: context.apiURL + path) else {
+            completion(nil, nil, NSError(domain: "ClashFX.RuntimeConfig", code: 1)); return
+        }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
+        request.httpMethod = method
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        if !context.secret.isEmpty { request.setValue("Bearer " + context.secret, forHTTPHeaderField: "Authorization") }
+        if let body {
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.connectionProxyDictionary = [:]
+        configuration.timeoutIntervalForResource = timeout
+        let session = URLSession(configuration: configuration)
+        let id = UUID()
+        runtimeSessionsLock.lock(); runtimeSessions[id] = session; runtimeSessionsLock.unlock()
+        session.dataTask(with: request) { data, response, error in
+            runtimeSessionsLock.lock(); runtimeSessions[id] = nil; runtimeSessionsLock.unlock()
+            session.finishTasksAndInvalidate()
+            DispatchQueue.main.async {
+                completion(data, (response as? HTTPURLResponse)?.statusCode, error)
+            }
+        }.resume()
+    }
+
+    static func applyRuntimeConfig(
+        file: URL, context: RuntimeConfigContext,
+        completion: @escaping (RuntimeConfigTransactionController.ApplyResult) -> Void
+    ) {
+        guard context == runtimeConfigContext() else { completion(.rejected("Runtime API scope changed")); return }
+        if context.direct {
+            // Capture before enqueue: a replacement core can reuse the same URL/secret.
+            let epoch = clashCurrentConfigUpdateEpoch()
+            clashRequestQueue.async {
+                guard context == runtimeConfigContext() else {
+                    DispatchQueue.main.async { completion(.rejected("Runtime API scope changed")) }; return
+                }
+                let result = clashUpdateConfigWithEpoch(file.path.goStringBuffer(), epoch)?.toString()
+                DispatchQueue.main.async {
+                    guard context == runtimeConfigContext() else {
+                        completion(.uncertain("Runtime scope changed while applying configuration")); return
+                    }
+                    completion(result == "success" ? .accepted : .rejected("Core rejected the runtime configuration"))
+                }
+            }
+        } else {
+            runtimeConfigHTTP(path: "/configs?force=true", method: "PUT", body: ["Path": file.path], context: context, timeout: 12) { _, status, error in
+                guard context == runtimeConfigContext() else {
+                    completion(.uncertain("Runtime scope changed while applying configuration")); return
+                }
+                if error != nil { completion(.uncertain("Configuration request did not receive a conclusive reply")) }
+                else if status == 204 { completion(.accepted) }
+                else if let status, (400 ... 499).contains(status) { completion(.rejected("Core rejected configuration (HTTP \(status))")) }
+                else { completion(.uncertain("Core configuration apply result is unknown")) }
+            }
+        }
+    }
+
+    static func readRuntimeConfig(context: RuntimeConfigContext, completion: @escaping ([String: Any]?, String?) -> Void) {
+        guard context == runtimeConfigContext() else { completion(nil, "Runtime API scope changed"); return }
+        let decode: (Data?) -> Void = { data in
+            guard context == runtimeConfigContext(), let data,
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                completion(nil, "Core configuration readback was unavailable"); return
+            }
+            completion(object, nil)
+        }
+        if context.direct {
+            clashRequestQueue.async {
+                let bytes = clashGetConfigs()?.toString().data(using: .utf8)
+                DispatchQueue.main.async { decode(bytes) }
+            }
+        } else {
+            runtimeConfigHTTP(path: "/configs", context: context) { data, status, error in
+                decode(error == nil && status == 200 ? data : nil)
+            }
+        }
+    }
+
+    static func readRuntimeProxySnapshot(
+        context: RuntimeConfigContext, requireCurrentContext: Bool = true,
+        completion: @escaping (Data?, String?) -> Void
+    ) {
+        guard !requireCurrentContext || context == runtimeConfigContext() else {
+            completion(nil, "Runtime API scope changed"); return
+        }
+        runtimeConfigHTTP(path: "/proxies", context: context, timeout: 4) { data, status, error in
+            guard !requireCurrentContext || context == runtimeConfigContext() else {
+                completion(nil, "Runtime API scope changed"); return
+            }
+            guard error == nil, status == 200, RuntimeProxySelectionPolicy(data: data) != nil else {
+                completion(nil, "Runtime proxy snapshot unavailable"); return
+            }
+            completion(data, nil)
+        }
+    }
+
+    static func readRuntimeProxySelections(
+        context: RuntimeConfigContext,
+        completion: @escaping ([String: String]?, String?) -> Void
+    ) {
+        let complete: ([String: String]?, String?) -> Void = { records, error in
+            if Thread.isMainThread {
+                completion(records, error)
+            } else {
+                DispatchQueue.main.async { completion(records, error) }
+            }
+        }
+        guard context == runtimeConfigContext() else {
+            complete(nil, "Runtime API scope changed")
+            return
+        }
+        runtimeConfigHTTP(path: "/proxies", context: context, timeout: 4) { data, status, error in
+            guard context == runtimeConfigContext() else {
+                complete(nil, "Runtime API scope changed")
+                return
+            }
+            guard error == nil, status == 200,
+                  let snapshot = RuntimeProxySelectionPolicy(data: data) else {
+                complete(nil, "Runtime proxy selections could not be read.")
+                return
+            }
+            complete(snapshot.manualSelections, nil)
+        }
+    }
+
+    static func restoreRuntimeProxySelections(
+        records: [String: String],
+        strict: Bool,
+        context: RuntimeConfigContext,
+        isCurrent: @escaping () -> Bool,
+        completion: @escaping (RuntimeConfigTransactionController.ApplyResult) -> Void
+    ) {
+        let sequence = RuntimeProxySelectionRestoreSequence(
+            records: records,
+            strict: strict,
+            isCurrent: { context == runtimeConfigContext() && isCurrent() },
+            request: { path, method, body, timeout, callback in
+                runtimeConfigHTTP(
+                    path: path,
+                    method: method,
+                    body: body,
+                    context: context,
+                    timeout: timeout,
+                    completion: callback
+                )
+            },
+            completion: { outcome in
+                switch outcome {
+                case .accepted:
+                    completion(.accepted)
+                case let .rejected(reason):
+                    completion(.rejected(reason))
+                case let .uncertain(reason):
+                    completion(.uncertain(reason))
+                }
+            }
+        )
+        sequence.start()
+    }
+
+    static func lastSubmittedRuntimeConfig(completion: @escaping (Data?) -> Void) {
+        clashRequestQueue.async {
+            let data = clashGetLastSubmittedConfig()?.toString().data(using: .utf8)
+            DispatchQueue.main.async { completion(data?.isEmpty == false ? data : nil) }
+        }
+    }
+
+    private struct RuntimeProxyListener {
+        enum Kind {
+            case http
+            case socks
+        }
+
+        let port: Int
+        let kind: Kind
+    }
+
+    /// Probes a confirmed local listener. Authentication-required configs are
+    /// deliberately left unprobed until authenticated proxy requests are supported.
+    static func probeRuntimeConfigDataPlane(
+        context: RuntimeConfigContext,
+        authenticationRequired: Bool = false,
+        completion: @escaping (RuntimeConfigTransactionController.VerificationResult) -> Void
+    ) {
+        let complete: (RuntimeConfigTransactionController.VerificationResult) -> Void = { result in
+            if Thread.isMainThread {
+                completion(result)
+            } else {
+                DispatchQueue.main.async { completion(result) }
+            }
+        }
+        guard context == runtimeConfigContext() else {
+            complete(.failed("Runtime scope changed during data-plane probe"))
+            return
+        }
+        guard !authenticationRequired else {
+            complete(.verified(.notChecked))
+            return
+        }
+
+        readRuntimeConfig(context: context) { config, _ in
+            guard context == runtimeConfigContext() else {
+                complete(.failed("Runtime scope changed during data-plane probe"))
+                return
+            }
+            let listeners = config.map(Self.runtimeProxyListeners(from:)) ?? []
+            Self.probeRuntimeProxyListener(
+                listeners,
+                index: 0,
+                context: context,
+                completion: complete
+            )
+        }
+    }
+
+    private static func runtimeProxyListeners(from config: [String: Any]) -> [RuntimeProxyListener] {
+        let entries: [(String, RuntimeProxyListener.Kind)] = [
+            ("mixed-port", .http),
+            ("port", .http),
+            ("socks-port", .socks)
+        ]
+        var seen = Set<Int>()
+        return entries.compactMap { key, kind in
+            guard let port = runtimeProxyPort(config[key]),
+                  seen.insert(port).inserted else { return nil }
+            return RuntimeProxyListener(port: port, kind: kind)
+        }
+    }
+
+    private static func runtimeProxyPort(_ value: Any?) -> Int? {
+        if let string = value as? String, let port = Int(string), (1 ... 65_535).contains(port) {
+            return port
+        }
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let value = number.doubleValue
+        guard value.isFinite,
+              value.rounded(.towardZero) == value,
+              (1 ... 65_535).contains(value) else { return nil }
+        return Int(value)
+    }
+
+    private static func runtimeProxySettings(for listener: RuntimeProxyListener) -> [String: Any] {
+        var settings: [String: Any] = [
+            "HTTPEnable": false,
+            "HTTPSEnable": false,
+            "SOCKSEnable": false,
+            "ProxyAutoConfigEnable": false,
+            "ProxyAutoDiscoveryEnable": false
+        ]
+        switch listener.kind {
+        case .http:
+            settings["HTTPEnable"] = true
+            settings["HTTPProxy"] = "127.0.0.1"
+            settings["HTTPPort"] = listener.port
+            settings["HTTPSEnable"] = true
+            settings["HTTPSProxy"] = "127.0.0.1"
+            settings["HTTPSPort"] = listener.port
+        case .socks:
+            settings["SOCKSEnable"] = true
+            settings["SOCKSProxy"] = "127.0.0.1"
+            settings["SOCKSPort"] = listener.port
+            settings["SOCKSVersion"] = 5
+        }
+        return settings
+    }
+
+    private static func probeRuntimeProxyListener(
+        _ listeners: [RuntimeProxyListener],
+        index: Int,
+        context: RuntimeConfigContext,
+        completion: @escaping (RuntimeConfigTransactionController.VerificationResult) -> Void
+    ) {
+        guard context == runtimeConfigContext() else {
+            completion(.failed("Runtime scope changed during proxy listener probe"))
+            return
+        }
+        guard index < listeners.count else {
+            completion(.verified(.unavailable))
+            return
+        }
+
+        let url = URL(string: "https://cp.cloudflare.com/generate_204")!
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            timeoutInterval: 1.25
+        )
+        request.httpMethod = "GET"
+        runtimeDataPlaneHTTP(
+            request: request,
+            proxySettings: runtimeProxySettings(for: listeners[index]),
+            context: context,
+            timeout: 1.25
+        ) { _, status, error in
+            guard context == runtimeConfigContext() else {
+                completion(.failed("Runtime scope changed during proxy listener probe"))
+                return
+            }
+            if error == nil, status == 204 {
+                completion(.verified(.healthy))
+            } else {
+                probeRuntimeProxyListener(
+                    listeners,
+                    index: index + 1,
+                    context: context,
+                    completion: completion
+                )
+            }
+        }
+    }
+
+    private static func runtimeDataPlaneHTTP(
+        request: URLRequest,
+        proxySettings: [String: Any],
+        context: RuntimeConfigContext,
+        timeout: TimeInterval,
+        completion: @escaping (Data?, Int?, Error?) -> Void
+    ) {
+        guard context == runtimeConfigContext() else {
+            DispatchQueue.main.async { completion(nil, nil, NSError(domain: "ClashFX.RuntimeConfig", code: 2)) }
+            return
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        configuration.connectionProxyDictionary = proxySettings
+        let session = URLSession(configuration: configuration)
+        let id = UUID()
+        runtimeSessionsLock.lock()
+        runtimeSessions[id] = session
+        runtimeSessionsLock.unlock()
+        session.dataTask(with: request) { data, response, error in
+            runtimeSessionsLock.lock()
+            runtimeSessions[id] = nil
+            runtimeSessionsLock.unlock()
+            session.finishTasksAndInvalidate()
+            DispatchQueue.main.async {
+                completion(data, (response as? HTTPURLResponse)?.statusCode, error)
+            }
+        }.resume()
+    }
+
     static func updateOutBoundMode(mode: ClashProxyMode, callback: ((Bool) -> Void)? = nil) {
         req("/configs", method: .patch, parameters: ["mode": mode.rawValue], encoding: JSONEncoding.default)
             .validate(statusCode: 200 ..< 300)
@@ -415,14 +803,15 @@ class ApiRequest {
     }
 
     static func updateLogLevel(level: ClashLogLevel, callback: ((Bool) -> Void)? = nil) {
-        req("/configs", method: .patch, parameters: ["log-level": level.rawValue], encoding: JSONEncoding.default).responseData(completionHandler: { response in
-            switch response.result {
-            case .success:
-                callback?(true)
-            case .failure:
-                callback?(false)
-            }
-        })
+        req("/configs", method: .patch, parameters: ["log-level": level.rawValue], encoding: JSONEncoding.default)
+            .validate(statusCode: 200 ..< 300).responseData(completionHandler: { response in
+                switch response.result {
+                case .success:
+                    callback?(true)
+                case .failure:
+                    callback?(false)
+                }
+            })
     }
 
     static func requestProxyGroupList(completeHandler: ((ClashProxyResp) -> Void)? = nil) {
@@ -489,15 +878,12 @@ class ApiRequest {
             }
     }
 
-    static func updateAllowLan(allow: Bool, completeHandler: (() -> Void)? = nil) {
+    static func updateAllowLan(allow: Bool, completeHandler: ((Bool) -> Void)? = nil) {
         Logger.log("update allow lan:\(allow)", level: .debug)
-        req("/configs",
-            method: .patch,
-            parameters: ["allow-lan": allow],
-            encoding: JSONEncoding.default).response {
-            _ in
-            completeHandler?()
-        }
+        req("/configs", method: .patch, parameters: ["allow-lan": allow], encoding: JSONEncoding.default)
+            .validate(statusCode: 200 ..< 300).responseData { response in
+                completeHandler?(response.error == nil)
+            }
     }
 
     static func updateProxyGroup(group: String, selectProxy: String, callback: @escaping ((Bool) -> Void)) {

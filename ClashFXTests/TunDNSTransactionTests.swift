@@ -3,6 +3,162 @@ import Foundation
 import XCTest
 
 final class TunDNSTransactionTests: XCTestCase {
+    private final class LoopbackDNSResponder {
+        let descriptor: Int32
+        let type: Int32
+        let port: Int
+
+        init?(family: Int32, type: Int32) {
+            let descriptor = socket(family, type, 0)
+            guard descriptor >= 0 else { return nil }
+            var port: Int?
+
+            if family == AF_INET {
+                var address = sockaddr_in()
+                address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+                address.sin_family = sa_family_t(AF_INET)
+                address.sin_addr.s_addr = inet_addr("127.0.0.1")
+                let bound = withUnsafePointer(to: &address) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
+                }
+                guard bound == 0 else { close(descriptor); return nil }
+                var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+                let named = withUnsafeMutablePointer(to: &address) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        getsockname(descriptor, $0, &length)
+                    }
+                }
+                guard named == 0 else { close(descriptor); return nil }
+                port = Int(UInt16(bigEndian: address.sin_port))
+            } else if family == AF_INET6 {
+                var address = sockaddr_in6()
+                address.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+                address.sin6_family = sa_family_t(AF_INET6)
+                var loopback = in6_addr()
+                guard inet_pton(AF_INET6, "::1", &loopback) == 1 else { close(descriptor); return nil }
+                address.sin6_addr = loopback
+                let bound = withUnsafePointer(to: &address) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in6>.size))
+                    }
+                }
+                guard bound == 0 else { close(descriptor); return nil }
+                var length = socklen_t(MemoryLayout<sockaddr_in6>.size)
+                let named = withUnsafeMutablePointer(to: &address) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        getsockname(descriptor, $0, &length)
+                    }
+                }
+                guard named == 0 else { close(descriptor); return nil }
+                port = Int(UInt16(bigEndian: address.sin6_port))
+            } else {
+                close(descriptor)
+                return nil
+            }
+
+            if type == SOCK_STREAM, listen(descriptor, 1) != 0 {
+                close(descriptor)
+                return nil
+            }
+            guard let port else { close(descriptor); return nil }
+            self.descriptor = descriptor
+            self.type = type
+            self.port = port
+        }
+
+        func respondOnce(then expectation: XCTestExpectation) {
+            DispatchQueue.global().async {
+                defer { expectation.fulfill() }
+                var readiness = pollfd(fd: self.descriptor, events: Int16(POLLIN), revents: 0)
+                guard poll(&readiness, 1, 1500) > 0 else { return }
+                if self.type == SOCK_DGRAM {
+                    self.respondToUDP()
+                } else {
+                    self.respondToTCP()
+                }
+            }
+        }
+
+        private func respondToUDP() {
+            var packet = [UInt8](repeating: 0, count: 4096)
+            var peer = sockaddr_storage()
+            var peerLength = socklen_t(MemoryLayout<sockaddr_storage>.size)
+            let count = packet.withUnsafeMutableBytes { bytes -> Int in
+                withUnsafeMutablePointer(to: &peer) { peerPointer in
+                    peerPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        Int(recvfrom(descriptor, bytes.baseAddress, bytes.count, 0, $0, &peerLength))
+                    }
+                }
+            }
+            guard count > 0 else { return }
+            let response = Self.dnsResponse(Array(packet.prefix(count)))
+            response.withUnsafeBytes { bytes in
+                withUnsafePointer(to: peer) { peerPointer in
+                    peerPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        _ = sendto(descriptor, bytes.baseAddress, bytes.count, 0, $0, peerLength)
+                    }
+                }
+            }
+        }
+
+        private func respondToTCP() {
+            let client = accept(descriptor, nil, nil)
+            guard client >= 0 else { return }
+            defer { close(client) }
+            guard let prefix = readExactly(2, from: client) else { return }
+            let length = (Int(prefix[0]) << 8) | Int(prefix[1])
+            guard length >= 12, let query = readExactly(length, from: client) else { return }
+            let response = Self.dnsResponse(query)
+            let frame = [UInt8(response.count >> 8), UInt8(response.count & 0xff)] + response
+            sendAll(frame, to: client)
+        }
+
+        private func readExactly(_ length: Int, from descriptor: Int32) -> [UInt8]? {
+            var result = [UInt8]()
+            while result.count < length {
+                var chunk = [UInt8](repeating: 0, count: length - result.count)
+                let count = chunk.withUnsafeMutableBytes { bytes in
+                    recv(descriptor, bytes.baseAddress, bytes.count, 0)
+                }
+                if count > 0 {
+                    result.append(contentsOf: chunk.prefix(count))
+                } else if count < 0, errno == EINTR {
+                    continue
+                } else {
+                    return nil
+                }
+            }
+            return result
+        }
+
+        private func sendAll(_ data: [UInt8], to descriptor: Int32) {
+            data.withUnsafeBytes { bytes in
+                guard let base = bytes.baseAddress else { return }
+                var total = 0
+                while total < bytes.count {
+                    let count = send(descriptor, base.advanced(by: total), bytes.count - total, 0)
+                    if count > 0 {
+                        total += count
+                    } else if count < 0, errno == EINTR {
+                        continue
+                    } else {
+                        return
+                    }
+                }
+            }
+        }
+
+        private static func dnsResponse(_ query: [UInt8]) -> [UInt8] {
+            guard query.count >= 12 else { return query }
+            var response = query
+            response[2] = 0x81
+            response[3] = 0x80
+            return response
+        }
+    }
+
     private final class Fixture {
         var snapshot: [String: Any] = [:]
         var captured: [String: Any] = [
@@ -523,9 +679,14 @@ final class TunDNSTransactionTests: XCTestCase {
         XCTAssertEqual(original["SearchDomains"] as? [String], ["new.office.test"])
     }
 
-    func testRuntimeListenerManifestRejectsCollisionsAndInvalidPorts() {
-        XCTAssertNotNil(RuntimeEndpointSet(apiPort: 19090, dnsPort: 7890, proxyPorts: [7890]).validationError)
+    func testRuntimeListenerManifestValidatesMetadataWithoutInventingBindingConflicts() {
+        // The same port may belong to disjoint addresses or TCP/UDP listeners.
+        // Full-config Go tests verify actual overlap; this manifest lacks that data.
+        XCTAssertNil(RuntimeEndpointSet(apiPort: 19090, dnsPort: 7890, proxyPorts: [7890]).validationError)
+        XCTAssertNil(RuntimeEndpointSet(apiPort: 7890, dnsPort: 7874, proxyPorts: [7890]).validationError)
         XCTAssertNotNil(RuntimeEndpointSet(apiPort: 0, dnsPort: 7874, proxyPorts: [7890]).validationError)
+        XCTAssertNotNil(RuntimeEndpointSet(apiPort: 19090, dnsPort: 65536, proxyPorts: [7890]).validationError)
+        XCTAssertNotNil(RuntimeEndpointSet(apiPort: 19090, dnsPort: 7874, proxyPorts: []).validationError)
         XCTAssertNil(RuntimeEndpointSet(apiPort: 19090, dnsPort: 7874, proxyPorts: [7890]).validationError)
     }
 
@@ -567,5 +728,66 @@ final class TunDNSTransactionTests: XCTestCase {
         XCTAssertNil(response)
         XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.3)
         wait(for: [stopped], timeout: 2)
+    }
+
+    func testEnhancedDNSProbeTargetPolicyMapsWildcardAndSpecificAddresses() {
+        let mappings = [
+            ("0.0.0.0:7874", "127.0.0.1"),
+            (":7874", "127.0.0.1"),
+            ("localhost:7874", "127.0.0.1"),
+            ("127.0.0.1:0", "127.0.0.1"),
+            ("127.0.0.2:7874", "127.0.0.2"),
+            ("192.168.1.25:5353", "192.168.1.25"),
+            ("[::]:7874", "::1"),
+            ("[0:0:0:0:0:0:0:0]:7874", "::1"),
+            ("[::1]:7874", "::1"),
+            ("[2001:db8::5]:5353", "2001:db8::5"),
+            ("[fe80::1%en0]:5353", "fe80::1%en0")
+        ]
+        for (listen, expectedHost) in mappings {
+            XCTAssertEqual(EnhancedDNSProbeTargetPolicy.host(from: listen), expectedHost, listen)
+        }
+    }
+
+    func testEnhancedDNSProbeTargetPolicyRejectsInvalidAddressesAndPorts() {
+        let invalidListeners = [
+            "", "127.0.0.1", "example.com:53", "localhost.example:53",
+            "127.0.0.1:65536", "127.0.0.1:abc", "127.0.0.1:-53", "127.0.0.1:", "[not-ip]:53",
+            "2001:db8::1:53", "[]:53", "127.0.0.1:53/path", "udp://127.0.0.1:53",
+            " 127.0.0.1:53", "127.0.0.1:53 "
+        ]
+        for listen in invalidListeners {
+            XCTAssertNil(EnhancedDNSProbeTargetPolicy.host(from: listen), listen)
+        }
+    }
+
+    func testDNSProbeQueriesIPv4LoopbackUDPAndTCPAgainstFakeResponder() throws {
+        try assertDNSProbeUsesLoopback(family: AF_INET, host: "127.0.0.1")
+    }
+
+    func testDNSProbeQueriesIPv6LoopbackUDPAndTCPAgainstFakeResponder() throws {
+        try assertDNSProbeUsesLoopback(family: AF_INET6, host: "::1")
+    }
+
+    private func assertDNSProbeUsesLoopback(family: Int32, host: String) throws {
+        let query: [UInt8] = [
+            0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x01, 0x78, 0x00, 0x00, 0x01, 0x00, 0x01
+        ]
+        for type in [Int32(SOCK_DGRAM), Int32(SOCK_STREAM)] {
+            guard let responder = LoopbackDNSResponder(family: family, type: type) else {
+                if family == AF_INET6 { throw XCTSkip("IPv6 loopback responder is unavailable") }
+                XCTFail("Cannot create IPv4 loopback DNS responder")
+                return
+            }
+            let served = expectation(description: "fake DNS responder handled request")
+            responder.respondOnce(then: served)
+            let response = BoundedDNSProbe.query(host: host, port: responder.port, type: type,
+                                                 payload: query, timeout: 0.6)
+            XCTAssertEqual(response?.prefix(2), Data([0x12, 0x34]))
+            XCTAssertEqual(response?[2], 0x81)
+            wait(for: [served], timeout: 2)
+            close(responder.descriptor)
+        }
     }
 }

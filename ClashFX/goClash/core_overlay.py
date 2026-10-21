@@ -17,6 +17,14 @@ import tempfile
 from contextlib import contextmanager
 from typing import Iterator
 
+from core_listener_constructor_overlay import patch_listener_constructor_cleanup
+from core_tproxy_constructor_overlay import patch_tproxy_constructor_cleanup
+from core_runtime_apply_overlay import patch_runtime_config_apply
+from core_startup_selection_overlay import patch_startup_selection_overlay
+from core_inbound_access_overlay import patch_inbound_access_state
+from core_route_lifecycle_overlay import patch_route_lifecycle
+from core_auth_store_overlay import patch_auth_store
+
 
 SING_MODULE = "github.com/metacubex/sing"
 EXPECTED_SING_VERSION = "v0.5.7"
@@ -353,6 +361,8 @@ func TestClashFXDelayHandlerTimeoutEnvelope(t *testing.T) {
 }
 '''
 QUEUE_SOURCE_SHA256 = "dce56d5c8e57c4a5df35c2960ced52ee19b4441864e9908692c3321be84e71de"
+INBOUND_LISTENER_SOURCE_SHA256 = "0e059b1be9994fb8c4fbb8efe7bc03add9c797a284562114212a6a4c683019fd"
+ROUTE_CONFIGS_SOURCE_SHA256 = "dc8bc7f031f292d1cbd9deede0b01c169689c9070fcc767aa81e402b7e41c018"
 ORIGINAL_QUEUE_POP = """func (q *Queue[T]) Pop() (head T) {
 	if len(q.items) == 0 {
 		return
@@ -394,6 +404,440 @@ PATCHED_QUEUE_LAST = """func (q *Queue[T]) Last() (last T) {
 
 	return q.items[len(q.items)-1]
 }"""
+ORIGINAL_PATCH_INBOUND_LISTENERS = """func PatchInboundListeners(newListenerMap map[string]C.InboundListener, tunnel C.Tunnel, dropOld bool) {
+	inboundMux.Lock()
+	defer inboundMux.Unlock()
+
+	for name, newListener := range newListenerMap {
+		if oldListener, ok := inboundListeners[name]; ok {
+			if !oldListener.Config().Equal(newListener.Config()) {
+				_ = oldListener.Close()
+			} else {
+				continue
+			}
+		}
+		if err := newListener.Listen(tunnel); err != nil {
+			log.Errorln("Listener %s listen err: %s", name, err.Error())
+			continue
+		}
+		inboundListeners[name] = newListener
+	}
+
+	if dropOld {
+		for name, oldListener := range inboundListeners {
+			if _, ok := newListenerMap[name]; !ok {
+				_ = oldListener.Close()
+				delete(inboundListeners, name)
+			}
+		}
+	}
+}"""
+PATCHED_PATCH_INBOUND_LISTENERS = """func PatchInboundListeners(newListenerMap map[string]C.InboundListener, tunnel C.Tunnel, dropOld bool) {
+	inboundMux.Lock()
+	defer inboundMux.Unlock()
+
+	for name, newListener := range newListenerMap {
+		if oldListener, ok := inboundListeners[name]; ok {
+			oldConfig := oldListener.Config()
+			newConfig := newListener.Config()
+			if oldConfig == nil || newConfig == nil || !oldConfig.Equal(newConfig) {
+				_ = oldListener.Close()
+				delete(inboundListeners, name)
+			} else {
+				continue
+			}
+		}
+		if err := newListener.Listen(tunnel); err != nil {
+			// Some upstream listeners leave a nil transport after Listen fails,
+			// yet their Close dereferences it. Contain cleanup panics so a bad
+			// candidate cannot kill the core before deterministic rollback.
+			func() {
+				defer func() {
+					if recover() != nil { log.Warnln("Listener %s failed-start cleanup panicked", name) }
+				}()
+				_ = newListener.Close()
+			}()
+			log.Errorln("Listener %s listen err: %s", name, err.Error())
+			continue
+		}
+		inboundListeners[name] = newListener
+	}
+
+	if dropOld {
+		for name, oldListener := range inboundListeners {
+			if _, ok := newListenerMap[name]; !ok {
+				_ = oldListener.Close()
+				delete(inboundListeners, name)
+			}
+		}
+	}
+}
+
+// ValidateInboundListeners reports whether every requested named listener is
+// registered with the requested config after Listen has succeeded.
+func ValidateInboundListeners(requested map[string]C.InboundListener) error {
+	inboundMux.Lock()
+	defer inboundMux.Unlock()
+
+	names := make([]string, 0, len(requested))
+	for name := range requested {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		want := requested[name]
+		actual, ok := inboundListeners[name]
+		if !ok {
+			return fmt.Errorf("inbound listener %q did not start", name)
+		}
+		if want == nil || actual.Name() != name || actual.Config() == nil || want.Config() == nil ||
+			!actual.Config().Equal(want.Config()) {
+			return fmt.Errorf("inbound listener %q is running with a different config", name)
+		}
+	}
+	return nil
+}"""
+
+ORIGINAL_RECREATE_MIXED = r"""func ReCreateMixed(port int, tunnel C.Tunnel) {
+	mixedMux.Lock()
+	defer mixedMux.Unlock()
+
+	var err error
+	defer func() {
+		if err != nil {
+			log.Errorln("Start Mixed(http+socks) server error: %s", err.Error())
+		}
+	}()
+
+	addr := genAddr(bindAddress, port, allowLan)
+
+	shouldTCPIgnore := false
+	shouldUDPIgnore := false
+
+	if mixedListener != nil {
+		if mixedListener.RawAddress() != addr {
+			mixedListener.Close()
+			mixedListener = nil
+		} else {
+			shouldTCPIgnore = true
+		}
+	}
+	if mixedUDPLister != nil {
+		if mixedUDPLister.RawAddress() != addr {
+			mixedUDPLister.Close()
+			mixedUDPLister = nil
+		} else {
+			shouldUDPIgnore = true
+		}
+	}
+
+	if shouldTCPIgnore && shouldUDPIgnore {
+		return
+	}
+
+	if portIsZero(addr) {
+		return
+	}
+
+	mixedListener, err = mixed.New(addr, tunnel)
+	if err != nil {
+		return
+	}
+
+	mixedUDPLister, err = socks.NewUDP(addr, tunnel)
+	if err != nil {
+		mixedListener.Close()
+		return
+	}
+
+	log.Infoln("Mixed(http+socks) proxy listening at: %s", mixedListener.Address())
+}"""
+PATCHED_RECREATE_MIXED = r"""func ReCreateMixed(port int, tunnel C.Tunnel) {
+	mixedMux.Lock()
+	defer mixedMux.Unlock()
+	addr := genAddr(bindAddress, port, allowLan)
+	if mixedListener != nil && mixedUDPLister != nil &&
+		mixedListener.RawAddress() == addr && mixedUDPLister.RawAddress() == addr {
+		return
+	}
+	if mixedListener != nil {
+		_ = mixedListener.Close()
+		mixedListener = nil
+	}
+	if mixedUDPLister != nil {
+		_ = mixedUDPLister.Close()
+		mixedUDPLister = nil
+	}
+	if portIsZero(addr) {
+		return
+	}
+	tcpListener, err := mixed.New(addr, tunnel)
+	if err != nil {
+		log.Errorln("Start Mixed(http+socks) server error: %s", err)
+		return
+	}
+	udpListener, err := socks.NewUDP(addr, tunnel)
+	if err != nil {
+		_ = tcpListener.Close()
+		log.Errorln("Start Mixed(http+socks) server error: %s", err)
+		return
+	}
+	mixedListener = tcpListener
+	mixedUDPLister = udpListener
+	log.Infoln("Mixed(http+socks) proxy listening at: %s", mixedListener.Address())
+}"""
+
+ORIGINAL_RECREATE_SOCKS = r"""func ReCreateSocks(port int, tunnel C.Tunnel) {
+	socksMux.Lock()
+	defer socksMux.Unlock()
+
+	var err error
+	defer func() {
+		if err != nil {
+			log.Errorln("Start SOCKS server error: %s", err.Error())
+		}
+	}()
+
+	addr := genAddr(bindAddress, port, allowLan)
+
+	shouldTCPIgnore := false
+	shouldUDPIgnore := false
+
+	if socksListener != nil {
+		if socksListener.RawAddress() != addr {
+			socksListener.Close()
+			socksListener = nil
+		} else {
+			shouldTCPIgnore = true
+		}
+	}
+
+	if socksUDPListener != nil {
+		if socksUDPListener.RawAddress() != addr {
+			socksUDPListener.Close()
+			socksUDPListener = nil
+		} else {
+			shouldUDPIgnore = true
+		}
+	}
+
+	if shouldTCPIgnore && shouldUDPIgnore {
+		return
+	}
+
+	if portIsZero(addr) {
+		return
+	}
+
+	tcpListener, err := socks.New(addr, tunnel)
+	if err != nil {
+		return
+	}
+
+	udpListener, err := socks.NewUDP(addr, tunnel)
+	if err != nil {
+		tcpListener.Close()
+		return
+	}
+
+	socksListener = tcpListener
+	socksUDPListener = udpListener
+
+	log.Infoln("SOCKS proxy listening at: %s", socksListener.Address())
+}"""
+PATCHED_RECREATE_SOCKS = r"""func ReCreateSocks(port int, tunnel C.Tunnel) {
+	socksMux.Lock()
+	defer socksMux.Unlock()
+	addr := genAddr(bindAddress, port, allowLan)
+	if socksListener != nil && socksUDPListener != nil &&
+		socksListener.RawAddress() == addr && socksUDPListener.RawAddress() == addr {
+		return
+	}
+	if socksListener != nil {
+		_ = socksListener.Close()
+		socksListener = nil
+	}
+	if socksUDPListener != nil {
+		_ = socksUDPListener.Close()
+		socksUDPListener = nil
+	}
+	if portIsZero(addr) {
+		return
+	}
+	tcpListener, err := socks.New(addr, tunnel)
+	if err != nil {
+		log.Errorln("Start SOCKS server error: %s", err)
+		return
+	}
+	udpListener, err := socks.NewUDP(addr, tunnel)
+	if err != nil {
+		_ = tcpListener.Close()
+		log.Errorln("Start SOCKS server error: %s", err)
+		return
+	}
+	socksListener = tcpListener
+	socksUDPListener = udpListener
+	log.Infoln("SOCKS proxy listening at: %s", socksListener.Address())
+}"""
+
+GLOBAL_LISTENER_VALIDATION = r"""// ValidateGlobalListenerPorts confirms both halves of SOCKS/Mixed/TProxy.
+// A TCP address alone is not evidence that the paired UDP bind succeeded.
+func ValidateGlobalListenerPorts(expected Ports) error {
+	check := func(name string, port int, active bool) error {
+		if !active {
+			return fmt.Errorf("global %s listener on port %d is not ready", name, port)
+		}
+		return nil
+	}
+	httpMux.Lock()
+	ready := (expected.Port == 0 && httpListener == nil) || (expected.Port > 0 && httpListener != nil && httpListener.RawAddress() == genAddr(bindAddress, expected.Port, allowLan))
+	httpMux.Unlock()
+	if err := check("HTTP", expected.Port, ready); err != nil {
+		return err
+	}
+	socksMux.Lock()
+	ready = (expected.SocksPort == 0 && socksListener == nil && socksUDPListener == nil) || (expected.SocksPort > 0 && socksListener != nil && socksUDPListener != nil && socksListener.RawAddress() == genAddr(bindAddress, expected.SocksPort, allowLan) && socksUDPListener.RawAddress() == genAddr(bindAddress, expected.SocksPort, allowLan))
+	socksMux.Unlock()
+	if err := check("SOCKS TCP/UDP", expected.SocksPort, ready); err != nil {
+		return err
+	}
+	mixedMux.Lock()
+	ready = (expected.MixedPort == 0 && mixedListener == nil && mixedUDPLister == nil) || (expected.MixedPort > 0 && mixedListener != nil && mixedUDPLister != nil && mixedListener.RawAddress() == genAddr(bindAddress, expected.MixedPort, allowLan) && mixedUDPLister.RawAddress() == genAddr(bindAddress, expected.MixedPort, allowLan))
+	mixedMux.Unlock()
+	if err := check("Mixed TCP/UDP", expected.MixedPort, ready); err != nil {
+		return err
+	}
+	redirMux.Lock()
+	// Darwin supports TCP redirection; the upstream optional UDP attempt may fail.
+	ready = (expected.RedirPort == 0 && redirListener == nil) || (expected.RedirPort > 0 && redirListener != nil && redirListener.RawAddress() == genAddr(bindAddress, expected.RedirPort, allowLan))
+	redirMux.Unlock()
+	if err := check("Redir TCP", expected.RedirPort, ready); err != nil {
+		return err
+	}
+	tproxyMux.Lock()
+	ready = (expected.TProxyPort == 0 && tproxyListener == nil && tproxyUDPListener == nil) || (expected.TProxyPort > 0 && tproxyListener != nil && tproxyUDPListener != nil && tproxyListener.RawAddress() == genAddr(bindAddress, expected.TProxyPort, allowLan) && tproxyUDPListener.RawAddress() == genAddr(bindAddress, expected.TProxyPort, allowLan))
+	tproxyMux.Unlock()
+	return check("TProxy TCP/UDP", expected.TProxyPort, ready)
+}
+
+// ValidateAdditionalGlobalListeners checks URL-based and QUIC globals, whose
+// actual readiness cannot be inferred from the five basic proxy ports.
+func ValidateAdditionalGlobalListeners(ssRaw, vmessRaw string, expectedTuic LC.TuicServer) error {
+	return ValidateSelectedGlobalListeners(&ssRaw, &vmessRaw, &expectedTuic)
+}
+
+// PATCH must not reconstruct an unchanged URL global from its JSON readback.
+func ValidateSelectedGlobalListeners(ssRaw, vmessRaw *string, expectedTuic *LC.TuicServer) error {
+	if ssRaw != nil {
+		ssMux.Lock()
+		ssReady := shadowSocksListener == nil
+		if *ssRaw != "" {
+			addr, cipher, password, err := embedSS.ParseSSURL(*ssRaw)
+			if err != nil {
+				ssMux.Unlock()
+				return fmt.Errorf("global Shadowsocks config is invalid")
+			}
+			want := LC.ShadowsocksServer{Enable: true, Listen: addr, Cipher: cipher, Password: password, Udp: true}
+			ssReady = shadowSocksListener != nil && shadowSocksListener.Config() == want.String()
+		}
+		ssMux.Unlock()
+		if !ssReady {
+			return fmt.Errorf("global Shadowsocks listener is not ready")
+		}
+	}
+	if vmessRaw != nil {
+		vmessMux.Lock()
+		ready := vmessListener == nil
+		if *vmessRaw != "" {
+			addr, user, password, err := sing_vmess.ParseVmessURL(*vmessRaw)
+			if err != nil {
+				vmessMux.Unlock()
+				return fmt.Errorf("global VMess config is invalid")
+			}
+			want := LC.VmessServer{Enable: true, Listen: addr, Users: []LC.VmessUser{{Username: user, UUID: password, AlterID: 1}}}
+			ready = vmessListener != nil && vmessListener.Config() == want.String()
+		}
+		vmessMux.Unlock()
+		if !ready {
+			return fmt.Errorf("global VMess listener is not ready")
+		}
+	}
+	if expectedTuic != nil {
+		normalized := normalizeTuicConfig(*expectedTuic)
+		tuicMux.Lock()
+		ready := tuicListener == nil
+		if normalized.Enable {
+			ready = tuicListener != nil && tuicListener.Config().String() == normalized.String()
+		}
+		tuicMux.Unlock()
+		if !ready {
+			return fmt.Errorf("global TUIC listener is not ready")
+		}
+	}
+	return nil
+}
+
+// Match the defaults and datagram clamp applied by the pinned TUIC constructor.
+func normalizeTuicConfig(c LC.TuicServer) LC.TuicServer {
+	if c.MaxIdleTime == 0 {
+		c.MaxIdleTime = 15000
+	}
+	if c.AuthenticationTimeout == 0 {
+		c.AuthenticationTimeout = 1000
+	}
+	if c.CWND == 0 {
+		c.CWND = 32
+	}
+	if c.MaxUdpRelayPacketSize == 0 {
+		c.MaxUdpRelayPacketSize = 1500
+	}
+	overhead := tuicProtocol.PacketOverHeadV4
+	if len(c.Token) == 0 {
+		overhead = tuicProtocol.PacketOverHeadV5
+	}
+	maxSize := c.MaxUdpRelayPacketSize + overhead
+	if maxSize > 1400 {
+		maxSize = 1400
+	}
+	c.MaxUdpRelayPacketSize = maxSize - overhead
+	return c
+}"""
+RUNTIME_LISTENER_VALIDATION = r"""package executor
+
+import (
+	"github.com/metacubex/mihomo/config"
+	"github.com/metacubex/mihomo/listener"
+)
+
+// ValidateRuntimeListeners shares startup and reload readiness policy.
+func ValidateRuntimeListeners(cfg *config.Config, force bool) error {
+	mux.Lock()
+	defer mux.Unlock()
+	return validateRuntimeListeners(cfg, force)
+}
+func validateRuntimeListeners(cfg *config.Config, force bool) error {
+	if err := listener.ValidateInboundListeners(cfg.Listeners); err != nil {
+		return err
+	}
+	if !force {
+		return nil
+	} // Non-forced upstream API requests intentionally keep global listeners.
+	g := cfg.General
+	if err := listener.ValidateGlobalListenerPorts(listener.Ports{Port: g.Port, SocksPort: g.SocksPort, MixedPort: g.MixedPort, RedirPort: g.RedirPort, TProxyPort: g.TProxyPort}); err != nil {
+		return err
+	}
+	return listener.ValidateAdditionalGlobalListeners(g.ShadowSocksConfig, g.VmessConfig, g.TuicServer)
+}"""
+
+ORIGINAL_CONFIGS_APPLY = """\texecutor.ApplyConfig(cfg, force)
+\trender.NoContent(w, r)"""
+PATCHED_CONFIGS_APPLY = """\texecutor.ApplyConfig(cfg, force)
+\tif err := executor.ValidateRuntimeListeners(cfg, force); err != nil {
+\t\trender.Status(r, http.StatusBadRequest)
+\t\trender.JSON(w, r, newError(err.Error()))
+\t\treturn
+\t}
+\trender.NoContent(w, r)"""
 CACHEFILE_SOURCE_SHA256 = {
     "component/profile/cachefile/cache.go": "42dff0ec9817dd1abef1d50192e99e012b34cf49b0a6fab897b8fcec2061dc95",
     "component/profile/cachefile/storage.go": "7d4d232edd115890457605a217eb0a790d1a68d13084f8b0e92903ad6c1be4dc",
@@ -635,6 +1079,8 @@ type Server struct {
     service resolver.Service
     tcpServer *D.Server
     udpServer *D.Server
+    tcpDone <-chan struct{}
+    udpDone <-chan struct{}
 }
 
 func (s *Server) ServeDNS(w D.ResponseWriter, r *D.Msg) {
@@ -675,11 +1121,15 @@ func ReCreateServer(addr string, service resolver.Service) {
     }
     if server.tcpServer != nil {
         _ = server.tcpServer.Shutdown()
+        if server.tcpDone != nil { <-server.tcpDone }
         server.tcpServer = nil
+        server.tcpDone = nil
     }
     if server.udpServer != nil {
         _ = server.udpServer.Shutdown()
+        if server.udpDone != nil { <-server.udpDone }
         server.udpServer = nil
+        server.udpDone = nil
     }
     server.SetService(nil)
     address = ""
@@ -706,12 +1156,17 @@ func ReCreateServer(addr string, service resolver.Service) {
     current.tcpServer = &D.Server{Addr: addr, Listener: listener, Handler: current}
     server = current
     address = addr
-    start := func(protocol string, dnsServer *D.Server) bool {
+    start := func(protocol string, dnsServer *D.Server) (bool, <-chan struct{}) {
         started := make(chan bool, 1)
+        done := make(chan struct{})
         var once sync.Once
         notify := func(ready bool) { once.Do(func() { started <- ready }) }
         dnsServer.NotifyStartedFunc = func() { notify(true) }
         go func() {
+            // A second concurrent Close can return ErrClosed before the first
+            // Close has released the OS descriptor. Join this owner as well as
+            // the library's serving loop before declaring shutdown complete.
+            defer close(done)
             defer notify(false) // Exit before startup is a failure, not readiness.
             if err := dnsServer.ActivateAndServe(); err != nil {
                 log.Errorln("Start DNS server(%s) error: %s", protocol, err.Error())
@@ -719,16 +1174,22 @@ func ReCreateServer(addr string, service resolver.Service) {
             if dnsServer.PacketConn != nil { _ = dnsServer.PacketConn.Close() }
             if dnsServer.Listener != nil { _ = dnsServer.Listener.Close() }
         }()
-        return <-started
+        return <-started, done
     }
-    if !start("UDP", current.udpServer) {
+    var udpReady, tcpReady bool
+    udpReady, current.udpDone = start("UDP", current.udpServer)
+    if !udpReady {
         _ = listener.Close()
+        <-current.udpDone
         current.SetService(nil)
         address = ""
         return
     }
-    if !start("TCP", current.tcpServer) {
+    tcpReady, current.tcpDone = start("TCP", current.tcpServer)
+    if !tcpReady {
         _ = current.udpServer.Shutdown()
+        <-current.udpDone
+        <-current.tcpDone
         current.SetService(nil)
         address = ""
         return
@@ -765,6 +1226,57 @@ def _patch_queue_races(mihomo_root: pathlib.Path) -> None:
     os.chmod(queue_path, queue_path.stat().st_mode | stat.S_IWUSR)
     queue_path.write_text(source, encoding="utf-8")
     subprocess.check_call(["gofmt", "-w", str(queue_path)])
+
+
+def _patch_inbound_listener_transactions(mihomo_root: pathlib.Path) -> None:
+    listener_path = mihomo_root / "listener" / "listener.go"
+    original = listener_path.read_text(encoding="utf-8")
+    actual_hash = hashlib.sha256(original.encode("utf-8")).hexdigest()
+    if actual_hash != INBOUND_LISTENER_SOURCE_SHA256:
+        raise RuntimeError(
+            f"Pinned inbound listener source changed at {listener_path}; "
+            "review the ClashFX inbound listener transaction overlay"
+        )
+
+    source = _replace_once(
+        original,
+        '''import (
+	"fmt"
+	"net"
+	"strconv"
+	"strings"
+	"sync"''',
+        '''import (
+	"fmt"
+	"net"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"''',
+        "pinned inbound listener imports",
+    )
+    source = _replace_once(
+        source,
+        ORIGINAL_PATCH_INBOUND_LISTENERS,
+        PATCHED_PATCH_INBOUND_LISTENERS,
+        "PatchInboundListeners implementation",
+    )
+    source = _replace_once(source, '"github.com/metacubex/mihomo/listener/tuic"', '"github.com/metacubex/mihomo/listener/tuic"\n\ttuicProtocol "github.com/metacubex/mihomo/transport/tuic"', "TUIC normalization constants")
+    source = _replace_once(source, "func ReCreateTuic(config LC.TuicServer, tunnel C.Tunnel) {", "func ReCreateTuic(config LC.TuicServer, tunnel C.Tunnel) {\n\tconfig = normalizeTuicConfig(config)", "TUIC stable config normalization")
+    source = _replace_once(source, ORIGINAL_RECREATE_MIXED, PATCHED_RECREATE_MIXED, "atomic Mixed TCP/UDP pair")
+    source = _replace_once(source, ORIGINAL_RECREATE_SOCKS, PATCHED_RECREATE_SOCKS, "atomic SOCKS TCP/UDP pair")
+    source += GLOBAL_LISTENER_VALIDATION
+    os.chmod(listener_path.parent, listener_path.parent.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
+    os.chmod(listener_path, listener_path.stat().st_mode | stat.S_IWUSR)
+    listener_path.write_text(source, encoding="utf-8")
+    subprocess.check_call(["gofmt", "-w", str(listener_path)])
+
+    executor_path = mihomo_root / "hub" / "executor" / "clashfx_listener_validation.go"
+    if executor_path.exists():
+        raise RuntimeError("Pinned core unexpectedly contains ClashFX listener readiness helper")
+    os.chmod(executor_path.parent, executor_path.parent.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
+    executor_path.write_text(RUNTIME_LISTENER_VALIDATION, encoding="utf-8")
+    subprocess.check_call(["gofmt", "-w", str(executor_path)])
 
 
 def _patch_probe_diagnostics(mihomo_root: pathlib.Path) -> None:
@@ -935,8 +1447,16 @@ def core_modfile() -> Iterator[str]:
             mihomo_original.replace(ORIGINAL_URL_TEST, PATCHED_URL_TEST),
             encoding="utf-8",
         )
+        patch_auth_store(mihomo_replacement_module)
         _patch_cachefile_lifecycle(mihomo_replacement_module)
         _patch_queue_races(mihomo_replacement_module)
+        _patch_inbound_listener_transactions(mihomo_replacement_module)
+        patch_listener_constructor_cleanup(mihomo_replacement_module)
+        patch_tproxy_constructor_cleanup(mihomo_replacement_module)
+        patch_runtime_config_apply(mihomo_replacement_module)
+        patch_inbound_access_state(mihomo_replacement_module)
+        patch_startup_selection_overlay(mihomo_replacement_module)
+        patch_route_lifecycle(mihomo_replacement_module)
         _patch_dns_server_lifecycle(mihomo_replacement_module)
         _patch_probe_diagnostics(mihomo_replacement_module)
 

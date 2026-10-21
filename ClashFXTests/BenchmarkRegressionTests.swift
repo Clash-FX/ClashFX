@@ -1954,6 +1954,135 @@ final class BenchmarkRegressionTests: XCTestCase {
         )
     }
 
+    func testSelectorUnavailableWithoutLeafStopsMatchingWhenRouteResolves() {
+        let url = "https://benchmark.example.test"
+        let unresolved = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["Automatic"], "now": "Automatic", "history": []],
+            ["name": "Automatic", "type": "URLTest", "all": ["Leaf"], "history": []],
+            ["name": "Leaf", "type": "Vless", "id": "leaf-v1", "history": []]
+        ])
+        let resolved = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["Automatic"], "now": "Automatic", "history": []],
+            ["name": "Automatic", "type": "URLTest", "all": ["Leaf"], "now": "Leaf", "history": []],
+            ["name": "Leaf", "type": "Vless", "id": "leaf-v1", "history": []]
+        ])
+        let unavailable = SelectorBenchmarkPresentation(
+            selectorName: "Selector", rowName: "Automatic", resolvedLeafName: nil,
+            benchmarkURL: url, sessionIdentifier: UUID(),
+            rowState: .unavailable(displayName: "Automatic")
+        )
+        XCTAssertTrue(unavailable.matches(snapshot: unresolved, currentBenchmarkURL: url))
+        XCTAssertFalse(unavailable.matches(snapshot: resolved, currentBenchmarkURL: url))
+
+        let testing = SelectorBenchmarkPresentation(
+            selectorName: "Selector", rowName: "Automatic", resolvedLeafName: nil,
+            benchmarkURL: url, sessionIdentifier: UUID(),
+            rowState: .testing(displayName: "Automatic")
+        )
+        XCTAssertTrue(testing.matches(snapshot: resolved, currentBenchmarkURL: url))
+    }
+
+    func testSelectorPresentationKeepsSameLeafFailureAndTimeoutEvidence() throws {
+        let url = "https://benchmark.example.test"
+        let response = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["Leaf"], "now": "Leaf", "history": []],
+            ["name": "Leaf", "type": "Vless", "id": "leaf-v1", "history": []]
+        ])
+        let leaf = try XCTUnwrap(response.proxiesMap["Leaf"])
+        for state: ProxyBenchmarkRowState in [
+            .failed(displayName: "Selector"),
+            .timedOut(displayName: "Selector")
+        ] {
+            let presentation = SelectorBenchmarkPresentation(
+                selectorName: "Selector", rowName: "Selector",
+                resolvedLeafName: leaf.name, resolvedCoreID: leaf.id,
+                resolvedLeafIdentity: LeafProxyBenchmarkIdentity(proxy: leaf),
+                benchmarkURL: url, sessionIdentifier: UUID(), rowState: state
+            )
+            XCTAssertTrue(presentation.matches(snapshot: response, currentBenchmarkURL: url))
+        }
+    }
+
+    func testSelectorAndAutomaticChildEvidenceRejectProviderReplacementWithoutCoreID() throws {
+        let url = "https://benchmark.example.test"
+        let response = snapshot([
+            ["name": "Selector", "type": "Selector", "all": ["Automatic"], "now": "Automatic", "history": []],
+            ["name": "Automatic", "type": "URLTest", "all": ["Leaf"], "now": "Leaf", "history": [], "testUrl": url],
+            ["name": "Leaf", "type": "Vless", "history": []]
+        ])
+        func installProvider(_ providerName: String) throws {
+            let data = try JSONSerialization.data(withJSONObject: ["providers": [providerName: [
+                "name": providerName, "type": "Proxy", "vehicleType": "HTTP",
+                "proxies": [["name": "Leaf", "type": "Vless", "history": []]]
+            ]]])
+            try response.updateProvider(ClashProviderResp.decoder.decode(ClashProviderResp.self, from: data))
+        }
+
+        try installProvider("Provider P1")
+        let p1Leaf = try XCTUnwrap(response.proxiesMap["Leaf"])
+        let group = try XCTUnwrap(response.proxiesMap["Automatic"])
+        XCTAssertNil(p1Leaf.id)
+        let presentation = SelectorBenchmarkPresentation(
+            selectorName: "Selector", rowName: "Automatic",
+            resolvedLeafName: p1Leaf.name, resolvedCoreID: p1Leaf.id,
+            resolvedLeafIdentity: LeafProxyBenchmarkIdentity(proxy: p1Leaf),
+            benchmarkURL: url, sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Automatic", delay: 486)
+        )
+        XCTAssertTrue(presentation.matches(snapshot: response, currentBenchmarkURL: url))
+        let groupIdentity = AutomaticGroupBenchmarkIdentity(group: group, fallbackBenchmarkURL: url)
+        XCTAssertNil(groupIdentity.memberIDs["Leaf"])
+        XCTAssertEqual(groupIdentity.memberIdentities["Leaf"], LeafProxyBenchmarkIdentity(proxy: p1Leaf))
+        let child = AutomaticGroupChildBenchmarkPresentation(
+            identity: groupIdentity, rowName: "Leaf", sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Leaf", delay: 90)
+        )
+        XCTAssertNotNil(child.reconciled(group: group, fallbackBenchmarkURL: url))
+
+        try installProvider("Provider P2")
+        let p2Leaf = try XCTUnwrap(response.proxiesMap["Leaf"])
+        XCTAssertNil(p2Leaf.id)
+        XCTAssertNotEqual(LeafProxyBenchmarkIdentity(proxy: p1Leaf), LeafProxyBenchmarkIdentity(proxy: p2Leaf))
+        XCTAssertFalse(presentation.matches(snapshot: response, currentBenchmarkURL: url))
+        XCTAssertNotEqual(groupIdentity, AutomaticGroupBenchmarkIdentity(group: group, fallbackBenchmarkURL: url))
+        XCTAssertNil(child.reconciled(group: group, fallbackBenchmarkURL: url))
+    }
+
+    func testSelectorAncestorPresentationRequiresCapturedPathButDirectLeafDoesNot() throws {
+        let url = "https://benchmark.example.test"
+        func topology(inner: String) -> ClashProxyResp {
+            snapshot([
+                ["name": "Selector", "type": "Selector", "all": ["Automatic"], "now": "Automatic", "history": []],
+                ["name": "Automatic", "type": "URLTest", "all": ["Inner-A", "Inner-B"], "now": inner, "history": []],
+                ["name": "Inner-A", "type": "Selector", "all": ["Leaf"], "now": "Leaf", "history": []],
+                ["name": "Inner-B", "type": "Selector", "all": ["Leaf"], "now": "Leaf", "history": []],
+                ["name": "Leaf", "type": "Vless", "id": "leaf-v1", "history": []]
+            ])
+        }
+        let pathA = topology(inner: "Inner-A")
+        let pathB = topology(inner: "Inner-B")
+        let leaf = try XCTUnwrap(pathA.proxiesMap["Leaf"])
+        let ancestor = SelectorBenchmarkPresentation(
+            selectorName: "Selector", rowName: "Automatic",
+            resolvedLeafName: leaf.name, resolvedCoreID: leaf.id,
+            resolvedPath: ["Automatic", "Inner-A", "Leaf"],
+            resolvedLeafIdentity: LeafProxyBenchmarkIdentity(proxy: leaf),
+            benchmarkURL: url, sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Automatic", delay: 486)
+        )
+        XCTAssertTrue(ancestor.matches(snapshot: pathA, currentBenchmarkURL: url))
+        XCTAssertFalse(ancestor.matches(snapshot: pathB, currentBenchmarkURL: url))
+
+        let directLeaf = SelectorBenchmarkPresentation(
+            selectorName: "Selector", rowName: "Leaf",
+            resolvedLeafName: leaf.name, resolvedCoreID: leaf.id,
+            resolvedLeafIdentity: LeafProxyBenchmarkIdentity(proxy: leaf),
+            benchmarkURL: url, sessionIdentifier: UUID(),
+            rowState: .measured(displayName: "Leaf", delay: 73)
+        )
+        XCTAssertTrue(directLeaf.matches(snapshot: pathB, currentBenchmarkURL: url))
+    }
+
     func testSelectorPresentationRejectsAutomaticGroupsDifferentURL() {
         let response = snapshot([
             ["name": "Selector", "type": "Selector", "all": ["Automatic"], "now": "Automatic", "history": []],
@@ -2993,24 +3122,7 @@ final class CoreLogGuardTests: XCTestCase {
         XCTAssertEqual(EnhancedModeDNSReadinessPolicy.framedMessageLength(prefix: [0, 12]), 12)
     }
 
-    func testEnhancedReloadPreservesActiveDNSPortAndLifecycleCompletionIdentity() throws {
-        var config: [String: Any] = [
-            "external-controller": "127.0.0.1:19222",
-            "tun": ["enable": true],
-            "dns": [
-                "listen": "127.0.0.1:23000",
-                "nameserver": ["127.0.0.1:23000", "https://dns.example/query"],
-                "nameserver-policy": ["example.com": "udp://localhost:23000"]
-            ]
-        ]
-        XCTAssertTrue(EnhancedModeDNSReadinessPolicy.preserveDNSListenPort(in: &config, port: 23456))
-        let dns = try XCTUnwrap(config["dns"] as? [String: Any])
-        XCTAssertEqual(dns["listen"] as? String, "127.0.0.1:23456")
-        XCTAssertEqual(dns["nameserver"] as? [String], ["127.0.0.1:23456", "https://dns.example/query"])
-        XCTAssertEqual((dns["nameserver-policy"] as? [String: String])?["example.com"], "udp://localhost:23456")
-        XCTAssertEqual((config["tun"] as? [String: Bool])?["enable"], true)
-        XCTAssertEqual(config["external-controller"] as? String, "127.0.0.1:19222")
-
+    func testEnhancedReloadPreservesLifecycleCompletionIdentity() {
         let currentID = UUID()
         XCTAssertFalse(EnhancedModeLifecyclePolicy.finishConfigUpdateShouldApply(
             transactionID: UUID(),

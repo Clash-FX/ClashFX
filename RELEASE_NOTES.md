@@ -1,19 +1,25 @@
-## ClashFX 1.1.11.13 (Lab)
+## ClashFX 1.1.11.14 (Lab)
 
-### Improvements
+### 中文
 
-- **Show the Selected Proxy Group by Default** — If Netflix selects Proxies and Proxies selects Japan 27, the outer menu now shows Proxies, matching the submenu checkmark. Directly selected nodes still show their own names.
-- **Choose Final-Node Display in Settings** — Enable “Show Final Node in Proxy Menu” in General settings to display the resolved final node. The preference is saved and existing menu rows update immediately.
-- **Keep Route Details Available** — Route tooltips and accessibility help retain the full selection path. Automatic-selection and manual-priority labels remain visible; benchmark evidence continues to follow the core-resolved route.
+- 修复启动清理遗漏旧核心造成缓存数据库锁超时，以及测试核心缺少 gVisor 时卡在核心切换的问题。
+- 等待 DNS 监听协程完成清理后再确认停止，修复快速启停时端口仍短暂占用的问题。
+- 统一启动与重载的端口复用、冲突检查和 DNS 引用处理，补强 IPv6 与自定义配置校验；按实际绑定地址检查端口，避免无关 IPv6/LAN UDP 服务误拦回环启动。
+- 配置切换采用事务校验与回滚；自动恢复保留节点选择，失败时不静默绕过代理。
+- 补强 Selector 并发、provider 节点移除与恢复、快速启停和 API/PATCH 失败处理，并修复重载与 HTTP 连接读取认证器之间的并发竞争。
+- 修复自动组换路后的测速展示，避免历史、失败与不同节点或 URL 的结果互相覆盖。
+- 配置切换后保留 Claude 节点锁定；修复就绪检查中的后台 AppKit 访问。
 
-Validation: 45 focused AppKit/menu tests passed and the app built locally. Source CI runs the isolated regression suite, universal package compatibility checks and existing Helper/core/TUN gates before tagging. Local checks used Xcode 27 with a command-line macOS 12 deployment override; the source still targets macOS 10.14. Runtime testing on macOS 10.14 is outside demonstrated coverage.
+本版本为实验性 Lab。最低系统要求保持 macOS 10.14（Apple Silicon 为 macOS 11）。
 
----
+### English
 
-### 改进
+- Fix stale-core cleanup missing a trailing-slash home path and leaving the cache database locked; verify gVisor capabilities before building or accepting an enabled TUN configuration.
+- Wait for DNS cleanup owners to finish before confirming shutdown, preventing brief port retention during rapid restart.
+- Align startup and reload port reuse, conflict checks and DNS references, including IPv6 and custom configurations. Probe the actual bind address so unrelated IPv6/LAN UDP services do not reject a loopback-only startup.
+- Validate configuration changes transactionally with rollback. Preserve automatic-recovery selections and never silently fall back to bypass mode after failure.
+- Harden Selector concurrency, provider removal/reinsertion, rapid lifecycle operations and API/PATCH failure handling; synchronize authenticator replacement with HTTP connection reads during reload.
+- Keep benchmark displays scoped to the current path, node and URL as automatic groups change routes.
+- Preserve Claude lock across configuration changes and keep Helper acquisition on the main queue during readiness checks.
 
-- **默认显示实际选择的策略组** — 例如 Netflix 选择 Proxies、Proxies 再选择 Japan 27 时，外层菜单显示 Proxies，与子菜单勾选一致；直接选择节点时仍显示节点名。
-- **在设置中选择显示最终节点** — 通用设置新增“代理菜单显示最终节点”，默认关闭。偏好会保存，切换后现有菜单行即时更新。
-- **保留完整路径说明** — 悬停与辅助功能说明仍展示完整选择路径；自动选择／手动优先标记保留，测速证据仍跟随核心解析出的实际路径。
-
-验证：45 项 AppKit／菜单专项测试及本地 App 构建通过。打标签前，源码 CI 运行完整隔离回归、通用包兼容性检查及既有 Helper／核心／TUN 验收。本地使用 Xcode 27，并仅在命令行将部署目标覆盖为 macOS 12；源项目仍支持 macOS 10.14。未覆盖 macOS 10.14 实机运行。
+Experimental Lab release. Minimum macOS remains 10.14 (macOS 11 for Apple Silicon).

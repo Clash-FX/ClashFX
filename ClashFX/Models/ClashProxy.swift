@@ -441,6 +441,8 @@ struct SelectorBenchmarkPresentation {
     let rowName: ClashProxyName
     let resolvedLeafName: ClashProxyName?
     let resolvedCoreID: String?
+    let resolvedPath: [ClashProxyName]?
+    let resolvedLeafIdentity: LeafProxyBenchmarkIdentity?
     let benchmarkURL: String
     let sessionIdentifier: UUID
     let rowState: ProxyBenchmarkRowState
@@ -455,6 +457,8 @@ struct SelectorBenchmarkPresentation {
         rowName: ClashProxyName,
         resolvedLeafName: ClashProxyName?,
         resolvedCoreID: String? = nil,
+        resolvedPath: [ClashProxyName]? = nil,
+        resolvedLeafIdentity: LeafProxyBenchmarkIdentity? = nil,
         benchmarkURL: String,
         sessionIdentifier: UUID,
         rowState: ProxyBenchmarkRowState,
@@ -464,6 +468,12 @@ struct SelectorBenchmarkPresentation {
         self.rowName = rowName
         self.resolvedLeafName = resolvedLeafName
         self.resolvedCoreID = resolvedCoreID
+        self.resolvedPath = resolvedPath
+        self.resolvedLeafIdentity = resolvedLeafIdentity ?? resolvedLeafName.map {
+            LeafProxyBenchmarkIdentity(
+                endpoint: .inline, providerName: nil, proxyName: $0, coreID: resolvedCoreID
+            )
+        }
         self.benchmarkURL = benchmarkURL
         self.sessionIdentifier = sessionIdentifier
         self.rowState = rowState
@@ -474,17 +484,32 @@ struct SelectorBenchmarkPresentation {
         with snapshot: ClashProxyResp,
         currentBenchmarkURL: String
     ) -> SelectorBenchmarkPresentation {
+        return matches(snapshot: snapshot, currentBenchmarkURL: currentBenchmarkURL) ? self : unavailable()
+    }
+
+    func matches(snapshot: ClashProxyResp, currentBenchmarkURL: String) -> Bool {
         guard BenchmarkConditions(url: benchmarkURL) == BenchmarkConditions(url: currentBenchmarkURL) else {
-            return unavailable()
+            return false
         }
-        guard let resolvedLeafName else {
-            return self
+        guard let resolvedLeafIdentity else {
+            switch rowState {
+            case .testing:
+                // A deferred automatic row can remain pending until its retest settles.
+                return true
+            case .unavailable:
+                guard case let .unavailable(path, _) = snapshot.resolveSelectedPath(from: rowName) else {
+                    return false
+                }
+                return resolvedPath.map { $0 == path } ?? true
+            case .measured, .failed, .timedOut:
+                return false
+            }
         }
-        guard case let .resolved(_, leaf) = snapshot.resolveSelectedPath(from: rowName),
-              leaf.name == resolvedLeafName, leaf.id == resolvedCoreID else {
-            return unavailable()
+        guard case let .resolved(path, leaf) = snapshot.resolveSelectedPath(from: rowName),
+              LeafProxyBenchmarkIdentity(proxy: leaf) == resolvedLeafIdentity else {
+            return false
         }
-        return self
+        return resolvedPath.map { $0 == path } ?? true
     }
 
     private func unavailable() -> SelectorBenchmarkPresentation {
@@ -497,6 +522,8 @@ struct SelectorBenchmarkPresentation {
                 rowName: rowName,
                 resolvedLeafName: resolvedLeafName,
                 resolvedCoreID: resolvedCoreID,
+                resolvedPath: resolvedPath,
+                resolvedLeafIdentity: resolvedLeafIdentity,
                 benchmarkURL: benchmarkURL,
                 sessionIdentifier: sessionIdentifier,
                 rowState: .unavailable(displayName: rowName),
@@ -512,12 +539,20 @@ struct AutomaticGroupBenchmarkIdentity: Equatable {
     let benchmarkURL: String
     let expectedStatus: String?
     let memberIDs: [String: String]
+    let memberIdentities: [ClashProxyName: LeafProxyBenchmarkIdentity]
 
     init(group: ClashProxy, fallbackBenchmarkURL: String) {
         groupName = group.name
         members = group.all ?? []
         memberIDs = (group.all ?? []).reduce(into: [:]) { ids, name in
             if let id = group.enclosingResp?.proxiesMap[name]?.id { ids[name] = id }
+        }
+        memberIdentities = (group.all ?? []).reduce(
+            into: [ClashProxyName: LeafProxyBenchmarkIdentity]()
+        ) { identities, name in
+            guard let proxy = group.enclosingResp?.proxiesMap[name],
+                  proxy.all == nil, !ClashProxyType.isProxyGroup(proxy) else { return }
+            identities[name] = LeafProxyBenchmarkIdentity(proxy: proxy)
         }
         benchmarkURL = group.effectiveBenchmarkURL(fallback: fallbackBenchmarkURL)
         expectedStatus = group.expectedStatus.flatMap {
@@ -532,6 +567,8 @@ struct AutomaticGroupChildBenchmarkPresentation {
 
     let identity: AutomaticGroupBenchmarkIdentity
     let rowName: ClashProxyName
+    let resolvedPath: [ClashProxyName]?
+    let resolvedLeafIdentity: LeafProxyBenchmarkIdentity?
     let sessionIdentifier: UUID
     let rowState: ProxyBenchmarkRowState
     let publishedAt: Date
@@ -542,11 +579,15 @@ struct AutomaticGroupChildBenchmarkPresentation {
 
     init(identity: AutomaticGroupBenchmarkIdentity,
          rowName: ClashProxyName,
+         resolvedPath: [ClashProxyName]? = nil,
+         resolvedLeafIdentity: LeafProxyBenchmarkIdentity? = nil,
          sessionIdentifier: UUID,
          rowState: ProxyBenchmarkRowState,
          publishedAt: Date = .init()) {
         self.identity = identity
         self.rowName = rowName
+        self.resolvedPath = resolvedPath
+        self.resolvedLeafIdentity = resolvedLeafIdentity ?? identity.memberIdentities[rowName]
         self.sessionIdentifier = sessionIdentifier
         self.rowState = rowState
         self.publishedAt = publishedAt
@@ -560,7 +601,17 @@ struct AutomaticGroupChildBenchmarkPresentation {
             fallbackBenchmarkURL: fallbackBenchmarkURL
         ),
             identity.members.contains(rowName) else { return nil }
-        return self
+        if case .testing = rowState { return self }
+        guard let snapshot = group.enclosingResp else { return nil }
+        switch snapshot.resolveSelectedPath(from: rowName) {
+        case let .resolved(path, leaf):
+            guard LeafProxyBenchmarkIdentity(proxy: leaf) == resolvedLeafIdentity,
+                  resolvedPath.map({ $0 == path }) ?? true else { return nil }
+            return self
+        case .unavailable:
+            guard resolvedLeafIdentity == nil, case .unavailable = rowState else { return nil }
+            return self
+        }
     }
 }
 

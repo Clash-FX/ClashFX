@@ -75,12 +75,13 @@ enum SelectorBenchmarkPresentationStore {
         dispatchPrecondition(condition: .onQueue(.main))
         let key = Key(selectorName: selectorName, rowName: rowName)
         guard let current = presentations[key] else { return nil }
-        let reconciled = current.reconciled(
-            with: snapshot,
-            currentBenchmarkURL: currentBenchmarkURL
-        )
-        presentations[key] = reconciled
-        return reconciled
+        // Losing a path/identity/URL match invalidates evidence; it is not a
+        // new failed probe on the current leaf. Let matching leaf evidence win.
+        guard current.matches(snapshot: snapshot, currentBenchmarkURL: currentBenchmarkURL) else {
+            presentations[key] = nil
+            return nil
+        }
+        return current
     }
 
     static func clear(selectorName: ClashProxyName) {
@@ -119,9 +120,12 @@ enum AutomaticChildBenchmarkStore {
         )
         presentations = presentations.filter { $0.key.groupName != group.name }
         for rowName in identity.members {
+            let binding = resolvedBinding(for: rowName, in: group)
             publish(AutomaticGroupChildBenchmarkPresentation(
                 identity: identity,
                 rowName: rowName,
+                resolvedPath: binding?.path,
+                resolvedLeafIdentity: binding?.identity,
                 sessionIdentifier: sessionIdentifier,
                 rowState: .testing(displayName: rowName)
             ))
@@ -147,6 +151,7 @@ enum AutomaticChildBenchmarkStore {
                     && identity.members.contains(key.rowName))
         }
         for rowName in identity.members {
+            let binding = resolvedBinding(for: rowName, in: group)
             let state: ProxyBenchmarkRowState
             let proxy = group.enclosingResp?.proxiesMap[rowName]
             if rowName == "COMPATIBLE" || proxy.map(ClashProxyType.isCompatibilityFallback) == true {
@@ -168,6 +173,8 @@ enum AutomaticChildBenchmarkStore {
             publish(AutomaticGroupChildBenchmarkPresentation(
                 identity: identity,
                 rowName: rowName,
+                resolvedPath: binding?.path,
+                resolvedLeafIdentity: binding?.identity,
                 sessionIdentifier: sessionIdentifier,
                 rowState: state
             ))
@@ -186,6 +193,8 @@ enum AutomaticChildBenchmarkStore {
             publish(AutomaticGroupChildBenchmarkPresentation(
                 identity: presentation.identity,
                 rowName: presentation.rowName,
+                resolvedPath: presentation.resolvedPath,
+                resolvedLeafIdentity: presentation.resolvedLeafIdentity,
                 sessionIdentifier: presentation.sessionIdentifier,
                 rowState: .unavailable(displayName: presentation.rowName)
             ))
@@ -222,6 +231,13 @@ enum AutomaticChildBenchmarkStore {
     static func clearAll() {
         dispatchPrecondition(condition: .onQueue(.main))
         presentations.removeAll()
+    }
+
+    private static func resolvedBinding(for rowName: ClashProxyName, in group: ClashProxy)
+        -> (path: [ClashProxyName], identity: LeafProxyBenchmarkIdentity)? {
+        guard let snapshot = group.enclosingResp,
+              case let .resolved(path, leaf) = snapshot.resolveSelectedPath(from: rowName) else { return nil }
+        return (path, LeafProxyBenchmarkIdentity(proxy: leaf))
     }
 
     private static func publish(_ presentation: AutomaticGroupChildBenchmarkPresentation) {

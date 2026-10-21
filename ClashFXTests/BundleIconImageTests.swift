@@ -86,11 +86,11 @@ final class BundleIconImageTests: XCTestCase {
         }
 
         var changedPixels = 0
-        for y in 0..<original.pixelsHigh {
-            for x in 0..<original.pixelsWide {
+        for y in 0 ..< original.pixelsHigh {
+            for x in 0 ..< original.pixelsWide {
                 let originalOffset = y * original.bytesPerRow + x * bytesPerPixel
                 let renderedOffset = y * rendered.bytesPerRow + x * bytesPerPixel
-                let pixelChanged = (0..<bytesPerPixel).contains { byteIndex in
+                let pixelChanged = (0 ..< bytesPerPixel).contains { byteIndex in
                     originalData[originalOffset + byteIndex] != renderedData[renderedOffset + byteIndex]
                 }
                 if pixelChanged {

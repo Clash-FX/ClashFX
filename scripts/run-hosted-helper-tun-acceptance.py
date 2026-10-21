@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import secrets
 import shlex
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -38,6 +40,11 @@ CORE_READY_TIMEOUT = 45
 CORE_EXIT_TIMEOUT = 15
 RESTORE_TIMEOUT = 25
 RPC_TIMEOUT = 35
+HELPER_RESTART_CYCLES = 3
+PORT_RELEASE_TIMEOUT = 20
+SYSTEM_DNS_QUERY_TIMEOUT = 12
+RUNTIME_CONFIG_ACCEPTANCE_TIMEOUT = 300
+FAKE_IP_NETWORK = ipaddress.ip_network("198.18.0.0/16")
 
 
 class UsageError(Exception):
@@ -167,6 +174,21 @@ def require_command_success(command, timeout=8):
         detail = (result.stderr or result.stdout).strip()
         raise RuntimeError(f"command failed ({result.returncode}): {command[0]}: {detail}")
     return result.stdout
+
+
+def metadata_attribute_names(path):
+    # CPython's os xattr API is Linux-only; use the native macOS tool.
+    output = require_command_success(["/usr/bin/xattr", "-s", str(path)], 8)
+    return set(output.splitlines())
+
+
+def metadata_attribute_write(path, name, value):
+    require_command_success(["/usr/bin/xattr", "-w", "-x", "-s", name, value.hex(), str(path)], 8)
+
+
+def metadata_attribute_read(path, name):
+    output = require_command_success(["/usr/bin/xattr", "-p", "-x", "-s", name, str(path)], 8)
+    return bytes.fromhex(output)
 
 
 def validate_build_inputs(raw_helper, raw_core, runner_temp):
@@ -321,19 +343,6 @@ def root_trust_file_is_safe(path, executable, expected_sha256=None):
     return True
 
 
-def list_file_xattrs(path):
-    return require_command_success(["/usr/bin/xattr", "-s", str(path)], 8).splitlines()
-
-
-def read_file_xattr(path, name):
-    value = require_command_success(["/usr/bin/xattr", "-s", "-p", "-x", name, str(path)], 8)
-    return bytes.fromhex("".join(value.split()))
-
-
-def write_file_xattr(path, name, value):
-    require_command_success(["/usr/bin/xattr", "-s", "-w", "-x", name, value.hex(), str(path)], 8)
-
-
 def file_sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -386,6 +395,7 @@ class AcceptanceHarness:
         self.helper_source_path = helper_path
         self.helper_path = INSTALLED_HELPER_PATH
         self.core_path = core_path
+        self.launchd_template = launchd_template
         self.artifact_dir = artifact_dir
         self.temp_root = temp_root
         self.lifecycle = lifecycle
@@ -401,6 +411,12 @@ class AcceptanceHarness:
         self.transaction_manifest = temp_root / "production-transaction-manifest.json"
         self.transaction_report_path = artifact_dir / "production-transaction.json"
         self.transaction_client_available = False
+        self.runtime_config_source = ROOT / "scripts" / "hosted-runtime-config-acceptance.swift"
+        self.runtime_config_executable = temp_root / "hosted-runtime-config-acceptance"
+        self.runtime_config_manifest = temp_root / "hosted-runtime-config-manifest.json"
+        self.runtime_config_artifact_dir = artifact_dir / "runtime-config-acceptance"
+        self.runtime_config_stdout = artifact_dir / "runtime-config-acceptance.stdout.log"
+        self.runtime_config_stderr = artifact_dir / "runtime-config-acceptance.stderr.log"
         self.launchd_plist = LAUNCH_DAEMON_PATH
         self.install_generator_source = temp_root / "legacy-install-generator.swift"
         self.install_generator = temp_root / "legacy-install-generator"
@@ -416,8 +432,8 @@ class AcceptanceHarness:
         self.generated_install_script_sha256 = None
         self.instrumented_install_script_sha256 = None
         self.expected_embedded_helper_sha256 = None
-        self.production_install_attempt = 0
-        self.helper_pid_before_reinstall = None
+        self.helper_stdout = temp_root / "helper.stdout.log"
+        self.helper_stderr = temp_root / "helper.stderr.log"
         self.bootstrapped = False
         self.bootstrap_attempted = False
         self.proxy_snapshot = None
@@ -434,6 +450,7 @@ class AcceptanceHarness:
         self.core_home_by_config = {}
         self.core_log_path = None
         self.core_log_paths = []
+        self.current_core_utuns = []
         self.created_utuns = []
         self.approved_client_cdhashes = {}
         self.trust_directory_created = None
@@ -445,7 +462,6 @@ class AcceptanceHarness:
             "scope": "real production Helper XPC + Helper-managed Mihomo TUN acceptance on a disposable GitHub-hosted macOS runner",
             "coverage": {
                 "productionLegacyHelperInstallation": False,
-                "legacyHelperReinstallation": False,
                 "metadataDecoratedAppInstallation": False,
                 "productionHelperXPC": False,
                 "adHocSignedClientBundleIdentity": False,
@@ -453,6 +469,7 @@ class AcceptanceHarness:
                 "unapprovedSameBundleIDRejected": False,
                 "rootImmutableCoreExecuted": False,
                 "helperManagedCore": False,
+                "rapidHelperCoreLifecycle": False,
                 "invalidConfigPathFailure": False,
                 "productionInvalidConfigRuntimeFailure": False,
                 "tunInterfaceAndRoutes": False,
@@ -461,8 +478,13 @@ class AcceptanceHarness:
                 "systemProxyExactRestore": False,
                 "systemDNSOverride": False,
                 "systemDNSExactRestore": False,
+                "systemDNSResolverThroughTUN": False,
                 "productionTransactionDNSOverrideRestore": False,
                 "fullClashFXAppLaunched": False,
+                "continuousRuntimeSwitches": False,
+                "runtimeConfigRollback": False,
+                "patchFailureRollback": False,
+                "stableRuntimeEndpoints": False,
                 "productionSystemProxyManager": False,
                 "ClaudeProxyLockTransactionRollback": False,
                 "disableErrorOrCallerCancellationInjection": False,
@@ -478,6 +500,7 @@ class AcceptanceHarness:
                 "FinderInfo and ResourceFork are injected into the probe app and core resource. An acceptance-only read assertion confirms the staged copy strips those two attributes while retaining an unrelated xattr; the source bundle metadata remains intact.",
                 "The actual installer-created launchd job starts the Helper. Its stdout and stderr are not redirected by the production launchd plist.",
                 "When the companion source is present and its checks pass, the production SystemProxyManager.swift and ClaudeProxyLockTransaction.swift sources run in the separate TxDriver.app client against the real Helper XPC service.",
+                "The standalone hosted runtime-config client exercises the production RuntimeConfigTransactionController and bounded DNS probe against the already-running Helper-managed TUN core; it does not launch the ClashFX GUI.",
                 "A separate ProtoProbe XPC pass verifies Helper DNS override and exact restoration; transaction-level DNS coverage is reported separately.",
                 "Helper disable-error and transaction caller-cancellation injection are not claimed as covered.",
                 "The core API's HTTP client explicitly bypasses ambient system proxies.",
@@ -635,6 +658,29 @@ class AcceptanceHarness:
         self.transaction_client_available = True
         self.report["coverage"]["adHocSignedClientBundleIdentity"] = True
 
+    def compile_runtime_config_acceptance(self):
+        sources = [
+            self.runtime_config_source,
+            ROOT / "ClashFX" / "General" / "Utils" / "RuntimeConfigTransactionController.swift",
+            ROOT / "ClashFX" / "General" / "Utils" / "RuntimeConfigReadbackPolicy.swift",
+            ROOT / "ClashFX" / "General" / "Utils" / "RuntimeConfigValidationRunner.swift",
+            ROOT / "ClashFX" / "General" / "Managers" / "TunDNSTransactionController.swift",
+            ROOT / "ClashFX" / "General" / "Managers" / "StartupProxyRecoveryPolicy.swift",
+            ROOT / "ClashFX" / "General" / "Utils" / "ManagedOperationSettlement.swift",
+        ]
+        missing = [str(path) for path in sources if not path.is_file()]
+        if missing:
+            raise RuntimeError("hosted runtime acceptance build sources are missing: " + ", ".join(missing))
+        require_command_success([
+            "/usr/bin/swiftc", "-swift-version", "5", "-parse-as-library",
+            *(str(path) for path in sources), "-framework", "Foundation",
+            "-o", str(self.runtime_config_executable),
+        ], 180)
+        self.report["build"]["runtimeConfigAcceptanceSource"] = str(self.runtime_config_source.relative_to(ROOT))
+        self.report["build"]["runtimeConfigAcceptancePath"] = str(self.runtime_config_executable)
+        self.report["build"]["runtimeConfigAcceptanceSHA256"] = hashlib.sha256(
+            self.runtime_config_executable.read_bytes()).hexdigest()
+
     def prepare_unapproved_client(self):
         shutil.copytree(self.probe_app, self.unapproved_app)
         marker = self.unapproved_app / "Contents" / "Resources" / "unapproved-client-marker"
@@ -666,13 +712,13 @@ class AcceptanceHarness:
         for path, attributes in decorations.items():
             if path.is_symlink() or not path.exists():
                 raise RuntimeError(f"metadata test target is missing or is a symlink: {path}")
-            existing = set(list_file_xattrs(path))
+            existing = metadata_attribute_names(path)
             collisions = sorted(existing.intersection(attributes))
             if collisions:
                 raise RuntimeError(f"refusing to overwrite preexisting test xattrs on {path}: {collisions}")
             for name, value in attributes.items():
-                write_file_xattr(path, name, value)
-            observed = {name: read_file_xattr(path, name)
+                metadata_attribute_write(path, name, value)
+            observed = {name: metadata_attribute_read(path, name)
                         for name in attributes}
             if observed != attributes:
                 raise RuntimeError(f"metadata decorations did not round-trip on {path}")
@@ -852,10 +898,14 @@ acceptanceUnrelated=$(/usr/bin/xattr -p {shlex.quote(UNRELATED_TEST_XATTR)} "$st
 [ "$acceptanceUnrelated" = {shlex.quote(UNRELATED_TEST_XATTR_VALUE.decode())} ] || exit 74
 printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained":true}}' > {shlex.quote(str(self.metadata_stage_report))}
 '''
-        marker = "# Check filesystem flag support while the existing service is still intact.\n"
-        if script.count(marker) != 1:
+        # Swift multiline strings strip their source indentation. Match the
+        # exact semantic marker while preserving its generated whitespace.
+        markers = list(re.finditer(
+            r"(?m)^[ \t]*# Check filesystem flag support while the existing service is still intact\.\n", script))
+        if len(markers) != 1:
             raise RuntimeError("production installer staging marker changed; cannot add metadata read assertion")
-        instrumented = script.replace(marker, observation + marker, 1)
+        offset = markers[0].start()
+        instrumented = script[:offset] + observation + script[offset:]
         self.instrumented_install_script.write_text(instrumented, encoding="utf-8")
         os.chmod(self.instrumented_install_script, 0o700)
         self.instrumented_install_script_sha256 = hashlib.sha256(instrumented.encode()).hexdigest()
@@ -1049,53 +1099,13 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
             "receiptSHA256": receipt_hash,
             "verifiedBeforeAcceptanceFixtureAugmentation": True,
         }
-        self.report.setdefault("productionInstallerReceiptHistory", []).append({
-            "attempt": self.production_install_attempt,
-            **self.report["productionInstallerReceipt"],
-        })
         self.report["build"]["approvedCorePath"] = str(APPROVED_CORE_PATH)
         self.report["build"]["approvedCoreSHA256"] = core_sha256
         self.report["build"]["trustReceiptPath"] = str(TRUST_RECEIPT_PATH)
 
-    def _assert_installed_for_reinstall(self):
-        required_paths = (self.launchd_plist, self.helper_path, TRUST_RECEIPT_PATH, APPROVED_CORE_PATH)
-        identities = {str(path): dict(self.installed_paths_created.get(path, {}))
-                      for path in required_paths}
-        files_match = all(self._matches_tracked_install_file(
-            path, self.installed_paths_created.get(path, {}).get("sha256", ""))
-            for path in required_paths)
-        receipt = decode_install_plist(TRUST_RECEIPT_PATH)
-        accepted_receipts = (
-            {"SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION,
-             "ApprovedClients": self._expected_approved_clients((self.probe_app,))},
-            {"SchemaVersion": TRUST_RECEIPT_SCHEMA_VERSION,
-             "ApprovedClients": self._expected_approved_clients((self.probe_app, self.transaction_app))},
-        )
-        service = command_result(["/bin/launchctl", "print", f"system/{SERVICE_LABEL}"], 8)
-        service_text = service.stdout + service.stderr
-        helper_pid = self.helper_pid()
-        ready = (files_match and receipt in accepted_receipts and
-                 root_trust_file_is_safe(APPROVED_CORE_PATH, executable=True,
-                                         expected_sha256=file_sha256(APPROVED_CORE_PATH)) and
-                 root_trust_file_is_safe(TRUST_RECEIPT_PATH, executable=False,
-                                         expected_sha256=file_sha256(TRUST_RECEIPT_PATH)) and
-                 decode_install_plist(self.launchd_plist) == self._expected_launchd_job() and
-                 service.returncode == 0 and str(self.launchd_plist) in service_text and
-                 str(self.helper_path) in service_text and helper_pid is not None)
-        self.assertion("prior production Helper installation identity is verified before update",
-                       ready, {"trackedPaths": identities, "receipt": receipt,
-                               "helperPID": helper_pid,
-                               "launchdLoadedFromProductionPath": service.returncode == 0 and
-                               str(self.launchd_plist) in service_text and
-                               str(self.helper_path) in service_text})
-        self.helper_pid_before_reinstall = helper_pid
-        return identities
-
-    def install_with_production_legacy_script(self, reinstall=False):
+    def install_with_production_legacy_script(self):
         if not self.transaction_client_available or len(self.approved_client_cdhashes) != 2:
             raise RuntimeError("ProtoProbe and TxDriver must both be built and signed before hosted installation")
-        prior_install_identities = self._assert_installed_for_reinstall() if reinstall else None
-        self.production_install_attempt += 1
         core_sha256 = file_sha256(self.core_path)
         self.assertion("both client bundles contain the exact executable production core resource",
                        all(path.is_file() and os.access(path, os.X_OK) and
@@ -1103,29 +1113,22 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
                            for path in (self.probe_core, self.test_core)),
                        {"coreSHA256": core_sha256,
                         "clientCorePaths": [str(self.probe_core), str(self.test_core)]})
-        if not reinstall:
-            existing = [path for path in (self.launchd_plist, self.helper_path,
-                                          APPROVED_CORE_PATH, TRUST_RECEIPT_PATH)
-                        if os.path.lexists(path)]
-            if existing:
-                raise RuntimeError("refusing to replace paths that appeared after the clean-guest gate: " +
-                                   ", ".join(map(str, existing)))
-        if (not reinstall and not self.trust_parent_existed_before_install and
+        existing = [path for path in (self.launchd_plist, self.helper_path,
+                                      APPROVED_CORE_PATH, TRUST_RECEIPT_PATH)
+                    if os.path.lexists(path)]
+        if os.path.lexists(APPROVED_CORE_PATH.parent):
+            existing.extend(APPROVED_CORE_PATH.parent.glob(TRUST_RECEIPT_PATH.name + ".tmp.*"))
+            existing.extend(APPROVED_CORE_PATH.parent.glob(".clashfx-install.*"))
+        if existing:
+            raise RuntimeError("refusing to replace paths that appeared after the clean-guest gate: " +
+                               ", ".join(map(str, existing)))
+        if (not self.trust_parent_existed_before_install and
                 os.path.lexists(APPROVED_CORE_PATH.parent)):
             raise RuntimeError("trusted-core directory appeared after the clean-guest gate")
-        if os.path.lexists(APPROVED_CORE_PATH.parent):
-            leftovers = list(APPROVED_CORE_PATH.parent.glob(TRUST_RECEIPT_PATH.name + ".tmp.*"))
-            leftovers.extend(APPROVED_CORE_PATH.parent.glob(".clashfx-install.*"))
-            if leftovers:
-                raise RuntimeError("refusing to run installer with unverified staged files: " +
-                                   ", ".join(map(str, leftovers)))
         if self.decorated_metadata.get(str(self.probe_app)) is None:
             raise RuntimeError("probe metadata decoration must precede production installer generation")
 
-        if self.generated_install_script_sha256 is None:
-            self._generate_production_install_script()
-        if reinstall:
-            self.installed_paths_created = {}
+        self._generate_production_install_script()
         self.bootstrap_attempted = True
         try:
             completed = subprocess.run(["/bin/bash", str(self.instrumented_install_script)],
@@ -1133,9 +1136,6 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
         except subprocess.TimeoutExpired as error:
             self._capture_fixture_install_outputs()
             raise RuntimeError("production Legacy installer exceeded its 180 second deadline") from error
-        except Exception:
-            self._capture_fixture_install_outputs()
-            raise
         self._capture_fixture_install_outputs()
         if completed.returncode == 0:
             # The clean-guest gate proved this label unused immediately before
@@ -1157,7 +1157,7 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
             for name, expected_hex in attributes.items():
                 try:
                     source_metadata_unchanged = (source_metadata_unchanged and
-                        read_file_xattr(path, name).hex() == expected_hex)
+                        metadata_attribute_read(path, name).hex() == expected_hex)
                 except OSError:
                     source_metadata_unchanged = False
         self.assertion("production staging strips only FinderInfo and ResourceFork from its private app copy",
@@ -1166,34 +1166,19 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
                         "sourceMetadataUnchanged": source_metadata_unchanged,
                         "sourceXattrs": self.decorated_metadata})
         self._verify_production_install()
-        production_installer = self.report.setdefault("productionLegacyInstaller", {
+        self.report["productionLegacyInstaller"] = {
             "swiftSource": "ClashFX/General/Managers/PrivilegedHelperManager+Legacy.swift",
             "generatorFacade": "Bundle.main paths point at the signed ProtoProbe.app; trust material comes from fixture JSON",
             "generatedScriptSHA256": self.generated_install_script_sha256,
             "executionScriptSHA256": self.instrumented_install_script_sha256,
             "executionScriptInstrumentation": "read-only staged-xattr assertions before production codesign verification",
-            "installations": [],
-        })
-        current_identities = {
-            str(path): {"identity": list(tracked["identity"]), "sha256": tracked["sha256"]}
-            for path, tracked in self.installed_paths_created.items()
-        }
-        production_installer["installations"].append({
-            "attempt": self.production_install_attempt,
-            "kind": "reinstall-update" if reinstall else "clean-install",
-            "generatedScriptSHA256": self.generated_install_script_sha256,
-            "executionScriptSHA256": self.instrumented_install_script_sha256,
             "exitCode": completed.returncode,
             "stdoutTail": completed.stdout[-2000:],
             "stderrTail": completed.stderr[-2000:],
             "metadataStageReport": stage_report,
-            "sourceMetadataUnchanged": source_metadata_unchanged,
-            "previousTrackedInstallPaths": prior_install_identities,
-            "refreshedTrackedInstallPaths": current_identities,
             "installedHelperPath": str(self.helper_path),
             "installedLaunchDaemonPath": str(self.launchd_plist),
-            "productionReceipt": self.report.get("productionInstallerReceipt"),
-        })
+        }
 
     def augment_installed_receipt_for_transaction_client(self):
         if not self.transaction_client_available or str(self.transaction_app) not in self.approved_client_cdhashes:
@@ -1318,6 +1303,34 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
                         "statusSourceBinaryPath": status.get("sourceBinaryPath")})
         self.report["coverage"]["rootImmutableCoreExecuted"] = True
 
+    def prepare_launchd_job(self):
+        job = dict(self.launchd_template)
+        job["ProgramArguments"] = [str(self.helper_path)]
+        job["RunAtLoad"] = True
+        job["StandardOutPath"] = str(self.helper_stdout)
+        job["StandardErrorPath"] = str(self.helper_stderr)
+        with self.launchd_plist.open("wb") as stream:
+            plistlib.dump(job, stream, fmt=plistlib.FMT_XML, sort_keys=True)
+        os.chmod(self.launchd_plist, 0o644)
+
+    def bootstrap_helper(self):
+        self.bootstrap_attempted = True
+        result = command_result(["/bin/launchctl", "bootstrap", "system", str(self.launchd_plist)], 25)
+        if result.returncode != 0:
+            probe = command_result(["/bin/launchctl", "print", f"system/{SERVICE_LABEL}"], 8)
+            if probe.returncode == 0 and str(self.helper_path) in probe.stdout:
+                self.bootstrapped = True
+            raise RuntimeError(f"launchctl bootstrap failed: {(result.stderr or result.stdout).strip()}")
+        self.bootstrapped = True
+        self.report["launchd"] = {
+            "label": SERVICE_LABEL,
+            "domain": "system",
+            "plist": str(self.launchd_plist),
+            "program": str(self.helper_path),
+            "source": str((ROOT / "ProxyConfigHelper" / "Helper-Launchd.plist").relative_to(ROOT)),
+            "productionMachServiceName": SERVICE_LABEL,
+        }
+
     def helper_pid(self):
         output = require_command_success(["/bin/launchctl", "print", f"system/{SERVICE_LABEL}"], 8)
         match = re.search(r"\bpid\s*=\s*(\d+)", output)
@@ -1393,6 +1406,219 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
             time.sleep(0.35)
         raise TimeoutError(f"timed out waiting for Helper-managed TUN readiness: {last_error}")
 
+    @staticmethod
+    def _pid_exists(pid):
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    @staticmethod
+    def _port_can_be_rebound(port, protocol):
+        kind = socket.SOCK_STREAM if protocol == "TCP" else socket.SOCK_DGRAM
+        with socket.socket(socket.AF_INET, kind) as probe:
+            try:
+                if kind == socket.SOCK_STREAM:
+                    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                probe.bind(("127.0.0.1", port))
+                if kind == socket.SOCK_STREAM:
+                    probe.listen(1)
+                return True
+            except OSError:
+                return False
+
+    def wait_for_stopped_core_resources(self, pid, utuns, ports, timeout=PORT_RELEASE_TIMEOUT):
+        deadline = time.monotonic() + timeout
+        last = {}
+        while time.monotonic() < deadline:
+            process_gone = not self._pid_exists(pid)
+            rebound = {name: self._port_can_be_rebound(port, protocol)
+                       for name, protocol, port in ports}
+            try:
+                interfaces = self.lifecycle.utun_interfaces()
+                remaining_routes = self.lifecycle.routes_via_utun(utuns)
+                targets = {address: self.lifecycle.route_lookup(address)
+                           for address, _category in self.lifecycle.ROUTE_TARGETS}
+                routes_to_old_tun = {
+                    address: route for address, route in targets.items()
+                    if route.get("interface") in utuns
+                }
+                interfaces_gone = not set(utuns).intersection(interfaces)
+                routes_gone = not remaining_routes and not routes_to_old_tun
+                last = {
+                    "pid": pid,
+                    "processGone": process_gone,
+                    "portsRebound": rebound,
+                    "utunInterfaces": interfaces,
+                    "ownedUtuns": utuns,
+                    "ownedUtunsGone": interfaces_gone,
+                    "routesViaOwnedUtuns": remaining_routes,
+                    "routeTargets": targets,
+                    "routeTargetsViaOwnedUtuns": routes_to_old_tun,
+                    "ownedTunRoutesGone": routes_gone,
+                }
+                if process_gone and all(rebound.values()) and interfaces_gone and routes_gone:
+                    return last
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                last = {**last, "pid": pid, "processGone": process_gone,
+                        "portsRebound": rebound, "observationError": str(error)}
+            time.sleep(0.25)
+        return last
+
+    def run_helper_core_restart_cycles(self, endpoint, token, config_path, core_home,
+                                       baseline_utuns, controller_port, dns_port, mixed_port):
+        ports = (
+            ("controllerTCP", "TCP", controller_port),
+            ("proxyTCP", "TCP", mixed_port),
+            ("proxyUDP", "UDP", mixed_port),
+            ("dnsTCP", "TCP", dns_port),
+            ("dnsUDP", "UDP", dns_port),
+        )
+        cycles = []
+        self.current_core_utuns = list(self.report["core"].get("newUtunInterfaces", []))
+        for index in range(1, HELPER_RESTART_CYCLES + 1):
+            old_launch_id = self.owned_launch_id
+            old_pid = self.owned_core_pid
+            old_utuns = list(self.current_core_utuns)
+            before = self.rpc("coreStatus")
+            self.assertion(
+                f"Helper restart cycle {index} begins with the currently owned core",
+                before.get("running") is True and before.get("launchID") == old_launch_id and
+                before.get("pid") == old_pid and
+                self._status_uses_approved_core_source(before, self.probe_core) and
+                before.get("configPath") == str(config_path),
+                {"launchID": old_launch_id, "pid": old_pid, "status": before},
+            )
+
+            self.rpc("stopCore")
+            stopped = self.wait_for_core_exit(old_launch_id)
+            self.assertion(
+                f"Helper stop cycle {index} terminates the same launch",
+                stopped.get("running") is False and stopped.get("launchID") == old_launch_id,
+                {"launchID": old_launch_id, "pid": old_pid,
+                 "lastTermination": stopped.get("lastTermination")},
+            )
+            released = self.wait_for_stopped_core_resources(old_pid, old_utuns, ports)
+            self.assertion(
+                f"Helper stop cycle {index} ends the old core process",
+                released.get("processGone") is True,
+                released,
+            )
+            self.assertion(
+                f"Helper stop cycle {index} releases API, proxy and DNS ports",
+                bool(released.get("portsRebound")) and all(released["portsRebound"].values()),
+                released.get("portsRebound"),
+            )
+            self.assertion(
+                f"Helper stop cycle {index} removes the old TUN interface and routes",
+                released.get("ownedUtunsGone") is True and released.get("ownedTunRoutesGone") is True,
+                {"ownedUtuns": old_utuns, "interfaces": released.get("utunInterfaces"),
+                 "routesViaOwnedUtuns": released.get("routesViaOwnedUtuns"),
+                 "routeTargetsViaOwnedUtuns": released.get("routeTargetsViaOwnedUtuns")},
+            )
+
+            before_start_utuns = self.lifecycle.utun_interfaces()
+            self.core_start_attempted = True
+            self.owned_core_source_path = str(self.probe_core)
+            self.harness_config_paths.add(str(config_path))
+            self.core_home_by_config[str(config_path)] = str(core_home)
+            start_result = self.rpc(
+                "startCore", binaryPath=str(self.probe_core),
+                configPath=str(config_path), homeDir=str(core_home),
+            )
+            self.assertion(f"Helper accepted restart cycle {index}", start_result is None,
+                           {"configPath": str(config_path), "homeDir": str(core_home)})
+            status = self.rpc("coreStatus")
+            new_launch_id = status.get("launchID")
+            new_pid = status.get("pid")
+            self.owned_launch_id = new_launch_id
+            self.owned_core_pid = new_pid
+            self.owned_core_source_path = str(self.probe_core)
+            self.core_log_path = status.get("logPath")
+            if self.core_log_path and self.core_log_path not in self.core_log_paths:
+                self.core_log_paths.append(self.core_log_path)
+            identity_ok = (
+                status.get("running") is True and isinstance(new_launch_id, str) and bool(new_launch_id) and
+                isinstance(new_pid, int) and new_pid > 0 and
+                new_launch_id != old_launch_id and new_pid != old_pid
+            )
+            self.assertion(
+                f"Helper restart cycle {index} creates a new launch ID and PID",
+                identity_ok,
+                {"previousLaunchID": old_launch_id, "previousPID": old_pid,
+                 "status": status},
+            )
+            self.assertion(
+                f"Helper restart cycle {index} reuses the isolated core and config",
+                self._status_uses_approved_core_source(status, self.probe_core) and
+                status.get("configPath") == str(config_path),
+                {"configPath": status.get("configPath"), "expectedConfigPath": str(config_path),
+                 "homeDir": str(core_home), "sourceBinaryPath": status.get("sourceBinaryPath"),
+                 "logPath": self.core_log_path},
+            )
+            self.assert_running_core_executable(
+                status, f"Helper restart cycle {index} executes the immutable approved core")
+            uid = require_command_success(["/bin/ps", "-o", "uid=", "-p", str(new_pid)], 5).strip()
+            self.assertion(f"Helper restart cycle {index} core remains root-owned in the guest",
+                           uid == "0", {"pid": new_pid, "uid": uid})
+
+            (version, api_config, new_utuns, active_tuns, tun_routes,
+             route_observations, selected_route) = self.wait_for_tun_ready(
+                endpoint, token, before_start_utuns, new_launch_id, new_pid)
+            self.current_core_utuns = list(new_utuns)
+            cycle = {
+                "cycle": index,
+                "stopped": {"launchID": old_launch_id, "pid": old_pid,
+                            "resources": released},
+                "started": {"launchID": new_launch_id, "pid": new_pid,
+                            "configPath": str(config_path), "homeDir": str(core_home),
+                            "logPath": self.core_log_path, "version": version,
+                            "apiTun": api_config.get("tun"), "utunInterfaces": new_utuns,
+                            "activeUtunInterfaces": active_tuns, "routesViaUtun": tun_routes,
+                            "routeTargetQueries": route_observations,
+                            "selectedRouteTarget": selected_route},
+            }
+            cycles.append(cycle)
+            self.report["helperCoreRestartCycles"] = cycles
+            self.report["core"].update({
+                "pid": new_pid, "launchID": new_launch_id, "active": True,
+                "configPath": str(config_path), "homeDir": str(core_home),
+                "logPath": self.core_log_path, "version": version,
+                "apiTun": api_config.get("tun"), "newUtunInterfaces": new_utuns,
+                "activeUtunInterfaces": active_tuns, "routesViaNewUtun": tun_routes,
+                "routeTargetQueries": route_observations,
+                "selectedRouteTarget": selected_route,
+            })
+            self.assertion(
+                f"Helper restart cycle {index} restores TUN, API and auto-route readiness",
+                bool(active_tuns and tun_routes and selected_route["route"]["interface"] in new_utuns) and
+                api_config.get("tun", {}).get("enable") is True,
+                cycle["started"],
+            )
+            owned_ports = []
+            for name, protocol, port in ports:
+                owns = self.lifecycle.process_owns_socket(
+                    new_pid, protocol, port, listening=(protocol == "TCP"))
+                self.assertion(f"Helper restart cycle {index} core owns {name}", owns,
+                               {"pid": new_pid, "protocol": protocol, "port": port})
+                if owns:
+                    owned_ports.append(name)
+            cycle["started"]["ownedPorts"] = owned_ports
+            self.report["core"]["ownedPorts"] = owned_ports
+            self.report["core"]["allCreatedUtunInterfaces"] = list(self.created_utuns)
+
+        self.report["coverage"]["rapidHelperCoreLifecycle"] = (
+            len(cycles) == HELPER_RESTART_CYCLES and
+            all(item.get("started", {}).get("pid") for item in cycles)
+        )
+        self.assertion("three real Helper stop/start cycles pass with the final core running",
+                       self.report["coverage"]["rapidHelperCoreLifecycle"] is True,
+                       {"cycles": len(cycles), "finalLaunchID": self.owned_launch_id,
+                        "finalPID": self.owned_core_pid, "running": True})
+
     def validate_proxy_snapshot(self, snapshot):
         if not isinstance(snapshot, dict):
             raise RuntimeError("Helper returned a malformed proxy snapshot")
@@ -1445,6 +1671,141 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
                         if isinstance(actual, dict) else None})
         self.report["coverage"]["systemProxyExactRestore"] = matches
         self.proxy_may_be_dirty = not matches
+
+    @staticmethod
+    def _redact_secret(value, secret):
+        if isinstance(value, str):
+            return value.replace(secret, "<redacted>") if secret else value
+        if isinstance(value, list):
+            return [AcceptanceHarness._redact_secret(item, secret) for item in value]
+        if isinstance(value, dict):
+            return {key: AcceptanceHarness._redact_secret(item, secret)
+                    for key, item in value.items()}
+        return value
+
+    @staticmethod
+    def _completed_output(value):
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value)
+
+    def invoke_runtime_config_acceptance(self, endpoint, token, config_path, core_home):
+        coverage_keys = (
+            "continuousRuntimeSwitches",
+            "runtimeConfigRollback",
+            "patchFailureRollback",
+            "stableRuntimeEndpoints",
+        )
+        for key in coverage_keys:
+            self.report["coverage"][key] = False
+        if self.runtime_config_artifact_dir.exists():
+            raise RuntimeError("runtime-config acceptance artifact directory already exists")
+
+        manifest = {
+            "controllerURL": str(endpoint),
+            "secret": str(token),
+            "coreBinary": str(self.core_path),
+            "configPath": str(config_path),
+            "homeDir": str(core_home),
+            "artifactDirectory": str(self.runtime_config_artifact_dir),
+        }
+        self.runtime_config_manifest.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+        self.runtime_config_manifest.chmod(0o600)
+        safe_manifest = {**manifest, "secret": "<redacted>"}
+        started = time.monotonic()
+        try:
+            completed = subprocess.run(
+                [str(self.runtime_config_executable), "--manifest", str(self.runtime_config_manifest)],
+                cwd=str(self.temp_root), check=False, capture_output=True, text=True,
+                env=dict(os.environ, TMPDIR=str(Path(os.environ["RUNNER_TEMP"]).resolve(strict=True))),
+                timeout=RUNTIME_CONFIG_ACCEPTANCE_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired as error:
+            stdout = self._completed_output(error.stdout).replace(token, "<redacted>")
+            stderr = self._completed_output(error.stderr).replace(token, "<redacted>")
+            self.runtime_config_stdout.write_text(stdout, encoding="utf-8")
+            self.runtime_config_stderr.write_text(stderr, encoding="utf-8")
+            self.runtime_config_stdout.chmod(0o644)
+            self.runtime_config_stderr.chmod(0o644)
+            if self.runtime_config_artifact_dir.is_dir():
+                self.runtime_config_artifact_dir.chmod(0o755)
+                report_path = self.runtime_config_artifact_dir / "report.json"
+                if report_path.is_file():
+                    report_path.chmod(0o644)
+            self.report["runtimeConfigAcceptance"] = {
+                "exitCode": None, "timedOut": True,
+                "elapsedSeconds": round(time.monotonic() - started, 3),
+                "manifest": safe_manifest,
+                "reportPath": str(self.runtime_config_artifact_dir / "report.json"),
+            }
+            self.report["rawEvidence"] = sorted(set(self.report.get("rawEvidence", [])) | {
+                self.runtime_config_stdout.name, self.runtime_config_stderr.name,
+                "runtime-config-acceptance/report.json",
+            })
+            self.assertion("standalone production runtime-config acceptance finishes before its deadline",
+                           False, self.report["runtimeConfigAcceptance"])
+            return
+
+        stdout = completed.stdout.replace(token, "<redacted>") if token else completed.stdout
+        stderr = completed.stderr.replace(token, "<redacted>") if token else completed.stderr
+        self.runtime_config_stdout.write_text(stdout, encoding="utf-8")
+        self.runtime_config_stderr.write_text(stderr, encoding="utf-8")
+        self.runtime_config_stdout.chmod(0o644)
+        self.runtime_config_stderr.chmod(0o644)
+
+        report_path = self.runtime_config_artifact_dir / "report.json"
+        if self.runtime_config_artifact_dir.is_dir():
+            self.runtime_config_artifact_dir.chmod(0o755)
+        runtime_report = None
+        report_error = None
+        if report_path.is_file():
+            try:
+                with report_path.open("r", encoding="utf-8") as stream:
+                    runtime_report = json.load(stream)
+                runtime_report = self._redact_secret(runtime_report, token)
+                with report_path.open("w", encoding="utf-8") as stream:
+                    json.dump(runtime_report, stream, indent=2, sort_keys=True)
+                    stream.write("\n")
+                report_path.chmod(0o644)
+            except (OSError, json.JSONDecodeError, TypeError) as error:
+                report_error = type(error).__name__
+        else:
+            report_error = "report.json missing"
+
+        observed = {}
+        if isinstance(runtime_report, dict) and isinstance(runtime_report.get("coverage"), dict):
+            raw_coverage = runtime_report["coverage"]
+            observed = {key: raw_coverage.get(key) is True for key in coverage_keys}
+            self.report["coverage"].update(observed)
+        status = runtime_report.get("status") if isinstance(runtime_report, dict) else None
+        passed = (completed.returncode == 0 and status == "passed" and
+                  len(observed) == len(coverage_keys) and all(observed.values()))
+        summary = {
+            "status": status,
+            "exitCode": completed.returncode,
+            "elapsedSeconds": round(time.monotonic() - started, 3),
+            "coverage": observed,
+            "assertionCount": len(runtime_report.get("assertions", []))
+                if isinstance(runtime_report, dict) and isinstance(runtime_report.get("assertions"), list) else 0,
+            "reportPath": str(report_path),
+            "stdoutPath": str(self.runtime_config_stdout),
+            "stderrPath": str(self.runtime_config_stderr),
+            "manifest": safe_manifest,
+        }
+        if report_error:
+            summary["reportError"] = report_error
+        self.report["runtimeConfigAcceptance"] = summary
+        self.report["rawEvidence"] = sorted(set(self.report.get("rawEvidence", [])) | {
+            self.runtime_config_stdout.name, self.runtime_config_stderr.name,
+            "runtime-config-acceptance/report.json",
+        })
+        self.assertion(
+            "standalone production runtime-config acceptance passes every required backend contract",
+            passed,
+            summary,
+        )
 
     def invoke_transaction_client(self, endpoint, token, config_path, alternate_path,
                                   invalid_path, core_home, proxy_port, socks_port, dns_port):
@@ -1575,6 +1936,127 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
         self.report["coverage"]["systemDNSExactRestore"] = (
             self.report["coverage"]["systemDNSExactRestore"] and dns_restored)
 
+    def exercise_system_resolver_dns_hijack(self):
+        name = f"clashfx-{secrets.token_hex(8)}.example.com"
+        resolver_stdout = ""
+        resolver_stderr = ""
+        resolver_returncode = None
+        resolver_error = None
+        nameservers = []
+        resolver_wait_started = time.monotonic()
+        resolver_deadline = resolver_wait_started + min(8, SYSTEM_DNS_QUERY_TIMEOUT)
+        while time.monotonic() < resolver_deadline:
+            try:
+                result = subprocess.run(
+                    ["/usr/sbin/scutil", "--dns"], check=False, capture_output=True, text=True,
+                    timeout=3,
+                )
+                resolver_stdout, resolver_stderr = result.stdout, result.stderr
+                resolver_returncode = result.returncode
+                nameservers = re.findall(
+                    r"^\s*nameserver\[\d+\]\s*:\s*(\S+)\s*$",
+                    resolver_stdout, re.MULTILINE,
+                )
+                if resolver_returncode == 0 and TEST_DNS_SERVER in nameservers:
+                    break
+            except subprocess.TimeoutExpired as error:
+                resolver_stdout = self._completed_output(error.stdout)
+                resolver_stderr = self._completed_output(error.stderr)
+                resolver_error = "scutil --dns timed out"
+                break
+            except (OSError, subprocess.SubprocessError) as error:
+                resolver_error = f"{type(error).__name__}: {error}"
+                break
+            time.sleep(0.25)
+
+        query_stdout = ""
+        query_stderr = ""
+        query_returncode = None
+        query_error = None
+        try:
+            result = subprocess.run(
+                ["/usr/bin/dscacheutil", "-q", "host", "-a", "name", name],
+                check=False, capture_output=True, text=True, timeout=SYSTEM_DNS_QUERY_TIMEOUT,
+            )
+            query_stdout, query_stderr, query_returncode = result.stdout, result.stderr, result.returncode
+        except subprocess.TimeoutExpired as error:
+            query_stdout = self._completed_output(error.stdout)
+            query_stderr = self._completed_output(error.stderr)
+            query_error = "dscacheutil timed out"
+        except (OSError, subprocess.SubprocessError) as error:
+            query_error = f"{type(error).__name__}: {error}"
+
+        addresses = re.findall(
+            r"^\s*ip_address:\s*(\d{1,3}(?:\.\d{1,3}){3})\s*$",
+            query_stdout, re.MULTILINE,
+        )
+        fake_ips = []
+        for address in addresses:
+            try:
+                if ipaddress.ip_address(address) in FAKE_IP_NETWORK:
+                    fake_ips.append(address)
+            except ValueError:
+                continue
+        route = None
+        route_error = None
+        if fake_ips:
+            try:
+                route = self.lifecycle.route_lookup(fake_ips[0])
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                route_error = f"{type(error).__name__}: {error}"
+        route_uses_owned_tun = bool(route and route.get("interface") in self.current_core_utuns)
+        resolver_uses_test_server = TEST_DNS_SERVER in nameservers
+        passed = (
+            query_error is None and query_returncode == 0 and bool(fake_ips) and
+            resolver_error is None and resolver_returncode == 0 and resolver_uses_test_server and
+            route_uses_owned_tun
+        )
+
+        query_path = self.artifact_dir / "system-dns-dscacheutil.stdout.txt"
+        resolver_path = self.artifact_dir / "system-dns-scutil-dns.txt"
+        route_path = self.artifact_dir / "system-dns-fakeip-route.json"
+        query_path.write_text(query_stdout, encoding="utf-8")
+        resolver_path.write_text(resolver_stdout, encoding="utf-8")
+        with route_path.open("w", encoding="utf-8") as stream:
+            json.dump({"query": name, "fakeIPs": fake_ips, "route": route,
+                       "routeError": route_error, "ownedTunInterfaces": self.current_core_utuns},
+                      stream, indent=2, sort_keys=True)
+            stream.write("\n")
+        for path in (query_path, resolver_path, route_path):
+            path.chmod(0o644)
+        self.report["rawEvidence"] = sorted(set(self.report.get("rawEvidence", [])) | {
+            query_path.name, resolver_path.name, route_path.name,
+        })
+        evidence = {
+            "query": name,
+            "dscacheutilReturnCode": query_returncode,
+            "dscacheutilStdout": query_stdout,
+            "dscacheutilStderr": query_stderr[-2000:],
+            "dscacheutilError": query_error,
+            "resolverCommand": "/usr/sbin/scutil --dns",
+            "resolverReturnCode": resolver_returncode,
+            "resolverWaitSeconds": round(min(time.monotonic(), resolver_deadline) - resolver_wait_started, 3),
+            "resolverNameservers": nameservers,
+            "resolverUsesTemporaryDNS": resolver_uses_test_server,
+            "resolverStdoutPath": resolver_path.name,
+            "resolverError": resolver_error,
+            "route": route,
+            "routeError": route_error,
+            "routeUsesOwnedTun": route_uses_owned_tun,
+            "fakeIPs": fake_ips,
+            "fakeIPAddresses": [address for address in fake_ips
+                                if ipaddress.ip_address(address) in FAKE_IP_NETWORK],
+            "ownedTunInterfaces": self.current_core_utuns,
+            "evidenceFiles": [query_path.name, resolver_path.name, route_path.name],
+        }
+        self.report["systemDNSResolverEvidence"] = evidence
+        self.report["coverage"]["systemDNSResolverThroughTUN"] = passed
+        self.assertion(
+            "macOS system resolver receives a TUN DNS hijack fake IP and routes it through the active TUN",
+            passed,
+            evidence,
+        )
+
     def exercise_dns_override(self):
         self.dns_may_be_dirty = True
         self.dns_recovery_snapshot = self.rpc("captureDNS", filterInterface=True)
@@ -1597,6 +2079,7 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
             "serviceCount": len(actual_during), "snapshotSHA256": canonical_hash(actual_during),
             "testServer": TEST_DNS_SERVER,
         }
+        self.exercise_system_resolver_dns_hijack()
         self.rpc("restoreDNS", settings=self.dns_recovery_snapshot, filterInterface=True)
         restored = self.rpc("dnsSnapshot")
         exact = restored == self.dns_snapshot
@@ -1668,54 +2151,30 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
         self.owned_core_pid = None
         self.owned_core_source_path = None
 
-    def _installed_helper_version_roundtrip(self, attempt):
+    def run(self):
+        self.compile_client()
+        self.compile_transaction_client()
+        self.compile_runtime_config_acceptance()
+        self.prepare_unapproved_client()
+        self.decorate_probe_app_metadata()
+        self.install_with_production_legacy_script()
+
         helper_version = self.rpc("version")
         protocol_version = self.rpc("protocolVersion")
-        helper_pid = self.helper_pid()
-        helper_paths = process_text_paths(helper_pid) if helper_pid is not None else []
-        helper_restarted = (attempt == 1 or
-                            (self.helper_pid_before_reinstall is not None and
-                             helper_pid != self.helper_pid_before_reinstall))
-        self.assertion(f"production Helper install attempt {attempt} completes its ProtoProbe XPC version roundtrip",
-                       isinstance(helper_version, str) and bool(helper_version) and protocol_version == 6 and
-                       helper_pid is not None and str(self.helper_path) in helper_paths and helper_restarted,
-                       {"attempt": attempt, "helperVersion": helper_version,
-                        "protocolVersion": protocol_version,
-                        "helperPID": helper_pid,
-                        "priorHelperPID": self.helper_pid_before_reinstall if attempt == 2 else None,
-                        "helperExecutablePaths": helper_paths,
+        self.assertion("production-installed Helper completes its ProtoProbe XPC version roundtrip",
+                       isinstance(helper_version, str) and bool(helper_version) and protocol_version == 6,
+                       {"helperVersion": helper_version, "protocolVersion": protocol_version,
                         "installedHelperPath": str(self.helper_path),
                         "productionInstallerReceipt": self.report.get("productionInstallerReceipt")})
+        self.report["coverage"]["productionLegacyHelperInstallation"] = True
+        self.report["coverage"]["metadataDecoratedAppInstallation"] = True
         self.report["coverage"]["productionHelperXPC"] = True
-        self.report["productionLegacyInstaller"]["installations"][-1]["protoProbeVersionRoundtrip"] = {
+        self.report["productionLegacyInstaller"]["protoProbeVersionRoundtrip"] = {
             "helperVersion": helper_version,
             "protocolVersion": protocol_version,
             "passed": True,
         }
-        return helper_version, protocol_version
 
-    def run(self):
-        self.compile_client()
-        self.compile_transaction_client()
-        self.prepare_unapproved_client()
-        self.decorate_probe_app_metadata()
-        self.install_with_production_legacy_script()
-        first_version = self._installed_helper_version_roundtrip(1)
-        self.augment_installed_receipt_for_transaction_client()
-        self.install_with_production_legacy_script(reinstall=True)
-        helper_version, protocol_version = self._installed_helper_version_roundtrip(2)
-        self.assertion("the same generated Legacy installer completes a verified Helper reinstall/update",
-                       len(self.report["productionLegacyInstaller"]["installations"]) == 2 and
-                       self.report["productionLegacyInstaller"]["installations"][0]["generatedScriptSHA256"] ==
-                       self.report["productionLegacyInstaller"]["installations"][1]["generatedScriptSHA256"] and
-                       self.report["productionLegacyInstaller"]["installations"][1]["protoProbeVersionRoundtrip"]["passed"] is True,
-                       {"firstProtoProbeVersion": first_version[0],
-                        "secondProtoProbeVersion": helper_version,
-                        "firstInstall": self.report["productionLegacyInstaller"]["installations"][0],
-                        "reinstall": self.report["productionLegacyInstaller"]["installations"][1]})
-        self.report["coverage"]["productionLegacyHelperInstallation"] = True
-        self.report["coverage"]["legacyHelperReinstallation"] = True
-        self.report["coverage"]["metadataDecoratedAppInstallation"] = True
         self.augment_installed_receipt_for_transaction_client()
 
         started = time.monotonic()
@@ -1868,6 +2327,7 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
         (version, api_config, new_utuns, active_tuns, tun_routes,
          route_observations, selected_route) = self.wait_for_tun_ready(
             endpoint, token, baseline_utuns, self.owned_launch_id, self.owned_core_pid)
+        self.current_core_utuns = list(new_utuns)
         self.report["coverage"]["helperManagedCore"] = True
         self.report["coverage"]["tunInterfaceAndRoutes"] = True
         self.report["core"].update({
@@ -1906,6 +2366,22 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
             self.assertion(f"real core answers {transport.upper()} fake-IP DNS", address.startswith("198.18."),
                            {"transport": transport, "query": name, "fakeIP": address})
             self.report.setdefault("dnsQueries", {})[transport] = {"query": name, "fakeIP": address}
+
+        self.run_helper_core_restart_cycles(
+            endpoint, token, config_path, core_home, baseline_utuns,
+            controller_port, dns_port, mixed_port,
+        )
+        self.invoke_runtime_config_acceptance(endpoint, token, config_path, core_home)
+        post_runtime_status = self.rpc("coreStatus")
+        self.assertion(
+            "runtime-config acceptance leaves the final Helper-managed core running",
+            post_runtime_status.get("running") is True and
+            post_runtime_status.get("launchID") == self.owned_launch_id and
+            post_runtime_status.get("pid") == self.owned_core_pid and
+            self._status_uses_approved_core_source(post_runtime_status, self.probe_core),
+            {"status": post_runtime_status, "expectedLaunchID": self.owned_launch_id,
+             "expectedPID": self.owned_core_pid},
+        )
 
         self.proxy_may_be_dirty = True
         self.rpc("enableProxy", httpPort=mixed_port, socksPort=mixed_port, pac="",
@@ -2329,7 +2805,9 @@ printf '%s\\n' '{{"forbiddenDisplayMetadataRemoved":true,"unrelatedXattrRetained
             name = "mihomo_core.log" if index == len(unique_core_logs) - 1 else f"mihomo_core-{index + 1}.log"
             copied = copy_log(source, self.artifact_dir / name)
             cleanup[name + "Copied"] = copied
-        for source, name in ((self.transaction_stdout, "transaction.stdout.log"),
+        for source, name in ((self.helper_stdout, "helper.stdout.log"),
+                             (self.helper_stderr, "helper.stderr.log"),
+                             (self.transaction_stdout, "transaction.stdout.log"),
                              (self.transaction_stderr, "transaction.stderr.log")):
             copied = copy_log(source, self.artifact_dir / name)
             cleanup[name + "Copied"] = copied

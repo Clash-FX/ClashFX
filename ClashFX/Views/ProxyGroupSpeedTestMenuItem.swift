@@ -328,6 +328,12 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
                             state = !isAggregateTimeout(result) && result.hasProbeEvidence
                                 ? .failed(displayName: displayName) : .unavailable(displayName: displayName)
                         }
+                        let actualFreshFinalLeaf: ClashProxy? = {
+                            guard case let .resolved(_, leaf) = snapshot.resolveSelectedPath(from: self.proxyGroup.name) else {
+                                return nil
+                            }
+                            return leaf
+                        }()
                         AutomaticGroupBenchmarkPresentationStore.publish(
                             AutomaticGroupBenchmarkPresentation(
                                 identity: AutomaticGroupBenchmarkIdentity(
@@ -337,6 +343,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
                                 selectedPath: retestSnapshot.selectedPath,
                                 finalLeaf: retestSnapshot.finalLeaf ?? bestKnownLeaf,
                                 finalLeafID: (retestSnapshot.finalLeaf ?? bestKnownLeaf).flatMap { snapshot.proxiesMap[$0]?.id },
+                                finalLeafIdentity: actualFreshFinalLeaf.map { LeafProxyBenchmarkIdentity(proxy: $0) },
                                 sessionIdentifier: presentationSessionIdentifier,
                                 rowState: state
                             )
@@ -829,15 +836,24 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
         var reusableMeasurements = [SelectorBenchmarkMeasurementKey: Int]()
         var pendingRows = Set<ClashProxyName>()
         var selectorBenchmarkURL = Settings.benchMarkUrl
+        var plannedAutomaticRoutes = [ClashProxyName: (identity: LeafProxyBenchmarkIdentity, path: [ClashProxyName])]()
         let sessionIdentifier = UUID()
         let presentationCoalescer = SelectorBenchmarkPresentationCoalescer()
+        let leafIdentityForMeasurement: (SelectorBenchmarkMeasurementKey) -> LeafProxyBenchmarkIdentity = { key in
+            LeafProxyBenchmarkIdentity(
+                endpoint: key.endpoint, providerName: key.providerName,
+                proxyName: key.proxyName, coreID: key.coreID
+            )
+        }
         let publishState: (SelectorBenchmarkRow, ProxyBenchmarkRowState) -> Void = { row, state in
+            let resolvedLeafIdentity = row.measurementKey.map(leafIdentityForMeasurement)
             SelectorBenchmarkPresentationStore.publish(
                 SelectorBenchmarkPresentation(
                     selectorName: group.name,
                     rowName: row.rowName,
                     resolvedLeafName: row.measurementKey?.proxyName,
                     resolvedCoreID: row.measurementKey?.coreID,
+                    resolvedLeafIdentity: resolvedLeafIdentity,
                     benchmarkURL: row.measurementKey?.benchmarkURL ?? selectorBenchmarkURL,
                     sessionIdentifier: sessionIdentifier,
                     rowState: state
@@ -850,12 +866,25 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
             ClashProxy?,
             ProxyBenchmarkRowState
         ) -> Void = { row, target, finalLeaf, state in
+            let freshRoute: (identity: LeafProxyBenchmarkIdentity, path: [ClashProxyName])? = {
+                guard let finalLeaf, finalLeaf.all == nil,
+                      !ClashProxyType.isCompatibilityFallback(finalLeaf),
+                      let snapshot = finalLeaf.enclosingResp,
+                      case let .resolved(path, leaf) = snapshot.resolveSelectedPath(from: target.groupName),
+                      LeafProxyBenchmarkIdentity(proxy: leaf) == LeafProxyBenchmarkIdentity(proxy: finalLeaf) else {
+                    return nil
+                }
+                return (LeafProxyBenchmarkIdentity(proxy: leaf), path)
+            }()
+            let route = freshRoute ?? plannedAutomaticRoutes[target.groupName]
             SelectorBenchmarkPresentationStore.publish(
                 SelectorBenchmarkPresentation(
                     selectorName: group.name,
                     rowName: row.rowName,
-                    resolvedLeafName: finalLeaf?.name,
-                    resolvedCoreID: finalLeaf?.id,
+                    resolvedLeafName: route?.identity.proxyName,
+                    resolvedCoreID: route?.identity.coreID,
+                    resolvedPath: route?.path,
+                    resolvedLeafIdentity: route?.identity,
                     benchmarkURL: target.benchmarkURL,
                     sessionIdentifier: sessionIdentifier,
                     rowState: state
@@ -879,6 +908,7 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                             rowName: row.rowName,
                             resolvedLeafName: row.measurementKey?.proxyName,
                             resolvedCoreID: row.measurementKey?.coreID,
+                            resolvedLeafIdentity: row.measurementKey.map(leafIdentityForMeasurement),
                             benchmarkURL: row.measurementKey?.benchmarkURL ?? selectorBenchmarkURL,
                             sessionIdentifier: sessionIdentifier,
                             rowState: state
@@ -1112,6 +1142,11 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
                 benchmarkURL: selectorBenchmarkURL,
                 timeout: benchmarkMode.timeoutMilliseconds
             )
+            plannedAutomaticRoutes.removeAll()
+            if let target = freshPlan.selectedAutomaticRetest,
+               case let .resolved(path, leaf) = response.resolveSelectedPath(from: target.groupName) {
+                plannedAutomaticRoutes[target.groupName] = (LeafProxyBenchmarkIdentity(proxy: leaf), path)
+            }
             if !retryingFailures {
                 speedTestItem.clearSelectorAttemptOutcomes()
             }
