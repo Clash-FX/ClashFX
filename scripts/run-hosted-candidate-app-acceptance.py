@@ -65,8 +65,8 @@ def main():
         report_path.write_text(json.dumps(report, indent=2))
         if not value:
             raise AssertionError(name)
-    def user(args):
-        return command(['launchctl', 'asuser', str(runner.pw_uid), 'sudo', '-u', 'runner', *args])
+    def user(args, **kwargs):
+        return command(['launchctl', 'asuser', str(runner.pw_uid), 'sudo', '-u', 'runner', *args], **kwargs)
     def wait(check, name, timeout=60):
         deadline = time.monotonic() + timeout
         last = None
