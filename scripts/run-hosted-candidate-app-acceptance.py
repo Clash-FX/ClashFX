@@ -106,6 +106,22 @@ def main():
     stdout = (artifact / 'app-stdout.log').open('wb')
     bundle_hashes = {str(p.relative_to(app)): backend.file_sha256(p) for p in app.rglob('*') if p.is_file()}
     try:
+        # A disposable image may have a cold/unresponsive per-user icon agent.
+        # Require a real AppKit alert to initialize in the GUI session before
+        # attributing an IconServices XPC wait to the candidate application.
+        services = [f'gui/{runner.pw_uid}/com.apple.iconservices.iconservicesagent',
+                    'system/com.apple.iconservices.iconservicesagent',
+                    'system/com.apple.iconservices.iconservicesd']
+        report['iconServicePreparation'] = []
+        for service in services:
+            result = subprocess.run(['launchctl', 'kickstart', '-k', service], capture_output=True, text=True)
+            report['iconServicePreparation'].append({'service': service, 'status': result.returncode, 'detail': result.stderr})
+        warm_source = artifact / 'gui-readiness.swift'
+        warm_source.write_text('import AppKit\nimport CoreServices\nlet _ = NSApplication.shared\nlet url = URL(fileURLWithPath: CommandLine.arguments[1])\nLSRegisterURL(url as CFURL, true)\nlet _ = NSWorkspace.shared.icon(forFile: url.path)\nlet alert = NSAlert()\nlet _ = alert.window\nprint("GUI alert resources ready")\n')
+        warm_binary = artifact / 'gui-readiness'
+        command(['swiftc', warm_source, '-o', warm_binary])
+        user(['env', 'HOME='+str(home), warm_binary, app], timeout=40)
+        record('guestIconServicesAndAlertResourcesReady')
         # Generate the unchanged production installer for this actual package.
         generator = object.__new__(backend.AcceptanceHarness)
         generator.probe_app = app
