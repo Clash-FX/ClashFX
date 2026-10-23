@@ -147,3 +147,78 @@ func TestFailedEmbeddedStartupReleasesEndpointsAndCache(t *testing.T) {
 		}
 	}
 }
+
+func TestRepeatedSuspendAndColdStartReusesCustomMixedPortAndKeepsForeignConflicts(t *testing.T) {
+	ports := startBootstrapForProfileReload(t)
+	lifecycle := currentCacheDBLifecycle()
+	address := fmt.Sprintf("127.0.0.1:%d", ports.mixed)
+
+	for cycle := 1; cycle <= 3; cycle++ {
+		clashSuspendCore()
+		if !lifecycle.isSuspended() {
+			t.Fatalf("cycle %d: suspend did not fence the core", cycle)
+		}
+		assertLoopbackMixedPortAvailable(t, address)
+
+		cfg, err := startDefaultCoreWithCache(true, false, false, 0, "", configUpdateEpoch.Add(1))
+		if err != nil {
+			t.Fatalf("cycle %d: cold start after suspend: %v", cycle, err)
+		}
+		if cfg.General.MixedPort != ports.mixed {
+			t.Fatalf("cycle %d: mixed port = %d, want configured port %d", cycle, cfg.General.MixedPort, ports.mixed)
+		}
+		assertRepeatedMixedPortActive(t, address)
+		if lifecycle.isSuspended() {
+			t.Fatalf("cycle %d: successful cold start left the core suspended", cycle)
+		}
+	}
+
+	clashSuspendCore()
+	assertLoopbackMixedPortAvailable(t, address)
+	foreignUDP, err := net.ListenPacket("udp", address)
+	if err != nil {
+		t.Fatalf("reserve foreign UDP owner on %s: %v", address, err)
+	}
+	defer foreignUDP.Close()
+
+	if _, err := startDefaultCoreWithCache(true, false, false, 0, "", configUpdateEpoch.Add(1)); err == nil || !strings.HasPrefix(err.Error(), "[port_conflict] service=proxy_listener ") ||
+		!strings.Contains(err.Error(), fmt.Sprintf("port=%d", ports.mixed)) {
+		t.Fatalf("cold start with a foreign UDP owner returned %v, want configured-port conflict", err)
+	}
+	if !lifecycle.isSuspended() {
+		t.Fatal("foreign port conflict left the failed startup active")
+	}
+	probe, err := net.ListenPacket("udp", address)
+	if err == nil {
+		_ = probe.Close()
+		t.Fatal("foreign UDP owner was displaced by the failed startup")
+	}
+}
+
+func assertLoopbackMixedPortAvailable(t *testing.T, address string) {
+	t.Helper()
+	tcp, err := net.Listen("tcp", address)
+	if err != nil {
+		t.Fatalf("mixed TCP endpoint %s remained bound after suspend: %v", address, err)
+	}
+	_ = tcp.Close()
+	udp, err := net.ListenPacket("udp", address)
+	if err != nil {
+		t.Fatalf("mixed UDP endpoint %s remained bound after suspend: %v", address, err)
+	}
+	_ = udp.Close()
+}
+
+func assertRepeatedMixedPortActive(t *testing.T, address string) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", address, time.Second)
+	if err != nil {
+		t.Fatalf("mixed TCP endpoint %s did not accept after restart: %v", address, err)
+	}
+	_ = conn.Close()
+	udp, err := net.ListenPacket("udp", address)
+	if err == nil {
+		_ = udp.Close()
+		t.Fatalf("mixed UDP endpoint %s was not held after restart", address)
+	}
+}

@@ -47,7 +47,10 @@ enum AppLogoTool {
             return false
         #else
             let bundlePath = Bundle.main.bundlePath
-            return !bundlePath.contains("/DerivedData/") && !bundlePath.contains("/Build/Products/")
+            guard !bundlePath.contains("/DerivedData/"), !bundlePath.contains("/Build/Products/") else { return false }
+            let signatureResourcesPath = Bundle.main.bundleURL
+                .appendingPathComponent("Contents/_CodeSignature/CodeResources").path
+            return !FileManager.default.fileExists(atPath: signatureResourcesPath)
         #endif
     }
 

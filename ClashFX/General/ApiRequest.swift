@@ -467,30 +467,121 @@ class ApiRequest {
         completion: @escaping (RuntimeConfigTransactionController.ApplyResult) -> Void
     ) {
         guard context == runtimeConfigContext() else { completion(.rejected("Runtime API scope changed")); return }
+        let requestID = UUID()
         if context.direct {
             // Capture before enqueue: a replacement core can reuse the same URL/secret.
             let epoch = clashCurrentConfigUpdateEpoch()
+            let expectedEpoch = UInt64(epoch)
             clashRequestQueue.async {
                 guard context == runtimeConfigContext() else {
                     DispatchQueue.main.async { completion(.rejected("Runtime API scope changed")) }; return
+                }
+                let queuedEpoch = UInt64(clashCurrentConfigUpdateEpoch())
+                guard queuedEpoch == expectedEpoch else {
+                    DispatchQueue.main.async {
+                        guard context == runtimeConfigContext() else {
+                            completion(.uncertain("Runtime scope changed before configuration apply")); return
+                        }
+                        let detail = "Apply was cancelled because the core epoch changed before the request started"
+                        let reason = RuntimeConfigApplyDiagnostics.formattedReason(
+                            transport: .embedded,
+                            stage: .cancelled,
+                            requestID: requestID,
+                            expectedEpoch: expectedEpoch,
+                            currentEpoch: queuedEpoch,
+                            detail: detail
+                        )
+                        Logger.log(reason, level: .warning)
+                        completion(.uncertain(RuntimeConfigApplyDiagnostics.displayReason(detail)))
+                    }
+                    return
                 }
                 let result = clashUpdateConfigWithEpoch(file.path.goStringBuffer(), epoch)?.toString()
                 DispatchQueue.main.async {
                     guard context == runtimeConfigContext() else {
                         completion(.uncertain("Runtime scope changed while applying configuration")); return
                     }
-                    completion(result == "success" ? .accepted : .rejected("Core rejected the runtime configuration"))
+                    let currentEpoch = UInt64(clashCurrentConfigUpdateEpoch())
+                    guard currentEpoch == expectedEpoch else {
+                        let detail = "Core epoch changed while apply was in flight; core response: \(result ?? "[nil]")"
+                        let reason = RuntimeConfigApplyDiagnostics.formattedReason(
+                            transport: .embedded,
+                            stage: .cancelled,
+                            requestID: requestID,
+                            expectedEpoch: expectedEpoch,
+                            currentEpoch: currentEpoch,
+                            detail: detail
+                        )
+                        Logger.log(reason, level: .warning)
+                        completion(.uncertain(RuntimeConfigApplyDiagnostics.displayReason(detail)))
+                        return
+                    }
+
+                    switch RuntimeConfigApplyDiagnostics.embeddedDecision(result) {
+                    case .accepted:
+                        completion(.accepted)
+                    case let .rejected(detail):
+                        let reason = RuntimeConfigApplyDiagnostics.formattedReason(
+                            transport: .embedded,
+                            stage: .embeddedResponse,
+                            requestID: requestID,
+                            expectedEpoch: expectedEpoch,
+                            currentEpoch: currentEpoch,
+                            detail: detail
+                        )
+                        Logger.log(reason, level: .error)
+                        completion(.rejected(RuntimeConfigApplyDiagnostics.displayReason(detail)))
+                    case let .uncertain(detail):
+                        let reason = RuntimeConfigApplyDiagnostics.formattedReason(
+                            transport: .embedded,
+                            stage: .embeddedResponse,
+                            requestID: requestID,
+                            expectedEpoch: expectedEpoch,
+                            currentEpoch: currentEpoch,
+                            detail: detail
+                        )
+                        Logger.log(reason, level: .warning)
+                        completion(.uncertain(RuntimeConfigApplyDiagnostics.displayReason(detail)))
+                    }
                 }
             }
         } else {
-            runtimeConfigHTTP(path: "/configs?force=true", method: "PUT", body: ["Path": file.path], context: context, timeout: 12) { _, status, error in
+            runtimeConfigHTTP(path: "/configs?force=true", method: "PUT", body: ["Path": file.path], context: context, timeout: 12) { data, status, error in
                 guard context == runtimeConfigContext() else {
                     completion(.uncertain("Runtime scope changed while applying configuration")); return
                 }
-                if error != nil { completion(.uncertain("Configuration request did not receive a conclusive reply")) }
-                else if status == 204 { completion(.accepted) }
-                else if let status, (400 ... 499).contains(status) { completion(.rejected("Core rejected configuration (HTTP \(status))")) }
-                else { completion(.uncertain("Core configuration apply result is unknown")) }
+                let decision = RuntimeConfigApplyDiagnostics.httpDecision(
+                    statusCode: status,
+                    errorDescription: error?.localizedDescription,
+                    body: data
+                )
+                switch decision {
+                case .accepted:
+                    completion(.accepted)
+                case let .rejected(detail):
+                    let reason = RuntimeConfigApplyDiagnostics.formattedReason(
+                        transport: .http,
+                        stage: .httpResponse,
+                        requestID: requestID,
+                        expectedEpoch: nil,
+                        currentEpoch: nil,
+                        detail: detail
+                    )
+                    Logger.log(reason, level: .error)
+                    completion(.rejected(RuntimeConfigApplyDiagnostics.displayReason(detail)))
+                case let .uncertain(detail):
+                    let stage: RuntimeConfigApplyDiagnostics.Stage = error == nil ? .httpResponse : .httpTransportError
+                    let reason = RuntimeConfigApplyDiagnostics.formattedReason(
+                        transport: .http,
+                        stage: stage,
+                        requestID: requestID,
+                        expectedEpoch: nil,
+                        currentEpoch: nil,
+                        detail: detail
+                    )
+                    Logger.log(reason, level: .warning)
+                    completion(.uncertain(RuntimeConfigApplyDiagnostics.displayReason(detail)))
+                }
             }
         }
     }

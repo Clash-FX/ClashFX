@@ -129,6 +129,470 @@ final class RuntimeConfigTransactionTests: XCTestCase {
         XCTAssertFalse(controller.isUncertain)
     }
 
+    func testVerifiedRollbackRetriesSameCandidateAndPromotesSecondApply() throws {
+        let controller = makeController()
+        let baseline = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcomes = [RuntimeConfigTransactionController.Outcome]()
+        var retryReasons = [String]()
+        var retryCallbackOnMain: Bool?
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true,
+            onRetry: {
+                retryReasons.append($0)
+                retryCallbackOnMain = Thread.isMainThread
+            }
+        ) {
+            outcomes.append($0)
+        }
+        waitUntil("initial validation should start") { mock.validationCallbacks.count == 1 }
+        let candidateFile = mock.validationFiles[0]
+
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.rejected("candidate apply rejected"))
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+        XCTAssertEqual(mock.applyFiles[1], baseline.file)
+        mock.applyCallbacks[1](.accepted)
+        mock.verificationCallbacks[0](.verified(.healthy))
+
+        XCTAssertEqual(mock.validationCallbacks.count, 2, "Retry must revalidate after baseline verification.")
+        XCTAssertEqual(mock.validationFiles[1], candidateFile, "Both attempts must use the same immutable candidate snapshot.")
+        XCTAssertEqual(controller.confirmed?.id, baseline.id)
+        XCTAssertTrue(controller.isBusy)
+        XCTAssertEqual(retryReasons, ["candidate apply rejected"])
+        XCTAssertEqual(retryCallbackOnMain, true)
+
+        mock.validationCallbacks[1](nil)
+        XCTAssertEqual(mock.applyCallbacks.count, 3)
+        XCTAssertEqual(mock.applyFiles[2], candidateFile)
+        mock.applyCallbacks[2](.accepted)
+        XCTAssertEqual(mock.verificationCallbacks.count, 2)
+        XCTAssertEqual(mock.verificationFiles[1], candidateFile)
+        mock.verificationCallbacks[1](.verified(.unavailable))
+
+        guard outcomes.count == 1, case let .applied(receipt) = outcomes[0] else {
+            return XCTFail("Expected the one retry to apply and verify the candidate")
+        }
+        XCTAssertEqual(receipt.data, Data("candidate".utf8))
+        XCTAssertEqual(receipt.dataPlane, .unavailable)
+        XCTAssertEqual(controller.confirmed?.id, receipt.id)
+        XCTAssertFalse(controller.isUncertain)
+        XCTAssertFalse(controller.isBusy)
+    }
+
+    func testSecondCandidateRejectionExhaustsRetryAndReturnsVerifiedRollback() throws {
+        let controller = makeController()
+        let baseline = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+        var retryReasons = [String]()
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true,
+            onRetry: { retryReasons.append($0) }
+        ) {
+            outcome = $0
+        }
+        waitUntil("initial validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.rejected("first rejection"))
+        mock.applyCallbacks[1](.accepted)
+        mock.verificationCallbacks[0](.verified(.healthy))
+
+        XCTAssertEqual(mock.validationCallbacks.count, 2)
+        mock.validationCallbacks[1](nil)
+        XCTAssertEqual(mock.applyCallbacks.count, 3)
+        mock.applyCallbacks[2](.rejected("second rejection"))
+        XCTAssertEqual(mock.applyCallbacks.count, 4, "The second rejection gets one verified baseline restore, with no third candidate apply.")
+        XCTAssertEqual(mock.applyFiles[3], baseline.file)
+        mock.applyCallbacks[3](.accepted)
+        mock.verificationCallbacks[1](.verified(.unavailable))
+
+        guard case let .rolledBack(receipt, reason)? = outcome else {
+            return XCTFail("Two candidate rejections should finish with the verified baseline")
+        }
+        XCTAssertEqual(receipt.id, baseline.id)
+        XCTAssertEqual(receipt.dataPlane, .unavailable)
+        XCTAssertEqual(reason, "second rejection")
+        XCTAssertEqual(retryReasons, ["first rejection"], "Only the first rejection may trigger the retry callback.")
+        XCTAssertEqual(mock.validationCallbacks.count, 2)
+        XCTAssertEqual(controller.confirmed?.id, baseline.id)
+        XCTAssertFalse(controller.isUncertain)
+        XCTAssertFalse(controller.isBusy)
+    }
+
+    func testCandidateApplyUncertaintyNeverRetries() throws {
+        let controller = makeController()
+        _ = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+        var retryCount = 0
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true,
+            onRetry: { _ in retryCount += 1 }
+        ) {
+            outcome = $0
+        }
+        waitUntil("validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.uncertain("connection lost"))
+
+        guard case .unknown? = outcome else { return XCTFail("An uncertain apply must remain unknown") }
+        XCTAssertEqual(mock.validationCallbacks.count, 1)
+        XCTAssertEqual(mock.applyCallbacks.count, 1)
+        XCTAssertEqual(retryCount, 0)
+        XCTAssertTrue(controller.isUncertain)
+    }
+
+    func testRejectedCandidateDoesNotRetryWhenBaselineRollbackFails() throws {
+        let controller = makeController()
+        _ = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+        var retryCount = 0
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true,
+            onRetry: { _ in retryCount += 1 }
+        ) {
+            outcome = $0
+        }
+        waitUntil("validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.rejected("candidate rejected"))
+        mock.applyCallbacks[1](.rejected("baseline rollback rejected"))
+
+        guard case .unknown? = outcome else { return XCTFail("A failed rollback cannot authorize retry") }
+        XCTAssertEqual(mock.validationCallbacks.count, 1)
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+        XCTAssertEqual(retryCount, 0)
+        XCTAssertNil(controller.confirmed)
+        XCTAssertTrue(controller.isUncertain)
+    }
+
+    func testUncertainBaselineRollbackDoesNotRetry() throws {
+        let controller = makeController()
+        _ = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+        var retryCount = 0
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true,
+            onRetry: { _ in retryCount += 1 }
+        ) {
+            outcome = $0
+        }
+        waitUntil("validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.rejected("candidate rejected"))
+        mock.applyCallbacks[1](.uncertain("rollback connection lost"))
+
+        guard case .unknown? = outcome else { return XCTFail("An uncertain rollback cannot authorize retry") }
+        XCTAssertEqual(mock.validationCallbacks.count, 1)
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+        XCTAssertEqual(retryCount, 0)
+        XCTAssertNil(controller.confirmed)
+        XCTAssertTrue(controller.isUncertain)
+    }
+
+    func testRollbackVerificationFailureDoesNotRetry() throws {
+        let controller = makeController()
+        _ = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+        var retryCount = 0
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true,
+            onRetry: { _ in retryCount += 1 }
+        ) {
+            outcome = $0
+        }
+        waitUntil("validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.rejected("candidate rejected"))
+        mock.applyCallbacks[1](.accepted)
+        mock.verificationCallbacks[0](.failed("baseline readback mismatch"))
+
+        guard case .unknown? = outcome else { return XCTFail("An unverified baseline cannot authorize retry") }
+        XCTAssertEqual(mock.validationCallbacks.count, 1)
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+        XCTAssertEqual(retryCount, 0)
+        XCTAssertNil(controller.confirmed)
+        XCTAssertTrue(controller.isUncertain)
+    }
+
+    func testSuccessfulCandidateWithFailedVerificationDoesNotRetry() throws {
+        let controller = makeController()
+        let baseline = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+        var retryCount = 0
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true,
+            onRetry: { _ in retryCount += 1 }
+        ) {
+            outcome = $0
+        }
+        waitUntil("validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.accepted)
+        mock.verificationCallbacks[0](.failed("candidate readback mismatch"))
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+        XCTAssertEqual(mock.applyFiles[1], baseline.file)
+        mock.applyCallbacks[1](.accepted)
+        mock.verificationCallbacks[1](.verified(.healthy))
+
+        guard case let .rolledBack(receipt, reason)? = outcome else {
+            return XCTFail("Failed verification should restore the baseline without retrying the candidate")
+        }
+        XCTAssertEqual(receipt.id, baseline.id)
+        XCTAssertEqual(reason, "candidate readback mismatch")
+        XCTAssertEqual(mock.validationCallbacks.count, 1)
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+        XCTAssertEqual(retryCount, 0)
+        XCTAssertEqual(controller.confirmed?.id, baseline.id)
+        XCTAssertFalse(controller.isUncertain)
+    }
+
+    func testInitialValidationErrorDoesNotRetryWhenEnabled() {
+        let controller = makeController()
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+        var retryCount = 0
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true,
+            onRetry: { _ in retryCount += 1 }
+        ) {
+            outcome = $0
+        }
+        waitUntil("validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0]("initial parse error")
+
+        guard case let .rejected(reason)? = outcome else { return XCTFail("Initial validation failure remains a rejection") }
+        XCTAssertEqual(reason, "initial parse error")
+        XCTAssertEqual(mock.validationCallbacks.count, 1)
+        XCTAssertTrue(mock.applyCallbacks.isEmpty)
+        XCTAssertEqual(retryCount, 0)
+        XCTAssertFalse(controller.isUncertain)
+    }
+
+    func testScopeCancellationDuringRetryCallbackPreventsAnotherApply() throws {
+        let controller = makeController()
+        _ = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var isCurrent = true
+        var outcome: RuntimeConfigTransactionController.Outcome?
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { isCurrent },
+            client: mock.client,
+            retryAfterVerifiedRollback: true,
+            onRetry: { _ in isCurrent = false }
+        ) {
+            outcome = $0
+        }
+        waitUntil("validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.rejected("candidate rejected"))
+        mock.applyCallbacks[1](.accepted)
+        mock.verificationCallbacks[0](.verified(.healthy))
+
+        guard case .unknown? = outcome else { return XCTFail("Scope loss after an apply must not begin the retry") }
+        XCTAssertEqual(mock.validationCallbacks.count, 1)
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+        XCTAssertNil(controller.confirmed)
+        XCTAssertTrue(controller.isUncertain)
+        XCTAssertFalse(controller.isBusy)
+    }
+
+    func testFreshReadbackAdoptionDuringRetryCallbackPreventsAnotherApply() throws {
+        let controller = makeController()
+        _ = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+        var adopted: RuntimeConfigTransactionController.Receipt?
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true,
+            onRetry: { _ in
+                do {
+                    adopted = try controller.adoptConfirmed(data: Data("fresh readback".utf8), scope: "core-A")
+                } catch {
+                    XCTFail("Fresh readback adoption should succeed: \(error)")
+                }
+            }
+        ) {
+            outcome = $0
+        }
+        waitUntil("validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.rejected("candidate rejected"))
+        mock.applyCallbacks[1](.accepted)
+        mock.verificationCallbacks[0](.verified(.healthy))
+
+        guard case .unknown? = outcome else { return XCTFail("Adoption should detach the old transaction") }
+        XCTAssertEqual(mock.validationCallbacks.count, 1)
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+        XCTAssertEqual(adopted?.data, Data("fresh readback".utf8))
+        XCTAssertEqual(controller.confirmed?.id, adopted?.id)
+        XCTAssertFalse(controller.isUncertain)
+        XCTAssertFalse(controller.isBusy)
+    }
+
+    func testDuplicateCallbacksFromFirstAttemptCannotChangeRetryAttempt() throws {
+        let controller = makeController()
+        _ = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true
+        ) {
+            outcome = $0
+        }
+        waitUntil("initial validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0](nil)
+        let firstApplyCallback = mock.applyCallbacks[0]
+        firstApplyCallback(.rejected("first rejection"))
+        mock.applyCallbacks[1](.accepted)
+        let firstRollbackVerificationCallback = mock.verificationCallbacks[0]
+        firstRollbackVerificationCallback(.verified(.healthy))
+
+        XCTAssertEqual(mock.validationCallbacks.count, 2)
+        firstApplyCallback(.rejected("stale duplicate rejection"))
+        firstRollbackVerificationCallback(.verified(.notChecked))
+        XCTAssertEqual(mock.validationCallbacks.count, 2)
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+        XCTAssertNil(outcome)
+
+        mock.validationCallbacks[1](nil)
+        mock.applyCallbacks[2](.accepted)
+        mock.verificationCallbacks[1](.verified(.unavailable))
+        guard case .applied? = outcome else { return XCTFail("The current retry should still complete normally") }
+        XCTAssertEqual(mock.applyCallbacks.count, 3)
+        XCTAssertEqual(mock.validationCallbacks.count, 2)
+    }
+
+    func testRetryValidationFailureKeepsVerifiedBaselineOutcome() throws {
+        let controller = makeController()
+        let baseline = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true
+        ) {
+            outcome = $0
+        }
+        waitUntil("initial validation should start") { mock.validationCallbacks.count == 1 }
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.rejected("candidate rejected"))
+        mock.applyCallbacks[1](.accepted)
+        mock.verificationCallbacks[0](.verified(.healthy))
+        XCTAssertEqual(mock.validationCallbacks.count, 2)
+
+        mock.validationCallbacks[1]("retry validation error")
+        guard case let .rolledBack(receipt, reason)? = outcome else {
+            return XCTFail("A failed retry validation must preserve the already verified rollback")
+        }
+        XCTAssertEqual(receipt.id, baseline.id)
+        XCTAssertEqual(receipt.dataPlane, .healthy)
+        XCTAssertTrue(reason.contains("retry validation error"))
+        XCTAssertEqual(controller.confirmed?.id, baseline.id)
+        XCTAssertFalse(controller.isUncertain)
+        XCTAssertFalse(controller.isBusy)
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+    }
+
+    func testRetryValidationTimeoutKeepsVerifiedBaselineOutcome() throws {
+        let controller = makeController(timeout: 0.5)
+        let baseline = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")
+        let mock = MockClient()
+        var outcome: RuntimeConfigTransactionController.Outcome?
+
+        controller.submit(
+            data: Data("candidate".utf8),
+            scope: "core-A",
+            isCurrent: { true },
+            client: mock.client,
+            retryAfterVerifiedRollback: true
+        ) {
+            outcome = $0
+        }
+        waitUntil("initial validation should start") { mock.validationCallbacks.count == 1 }
+        let candidateFile = mock.validationFiles[0]
+        mock.validationCallbacks[0](nil)
+        mock.applyCallbacks[0](.rejected("candidate rejected"))
+        mock.applyCallbacks[1](.accepted)
+        mock.verificationCallbacks[0](.verified(.healthy))
+        waitUntil("retry validation should start") { mock.validationCallbacks.count == 2 }
+        waitUntil("retry validation timeout should settle", timeout: 2) { outcome != nil }
+
+        guard case let .rolledBack(receipt, reason)? = outcome else {
+            return XCTFail("Retry validation timeout must report the verified baseline")
+        }
+        XCTAssertEqual(receipt.id, baseline.id)
+        XCTAssertTrue(reason.contains("timed out"))
+        XCTAssertEqual(mock.validationCallbacks.count, 2)
+        XCTAssertEqual(mock.applyCallbacks.count, 2)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: candidateFile.path), "A timed-out validator may still be reading the immutable candidate path.")
+        XCTAssertEqual(controller.confirmed?.id, baseline.id)
+        XCTAssertFalse(controller.isUncertain)
+        XCTAssertFalse(controller.isBusy)
+    }
+
     func testUncertainApplyBlocksRetryAndIgnoresLateCallback() throws {
         let controller = makeController()
         let baseline = try controller.adoptConfirmed(data: Data("baseline".utf8), scope: "core-A")

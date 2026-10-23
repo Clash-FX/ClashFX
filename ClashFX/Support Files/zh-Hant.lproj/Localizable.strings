@@ -895,3 +895,9 @@
 /* Proxy menu selection display */
 "Show Final Node in Proxy Menu" = "代理選單顯示最終節點";
 "By default, shows the selected node or group (such as Proxies). Enable to show the final node." = "預設顯示所選節點或策略群組（如 Proxies），開啟後顯示最終節點。";
+
+// Runtime configuration rollback provenance
+"Configuration switch failed; the startup configuration was restored. The selected profile has not loaded successfully. %@" = "切換設定失敗；已回復至啟動初始設定，所選訂閱尚未成功載入。%@";
+"Configuration switch failed; the previously verified profile configuration was restored. %@" = "切換設定失敗；已恢復上一個已驗證的訂閱設定。%@";
+
+"Configuration is switching. Retry restarting after it finishes." = "正在切換設定，請等待完成後再重試重新啟動。";
