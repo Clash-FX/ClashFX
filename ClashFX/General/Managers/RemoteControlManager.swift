@@ -129,8 +129,10 @@ class RemoteControlManager {
             ConfigManager.shared.overrideSecret = nil
         }
         ClashProxy.cleanCache()
-        AppDelegate.shared.resetStreamApi()
-        AppDelegate.shared.syncConfig()
+        if !AppDelegate.shared.loadLocalConfigurationIfNeededAfterControlScopeChange() {
+            AppDelegate.shared.resetStreamApi()
+            AppDelegate.shared.syncConfig()
+        }
         MenuItemFactory.recreateProxyMenuItems()
         updateDropDownMenuItems()
     }

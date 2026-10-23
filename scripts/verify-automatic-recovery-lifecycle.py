@@ -66,6 +66,7 @@ class Lifecycle { var generation:UInt64=0;func invalidate(){generation += 1} }
 class NSUserNotificationCenter {
     static let `default`=NSUserNotificationCenter();var messages=[String]()
     func post(title:String, info:String){messages.append(info)}
+    func postConfigErrorNotice(msg:String){messages.append(msg)}
 }
 enum ApiRequest {
     struct RuntimeConfigContext:Equatable { var direct:Bool;var apiURL:String;var secret:String }
@@ -101,6 +102,8 @@ class Probe {
     var activeEnhancedModeLaunchID:UUID?=UUID();var enhancedModeOwnershipBlock:Int?
     var startupCoreHandoffRetryAvailable=false
     var isCoreConfigSnapshotVerified=false;var runtimeCoreSessionID=UUID()
+    var startupConfigurationFailure:(profile:String,reason:String)?
+    var confirmedRuntimeProfileName:String?
     var runtimeConfigTransactions=Transactions();var isBuiltInCoreResumeRetryAvailable=false
     var stops=0;var launches=0;var launchError:String?;var launchCompletion:((String?)->Void)?
     var stopCallbacks=[(String?)->Void]();var holdStop=false;var holdLaunch=false
@@ -117,6 +120,7 @@ class Probe {
     }
     func scheduleEnhancedModePostToggleRefresh(){}
     func restoreBuiltInRecoveryCheckpoint()->String?{nil}
+    func fenceFailedBuiltInRecovery(){ConfigManager.shared.isRunning=false;isCoreConfigSnapshotVerified=false}
 """
 tests=r"""
 }
@@ -240,5 +244,5 @@ print("PASS: actual AppDelegate checkpoint/retry/failure/readback, uncertain-run
 with tempfile.TemporaryDirectory(prefix='clashfx-auto-recovery-lifecycle-') as d:
     d=Path(d); main=d/'main.swift';main.write_text(header+menu_policy+"\n"+methods+tests)
     exe=d/'probe'
-    subprocess.run(['swiftc',str(ROOT/'ClashFX/General/Utils/RuntimeProxySelectionRestoreSequence.swift'),str(main),'-o',str(exe)],check=True)
+    subprocess.run(['swiftc',str(ROOT/'ClashFX/General/Utils/RuntimeProxySelectionRestoreSequence.swift'),str(ROOT/'ClashFX/General/Utils/RuntimeConfigApplyDiagnostics.swift'),str(main),'-o',str(exe)],check=True)
     subprocess.run([str(exe)],check=True,timeout=20)

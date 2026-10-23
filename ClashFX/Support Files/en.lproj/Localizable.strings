@@ -898,3 +898,9 @@
 /* Proxy menu selection display */
 "Show Final Node in Proxy Menu" = "Show Final Node in Proxy Menu";
 "By default, shows the selected node or group (such as Proxies). Enable to show the final node." = "By default, shows the selected node or group (such as Proxies). Enable to show the final node.";
+
+// Runtime configuration rollback provenance
+"Configuration switch failed; the startup configuration was restored. The selected profile has not loaded successfully. %@" = "Configuration switch failed; the startup configuration was restored. The selected profile has not loaded successfully. %@";
+"Configuration switch failed; the previously verified profile configuration was restored. %@" = "Configuration switch failed; the previously verified profile configuration was restored. %@";
+
+"Configuration is switching. Retry restarting after it finishes." = "Configuration is switching. Retry restarting after it finishes.";

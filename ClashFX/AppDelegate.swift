@@ -260,6 +260,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let configUpdateTransaction = ConfigUpdateTransactionCoordinator()
     private var runtimeCoreSessionID = UUID()
     private var confirmedRuntimeProfileName: String?
+    private var startupConfigurationFailure: (profile: String, reason: String)?
     private var lastConfirmedEnhancedData: Data?
     private var lastConfirmedEnhancedAPIPort: Int?
     private var builtInRecoveryCheckpoint: Data?
@@ -374,7 +375,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         completion?(reason)
     }
 
-    private func deferConfigUpdate(configName: String?, showNotification: Bool,
+    private func deferConfigUpdate(configName: String?, showNotification: Bool, showError: Bool,
                                    completion: ((ErrorString?) -> Void)?) {
         cancelDeferredConfigUpdate(reason: "Config update was superseded by a newer request.")
         let id = UUID()
@@ -383,7 +384,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         deferredConfigUpdateCompletion = completion
         let poll: () -> Void = { [weak self] in
             self?.retryDeferredConfigUpdate(id: id, deadline: deadline,
-                                            configName: configName, showNotification: showNotification)
+                                            configName: configName, showNotification: showNotification, showError: showError)
         }
         let work = DispatchWorkItem(block: poll)
         deferredConfigUpdateWork = work
@@ -391,7 +392,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func retryDeferredConfigUpdate(id: UUID, deadline: Date,
-                                           configName: String?, showNotification: Bool) {
+                                           configName: String?, showNotification: Bool, showError: Bool) {
         guard deferredConfigUpdateID == id else { return }
         guard ownsRuntimeControl, !isTerminating, !isRestarting, Date() < deadline else {
             cancelDeferredConfigUpdate(reason: "Deferred config update cancelled or timed out.")
@@ -405,7 +406,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
               !ProxyGroupSelectionController.isAnyOperationInProgress else {
             let work = DispatchWorkItem { [weak self] in
                 self?.retryDeferredConfigUpdate(id: id, deadline: deadline,
-                                                configName: configName, showNotification: showNotification)
+                                                configName: configName, showNotification: showNotification, showError: showError)
             }
             deferredConfigUpdateWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
@@ -415,7 +416,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         deferredConfigUpdateWork = nil
         let completion = deferredConfigUpdateCompletion
         deferredConfigUpdateCompletion = nil
-        updateConfig(configName: configName, showNotification: showNotification, completeHandler: completion)
+        updateConfig(configName: configName, showNotification: showNotification, showError: showError, completeHandler: completion)
     }
 
     var isEnhancedModeTransitionInProgress: Bool {
@@ -695,6 +696,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 (isStartupProxyRecoveryActive && startupSystemProxyHealthVerified)),
             isPaused: ConfigManager.shared.proxyShouldPaused.value,
             isReady: isCoreConfigSnapshotVerified && ConfigManager.shared.isRunning && RemoteControlManager.selectConfig == nil &&
+                confirmedRuntimeProfileName != nil &&
                 PrivilegedHelperManager.shared.isHelperCheckFinished.value &&
                 NetworkChangeNotifier.getPrimaryInterface() != nil &&
                 (config?.usedHttpPort ?? 0) > 0 && (config?.usedSocksPort ?? 0) > 0 &&
@@ -812,7 +814,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Logger.log("setup built in logger/traffic")
             clash_setLogBlock { line, level in
                 let clashLevel = ClashLogLevel(rawValue: level ?? "info")
-                Logger.log(line ?? "", level: clashLevel ?? .info, function: "")
+                let message = clashLevel == .error ? RuntimeConfigApplyDiagnostics.sanitize(line ?? "") : (line ?? "")
+                Logger.log(message, level: clashLevel ?? .info, function: "")
             }
             clashSetupLogger()
 
@@ -1613,12 +1616,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: .reloadDashboard, object: nil)
     }
 
-    func startProxy() {
+    @discardableResult
+    func startProxy() -> String? {
         guard automaticRecoverySelections == nil, !automaticRecoveryNeedsRetry else {
             Logger.log("[Automatic Recovery] stage=blocked outcome=blocked code=builtin-fallback built-in start requires verified recovery or explicit scope change", level: .error)
-            return
+            return "Built-in start blocked until automatic recovery selections are verified"
         }
-        if ConfigManager.shared.isRunning { return }
+        if ConfigManager.shared.isRunning { return nil }
         ApiRequest.cancelRuntimeConfigOperations()
         runtimeConfigTransactions.invalidate()
         runtimeCoreSessionID = UUID()
@@ -1706,7 +1710,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 ConfigManager.shared.isRunning = false
                 isBuiltInCoreResumeRetryAvailable = true
                 Logger.log(restoreError, level: .error)
-                return
+                return restoreError
             }
             isBuiltInCoreResumeRetryAvailable = false
             proxyModeMenuItem.isEnabled = true
@@ -1715,10 +1719,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ConfigManager.shared.isRunning = false
             isBuiltInCoreResumeRetryAvailable = true
             proxyModeMenuItem.isEnabled = false
-            Logger.log(startRes, level: .error)
-            NSUserNotificationCenter.default.postConfigErrorNotice(msg: startRes)
+            let reason = RuntimeConfigApplyDiagnostics.displayReason(startRes)
+            Logger.log("[Built-in Handoff] stage=start outcome=failed reason=\(reason)", level: .error)
+            NSUserNotificationCenter.default.postConfigErrorNotice(msg: reason)
+            return reason
         }
         Logger.log("Start proxy done")
+        return nil
     }
 
     func syncConfig(completeHandler: (() -> Void)? = nil) {
@@ -1843,12 +1850,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func updateConfig(configName: String? = nil,
                       showNotification: Bool = true,
+                      showError: Bool = true,
                       completeHandler: ((ErrorString?) -> Void)? = nil) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
                 self?.updateConfig(
                     configName: configName,
                     showNotification: showNotification,
+                    showError: showError,
                     completeHandler: completeHandler
                 )
             }
@@ -1867,7 +1876,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if claudeLockChange != nil || isEnhancedModeTransitionInProgress || isConfigUpdating || isRestoringProxySelection || isOutboundModeChangeInFlight || !outboundModeChangeQueue.isEmpty || ProxyGroupSelectionController.isAnyOperationInProgress {
-            deferConfigUpdate(configName: configName, showNotification: showNotification, completion: completeHandler)
+            deferConfigUpdate(configName: configName, showNotification: showNotification, showError: showError, completion: completeHandler)
             return
         }
         invalidateProxyInteractionScope(reason: "configuration reload")
@@ -1908,7 +1917,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if let validatedBaselineID {
                     self.restoreVerifiedRuntimeBaselineIfAvailable(scope: reloadRuntimeScope, receiptID: validatedBaselineID)
                 }
-                UpdateConfigAction.showError(text: err, configName: config)
+                Logger.log("[Runtime Configuration] stage=reload_failed transaction=\(transactionID) reason=\(RuntimeConfigApplyDiagnostics.sanitize(err))", level: .error)
+                if showError { UpdateConfigAction.showError(text: err, configName: config) }
                 MenuItemFactory.recreateProxyMenuItems()
                 self.finishConfigUpdate(transactionID: transactionID, error: err)
                 return
@@ -1988,7 +1998,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func requestConfigUpdateApplyingRuntimePatch(configName: String,
                                                          baselineState: ((UUID?) -> Void)? = nil, callback: @escaping ((ErrorString?) -> Void)) {
         let generation = proxySelectionGeneration
-        let selectedConfig = ConfigManager.selectConfigName
+        var selectedConfig = ConfigManager.selectConfigName
         let scope = runtimeConfigurationScope
         let context = ApiRequest.runtimeConfigContext()
         let remoteID = RemoteControlManager.selectConfig?.uuid
@@ -2076,7 +2086,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         }
                         DispatchQueue.main.async {
                             guard isCurrent() else { cleanup(); finish("Config update scope changed"); return }
-                            self.applyRuntimeConfiguration(path: candidatePath, profile: configName, isCurrent: isCurrent, baselineState: baselineState) { error in
+                            self.applyRuntimeConfiguration(path: candidatePath, profile: configName, isCurrent: isCurrent, baselineState: baselineState,
+                                                           onVerifiedRollbackProfile: { selectedConfig = $0 }) { error in
                                 cleanup()
                                 finish(error)
                             }
@@ -2250,9 +2261,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func captureBuiltInRecoveryCheckpoint() {
+        // A suspended or failed core cannot provide a newer trusted snapshot.
+        // Keep the last frozen graph across retries instead of recapturing its
+        // bootstrap metadata (or erasing it after failed readback).
+        guard ConfigManager.shared.isRunning, !ConfigManager.shared.isEnhancedModeActive else {
+            Logger.log("[Runtime Checkpoint] stage=capture outcome=retained reason=no_live_builtin_core")
+            return
+        }
         let receipt = runtimeConfigTransactions.confirmed.flatMap { $0.scope == runtimeConfigurationScope ? $0 : nil }
+        // A checked resume restores the frozen graph before a new transaction
+        // receipt exists. Reuse that graph, not an arbitrary submitted config,
+        // when preserving its already-verified profile identity.
+        let verifiedRecovery = confirmedRuntimeProfileName != nil && confirmedRuntimeProfileName == builtInRecoveryProfileName
+            ? builtInRecoveryCheckpoint : nil
+        let capturedProfile = receipt != nil || verifiedRecovery != nil ? confirmedRuntimeProfileName : nil
         guard !runtimeConfigTransactions.isBusy, !runtimeConfigTransactions.isUncertain,
-              let data = receipt?.data ?? clashGetLastSubmittedConfig()?.toString().data(using: .utf8),
+              let data = receipt?.data ?? verifiedRecovery ?? clashGetLastSubmittedConfig()?.toString().data(using: .utf8),
               let text = String(data: data, encoding: .utf8),
               let root = (try? Yams.load(yaml: text)) as? [String: Any],
               let current = clashGetConfigs()?.toString().data(using: .utf8),
@@ -2262,8 +2286,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             builtInRecoveryCheckpoint = nil; builtInRecoveryProfileName = nil; return
         }
         builtInRecoveryCheckpoint = Data(frozen.utf8)
-        // A bootstrap config is not evidence that a selected profile was applied.
-        builtInRecoveryProfileName = receipt == nil ? nil : confirmedRuntimeProfileName
+        // A bootstrap seed alone is never evidence that a profile was applied.
+        builtInRecoveryProfileName = capturedProfile
     }
 
     private func ensureConfirmedRuntimeBaseline(scope: String, context: ApiRequest.RuntimeConfigContext,
@@ -2313,6 +2337,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyRuntimeConfiguration(path: String, profile: String, isCurrent: @escaping () -> Bool,
                                            baselineState: ((UUID?) -> Void)? = nil,
+                                           onVerifiedRollbackProfile: ((String) -> Void)? = nil,
                                            completion: @escaping (String?) -> Void) {
         let scope = runtimeConfigurationScope
         let context = ApiRequest.runtimeConfigContext()
@@ -2355,6 +2380,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         guard current() else { completion("Runtime scope changed while preparing configuration"); return }
                         guard case let .success(data) = result else { completion("The candidate runtime configuration could not be prepared"); return }
                         let previousProfile = self.confirmedRuntimeProfileName
+                        let baselineKind = RuntimeConfigBaselineKind(confirmedProfile: previousProfile)
+                        Logger.log("[Runtime Configuration] stage=submit baseline_kind=\(baselineKind.rawValue) transport=\(context.direct ? "embedded" : "http")")
                         let previousFile = self.runtimeConfigTransactions.confirmed?.file
                         let previousReceiptID = self.runtimeConfigTransactions.confirmed?.id
                         var desiredSelections = [String: String]()
@@ -2385,24 +2412,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                                             readback: { verifiedReadbacks[file.path] = $0 }, completion: done)
                             }
                         )
-                        self.runtimeConfigTransactions.submit(data: data, scope: scope, isCurrent: current, client: client) { outcome in
+                        self.runtimeConfigTransactions.submit(data: data, scope: scope, isCurrent: current, client: client,
+                            retryAfterVerifiedRollback: baselineKind == .startup,
+                            onRetry: { reason in
+                                Logger.log("[Runtime Configuration] stage=retry attempt=2 baseline_kind=startup rollback=verified reason=\(RuntimeConfigApplyDiagnostics.sanitize(reason))", level: .warning)
+                            }) { outcome in
                             switch outcome {
                             case let .applied(receipt):
                                 publish(receipt)
                                 self.confirmedRuntimeProfileName = profile
+                                self.startupConfigurationFailure = nil
                                 if ConfigManager.shared.isEnhancedModeActive {
                                     self.lastConfirmedEnhancedData = receipt.data
                                     self.lastConfirmedEnhancedAPIPort = Int(ConfigManager.shared.apiPort)
                                     self.saveConfirmedEnhancedPortPreference()
                                 }
                                 self.isCoreConfigSnapshotVerified = true
+                                Logger.log("[Runtime Configuration] stage=verified baseline_kind=profile receipt=\(receipt.id)")
                                 completion(nil)
                             case let .rolledBack(receipt, reason):
+                                guard current() else { completion("Configuration transaction was cancelled"); return }
                                 publish(receipt)
-                                if let previousProfile { ConfigManager.selectConfigName = previousProfile }
+                                if let previousProfile {
+                                    // Only this verified rollback may change the expected
+                                    // selection before the outer completion scope check.
+                                    onVerifiedRollbackProfile?(previousProfile)
+                                    ConfigManager.selectConfigName = previousProfile
+                                }
                                 self.isCoreConfigSnapshotVerified = true
                                 self.syncConfig()
-                                completion("Configuration switch failed; the previous verified configuration was restored. \(reason)")
+                                Logger.log("[Runtime Configuration] stage=rollback_verified baseline_kind=\(baselineKind.rawValue) receipt=\(receipt.id)", level: .warning)
+                                completion(baselineKind.rollbackMessage(reason: reason))
                             case let .rejected(reason):
                                 if current(), let previousReceiptID {
                                     self.restoreVerifiedRuntimeBaselineIfAvailable(scope: scope, receiptID: previousReceiptID)
@@ -3994,19 +4034,19 @@ extension AppDelegate {
             retryStartupCoreHandoff(resetRecoveryBudget: true)
             return
         }
-        if isBuiltInCoreResumeRetryAvailable, !ConfigManager.shared.isRunning {
-            if let resumeError = checkedResumeBuiltInCore() {
-                NSAlert.alert(with: "Built-in core recovery failed: \(resumeError)")
-                return
-            }
-            clashResumeCallbacks()
-        }
-        let newState = !Settings.enhancedMode
+        // A failed close must retry the entire handoff under a fresh lifecycle
+        // token. Resuming config.yaml alone must never publish bootstrap DIRECT.
+        let retryBuiltInHandoff = isBuiltInCoreResumeRetryAvailable && !ConfigManager.shared.isRunning
+        // A locked Claude route requires TUN; a stopped-core retry must still
+        // be able to start Enhanced Mode instead of requesting a forbidden close.
+        let newState = retryBuiltInHandoff
+            ? (Settings.enhancedMode || Settings.claudeProxyLockEnabled)
+            : !Settings.enhancedMode
         guard newState || !Settings.claudeProxyLockEnabled else {
             presentClaudeProxyLockProtectionNotice()
             return
         }
-        guard ConfigManager.shared.isRunning || enhancedModeOwnershipBlock != nil else { return }
+        guard ConfigManager.shared.isRunning || enhancedModeOwnershipBlock != nil || retryBuiltInHandoff else { return }
         enhancedModeMenuItem.isEnabled = false
 
         let completion: (UInt64, String?) -> Void = { [weak self] generation, error in
@@ -4019,9 +4059,9 @@ extension AppDelegate {
             self.enhancedModeMenuItem.isEnabled = true
             if let error = error {
                 let coreRetained = ConfigManager.shared.isEnhancedModeActive || self.enhancedModeOwnershipBlock != nil
-                Settings.enhancedMode = coreRetained || !newState
+                Settings.enhancedMode = coreRetained
                 self.enhancedModeMenuItem.state = ConfigManager.shared.isEnhancedModeActive
-                    ? .on : (self.enhancedModeOwnershipBlock != nil ? .mixed : (!newState ? .on : .off))
+                    ? .on : ((self.enhancedModeOwnershipBlock != nil || self.isBuiltInCoreResumeRetryAvailable) ? .mixed : .off)
                 Logger.log("Enhanced Mode toggle failed: \(error)", level: .error)
                 self.presentEnhancedModeToggleError(error, attemptedEnable: newState)
             } else {
@@ -5277,33 +5317,58 @@ extension AppDelegate {
 
     /// Restore the frozen, previously verified routing graph, not a mutable profile file.
     private func restoreBuiltInRecoveryCheckpoint() -> String? {
-        if let metadata = clashGetLastSubmittedConfig()?.toString(),
-           let root = (try? Yams.load(yaml: metadata)) as? [String: Any],
-           let address = root["external-controller"] as? String {
-            ConfigManager.shared.apiPort = String(listenPort(from: address))
-            ConfigManager.shared.apiSecret = root["secret"] as? String ?? ""
-            if let checkpoint = builtInRecoveryCheckpoint, let text = String(data: checkpoint, encoding: .utf8),
-               var restored = (try? Yams.load(yaml: text)) as? [String: Any] {
-                restored["external-controller"] = address
-                restored["secret"] = ConfigManager.shared.apiSecret
-                let temporary = URL(fileURLWithPath: kConfigFolderPath).appendingPathComponent(".runtime-recovery-\(UUID().uuidString).yaml")
-                defer { try? FileManager.default.removeItem(at: temporary) }
-                do {
-                    try Yams.dump(object: restored).write(to: temporary, atomically: true, encoding: .utf8)
-                    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
-                    let apply = clashUpdateConfig(temporary.path.goStringBuffer())?.toString()
-                    guard apply == "success", let live = clashGetConfigs()?.toString().data(using: .utf8),
-                          let actual = (try? JSONSerialization.jsonObject(with: live)) as? [String: Any],
-                          RuntimeConfigReadbackPolicy.readbackError(expected: restored, actual: actual) == nil else {
-                        fenceFailedBuiltInRecovery()
-                        return "The previous built-in configuration could not be restored and verified"
-                    }
-                    confirmedRuntimeProfileName = builtInRecoveryProfileName
-                } catch {
-                    fenceFailedBuiltInRecovery()
-                    return "The built-in recovery checkpoint could not be prepared"
-                }
+        // Resume starts config.yaml in a new core scope. A name from the old
+        // scope is not evidence that its profile was restored.
+        confirmedRuntimeProfileName = nil
+        guard let metadata = clashGetLastSubmittedConfig()?.toString(),
+              let root = (try? Yams.load(yaml: metadata)) as? [String: Any],
+              let address = root["external-controller"] as? String else {
+            if builtInRecoveryCheckpoint != nil {
+                fenceFailedBuiltInRecovery()
+                return "The resumed core endpoint could not be confirmed for profile recovery"
             }
+            return nil
+        }
+        ConfigManager.shared.apiPort = String(listenPort(from: address))
+        ConfigManager.shared.apiSecret = root["secret"] as? String ?? ""
+        guard let checkpoint = builtInRecoveryCheckpoint else {
+            Logger.log("[Runtime Checkpoint] stage=resume baseline_kind=startup profile_confirmed=false")
+            return nil
+        }
+        guard let text = String(data: checkpoint, encoding: .utf8),
+              var restored = (try? Yams.load(yaml: text)) as? [String: Any] else {
+            fenceFailedBuiltInRecovery()
+            return "The built-in recovery checkpoint could not be decoded"
+        }
+        // The bridge pins IPv6 to the fresh run/resume session. A checkpoint
+        // from before Enhanced Mode may carry the previous preference.
+        restored = RuntimeConfigReadbackPolicy.preservingBuiltInSessionIPv6(in: restored, confirmed: root)
+        restored["external-controller"] = address
+        restored["secret"] = ConfigManager.shared.apiSecret
+        let temporary = URL(fileURLWithPath: kConfigFolderPath).appendingPathComponent(".runtime-recovery-\(UUID().uuidString).yaml")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        do {
+            try Yams.dump(object: restored).write(to: temporary, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+            let apply = clashUpdateConfig(temporary.path.goStringBuffer())?.toString()
+            guard apply == "success" else {
+                let reason = RuntimeConfigApplyDiagnostics.displayReason(apply ?? "No response from the core during checkpoint restore")
+                Logger.log("[Runtime Checkpoint] stage=resume_apply outcome=failed reason=\(reason)", level: .error)
+                fenceFailedBuiltInRecovery()
+                return "The previous built-in configuration could not be restored: \(reason)"
+            }
+            guard let live = clashGetConfigs()?.toString().data(using: .utf8),
+                  let actual = (try? JSONSerialization.jsonObject(with: live)) as? [String: Any],
+                  RuntimeConfigReadbackPolicy.readbackError(expected: restored, actual: actual) == nil else {
+                fenceFailedBuiltInRecovery()
+                return "The previous built-in configuration could not be restored and verified"
+            }
+            confirmedRuntimeProfileName = builtInRecoveryProfileName
+            let kind = RuntimeConfigBaselineKind(confirmedProfile: confirmedRuntimeProfileName)
+            Logger.log("[Runtime Checkpoint] stage=resume_verified baseline_kind=\(kind.rawValue)")
+        } catch {
+            fenceFailedBuiltInRecovery()
+            return "The built-in recovery checkpoint could not be prepared"
         }
         return nil
     }
@@ -5316,6 +5381,7 @@ extension AppDelegate {
                 self.runtimeConfigTransactions.invalidate()
                 self.runtimeCoreSessionID = UUID()
                 self.isCoreConfigSnapshotVerified = false
+                self.confirmedRuntimeProfileName = nil
             },
             reportStopped: {
                 ConfigManager.shared.isRunning = false
@@ -5408,6 +5474,7 @@ extension AppDelegate {
         guard enhancedModeOwnershipBlock == nil else {
             return "Cannot resume the built-in core while external ownership is uncertain"
         }
+        confirmedRuntimeProfileName = nil
         guard let responsePointer = clashResumeCore() else {
             ConfigManager.shared.isRunning = false
             isBuiltInCoreResumeRetryAvailable = true
@@ -5418,9 +5485,10 @@ extension AppDelegate {
         let response = String(cString: responsePointer)
         defer { Darwin.free(UnsafeMutableRawPointer(responsePointer)) }
         guard response == "success" else {
-            let reason = response.hasPrefix("error:")
+            let detail = response.hasPrefix("error:")
                 ? String(response.dropFirst("error:".count))
                 : response
+            let reason = RuntimeConfigApplyDiagnostics.sanitize(detail)
             ConfigManager.shared.isRunning = false
             isBuiltInCoreResumeRetryAvailable = true
             refreshStatusItemViewStatus()
@@ -5432,6 +5500,11 @@ extension AppDelegate {
         runtimeCoreSessionID = UUID()
         isCoreConfigSnapshotVerified = false
         if let restoreError = restoreBuiltInRecoveryCheckpoint() { return restoreError }
+        guard confirmedRuntimeProfileName != nil else {
+            Logger.log("[Runtime Checkpoint] stage=resume outcome=fenced baseline_kind=startup reason=no_verified_profile", level: .error)
+            fenceFailedBuiltInRecovery()
+            return "The built-in core has no verified profile to recover; the startup configuration was stopped"
+        }
         ConfigManager.shared.isEnhancedModeActive = false
         ConfigManager.shared.isRunning = true
         isBuiltInCoreResumeRetryAvailable = false
@@ -5924,13 +5997,13 @@ extension AppDelegate {
                                     }
 
                                     ConfigManager.shared.isRunning = false
-                                    if self.automaticRecoverySelections == nil {
-                                        clashReopenCacheDB()
-                                        clashResumeCallbacks()
-                                        self.startProxy()
-                                    } else {
-                                        Logger.log("[Automatic Recovery] stage=launch outcome=failed code=listener-readiness built-in fallback blocked", level: .error)
-                                    }
+                                    // All failed-launch fallbacks share the same
+                                    // one-shot, verified full-profile recovery.
+                                    // Never resume callbacks before it succeeds.
+                                    let resumeError = self.resumeEnhancedModeCallbacksIfNeeded(
+                                        alreadySuspended: true,
+                                        resumeGate: resumeGate
+                                    )
                                     let coreError = missingProxyPorts.isEmpty
                                         ? NSLocalizedString("Enhanced Mode failed: core not responding", comment: "")
                                         : String(
@@ -5940,9 +6013,7 @@ extension AppDelegate {
                                             ),
                                             "\(missingProxyPorts)"
                                         )
-                                    completion(ConfigManager.shared.isRunning
-                                        ? coreError
-                                        : "\(coreError); built-in core restart failed")
+                                    completion(self.combiningFailure(coreError, resumeError: resumeError))
                                     return
                                 }
                                 self.noteEnhancedModeOwnershipBlocked(block, error: stopError)
@@ -6389,41 +6460,20 @@ extension AppDelegate {
                 ConfigManager.shared.isEnhancedModeActive = false
                 ConfigManager.shared.isRunning = false
                 self.refreshStatusItemViewStatus()
-                clashReopenCacheDB()
-                self.startProxy()
+                // A failed earlier close may have left a live embedded staging
+                // listener. Close our own core before checking configured ports;
+                // run() then reopens its cache and preserves custom startup options.
+                clashSuspendCore()
+                if let resumeError = self.startProxy() {
+                    Logger.log("[Built-in Handoff] stage=resume outcome=failed transaction=\(transactionID) reason=\(RuntimeConfigApplyDiagnostics.sanitize(resumeError))", level: .error)
+                    finish(resumeError)
+                    return
+                }
                 guard isCurrent() else {
                     finish("Enhanced Mode close cancelled: lifecycle changed")
                     return
                 }
-                guard ConfigManager.shared.isRunning else {
-                    self.isBuiltInCoreResumeRetryAvailable = true
-                    finish(NSLocalizedString("Failed to restart built-in core", comment: ""))
-                    return
-                }
-                let selectedConfig = ConfigManager.selectConfigName
-                self.requestConfigUpdateApplyingRuntimePatch(configName: selectedConfig) { [weak self] error in
-                    guard let self, isCurrent() else {
-                        finish("Enhanced Mode close cancelled: lifecycle changed")
-                        return
-                    }
-                    if error == nil {
-                        clashResumeCallbacks()
-                        self.selectProxyGroupWithMemory()
-                        self.selectOutBoundModeWithMenory()
-                        MenuItemFactory.recreateProxyMenuItems(coreReloaded: true)
-                        NotificationCenter.default.post(name: .reloadDashboard, object: nil)
-                        self.syncConfig {
-                            guard isCurrent() else {
-                                finish("Enhanced Mode close cancelled: lifecycle changed")
-                                return
-                            }
-                            finish(nil)
-                        }
-                        return
-                    }
-                    clashResumeCallbacks()
-                    finish(error)
-                }
+                self.completeBuiltInProfileHandoff(isCurrent: isCurrent, completion: finish)
                 return
             }
             self.blockActiveEnhancedModeOwnership(generation: generation, reason: stopError)
@@ -6450,6 +6500,74 @@ extension AppDelegate {
         // Keep a stable identity token for diagnostics and ensure a distinct
         // close transaction cannot accidentally share a completion closure.
         Logger.log("Enhanced Mode close transaction \(transactionID) generation=\(generation)")
+    }
+
+    /// A bootstrap core is a staging state, never a successful return to Local.
+    /// Both the initial close and its retry keep callbacks paused until a full
+    /// profile, or a full verified rollback profile, is available.
+    private func completeBuiltInProfileHandoff(
+        isCurrent: @escaping () -> Bool,
+        completion: @escaping (String?) -> Void
+    ) {
+        let selectedConfig = ConfigManager.selectConfigName
+        let session = runtimeCoreSessionID
+        let interactionGeneration = proxySelectionGeneration
+        let remoteID = RemoteControlManager.selectConfig?.uuid
+        let context = ApiRequest.runtimeConfigContext()
+        let scope = runtimeConfigurationScope
+        var validatedBaselineID: UUID?
+        let scopeIsCurrent: () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return isCurrent() && self.ownsRuntimeControl && !self.isTerminating && !self.isRestarting &&
+                !ConfigManager.shared.isEnhancedModeActive && self.runtimeCoreSessionID == session &&
+                self.proxySelectionGeneration == interactionGeneration &&
+                RemoteControlManager.selectConfig?.uuid == remoteID && ApiRequest.runtimeConfigContext() == context
+        }
+        guard scopeIsCurrent() else {
+            completion("Built-in profile handoff cancelled: lifecycle changed")
+            return
+        }
+        Logger.log("[Built-in Handoff] stage=profile_apply session=\(session) baseline_kind=\(RuntimeConfigBaselineKind(confirmedProfile: confirmedRuntimeProfileName).rawValue)")
+        requestConfigUpdateApplyingRuntimePatch(configName: selectedConfig,
+                                               baselineState: { validatedBaselineID = $0 }) { [weak self] error in
+            guard let self, scopeIsCurrent() else {
+                completion("Built-in profile handoff cancelled: lifecycle changed")
+                return
+            }
+            if error != nil, let validatedBaselineID {
+                self.restoreVerifiedRuntimeBaselineIfAvailable(scope: scope, receiptID: validatedBaselineID)
+            }
+            let completeProfile = ConfigManager.shared.isRunning && self.isCoreConfigSnapshotVerified &&
+                self.confirmedRuntimeProfileName != nil && !self.runtimeConfigTransactions.isUncertain
+            guard completeProfile else {
+                let reason = RuntimeConfigApplyDiagnostics.displayReason(error ?? "The selected profile was not verified")
+                Logger.log("[Built-in Handoff] stage=profile_apply outcome=fenced session=\(session) baseline_kind=\(RuntimeConfigBaselineKind(confirmedProfile: self.confirmedRuntimeProfileName).rawValue) snapshot_verified=\(self.isCoreConfigSnapshotVerified) transaction_uncertain=\(self.runtimeConfigTransactions.isUncertain) reason=\(reason)", level: .error)
+                self.fenceFailedBuiltInRecovery()
+                completion("Built-in profile recovery failed; the incomplete core was stopped. \(reason)")
+                return
+            }
+            if let error {
+                Logger.log("[Built-in Handoff] stage=profile_apply outcome=profile_retained baseline_kind=profile reason=\(RuntimeConfigApplyDiagnostics.sanitize(error))", level: .warning)
+                clashResumeCallbacks()
+                completion(error)
+                return
+            }
+            Logger.log("[Built-in Handoff] stage=profile_apply outcome=verified baseline_kind=profile")
+            clashResumeCallbacks()
+            self.selectProxyGroupWithMemory()
+            self.selectOutBoundModeWithMenory()
+            MenuItemFactory.recreateProxyMenuItems(coreReloaded: true)
+            NotificationCenter.default.post(name: .reloadDashboard, object: nil)
+            guard scopeIsCurrent() else {
+                completion("Built-in profile handoff cancelled: lifecycle changed")
+                return
+            }
+            // The transaction already verified and published its readback.
+            // Optional metadata refresh has a retry API that may never call
+            // back on exhaustion; it must not hold the close token forever.
+            self.syncConfig()
+            completion(nil)
+        }
     }
 
     private func verifyTunStatus(port: String, secret: String, generation: UInt64, launchID: UUID) {
@@ -7126,12 +7244,96 @@ extension AppDelegate {
         startupCoreHandoffRetryAvailable = false
         startupHelperRecoveryDisposable?.dispose()
         startupHelperRecoveryDisposable = nil
-        updateConfig(showNotification: false) { [weak self] error in
-            guard let self = self, !self.isTerminating else { return }
+        loadInitialConfigurationAfterCoreCleanup()
+    }
+
+    /// Returning from a remote controller may be the first local activation.
+    /// `true` means loading (or waiting for safe startup), so the caller must
+    /// not publish a zero-port bootstrap readback as an active local profile.
+    func loadLocalConfigurationIfNeededAfterControlScopeChange() -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard ownsRuntimeControl, !isTerminating, !isRestarting, RemoteControlManager.selectConfig == nil else { return false }
+        guard enhancedModeOwnershipBlock == nil else {
+            Logger.log("[Startup Configuration] stage=local_activation outcome=blocked reason=external_ownership_unconfirmed", level: .warning)
+            return true
+        }
+        let hasRunningCore = ConfigManager.shared.isEnhancedModeActive || ConfigManager.shared.isRunning
+        guard !hasRunningCore || confirmedRuntimeProfileName != ConfigManager.selectConfigName else { return false }
+        if hasRunningCore, ConfigManager.shared.isEnhancedModeActive || confirmedRuntimeProfileName != nil {
+            // A selection can change while controlling a remote core. Apply it
+            // through the normal transaction without repeating Enhanced startup.
+            Logger.log("[Startup Configuration] stage=local_activation outcome=profile_reload")
+            updateConfig(configName: ConfigManager.selectConfigName, showNotification: false)
+            return true
+        }
+        guard didCompleteStaleEnhancedCoreCleanup else {
+            Logger.log("[Startup Configuration] stage=local_activation outcome=waiting reason=stale_core_cleanup")
+            if startupCoreHandoffRetryAvailable { retryStartupCoreHandoff(resetRecoveryBudget: true) }
+            return true
+        }
+        Logger.log("[Startup Configuration] stage=local_activation outcome=loading")
+        loadInitialConfigurationAfterCoreCleanup()
+        return true
+    }
+
+    private func loadInitialConfigurationAfterCoreCleanup() {
+        guard ownsRuntimeControl, !isTerminating, !isRestarting else {
+            Logger.log("[Startup Configuration] stage=skipped reason=local_runtime_unavailable")
+            return
+        }
+        guard RemoteControlManager.selectConfig == nil else {
+            finishLocalStartupForRemoteControl()
+            return
+        }
+        let profile = ConfigManager.selectConfigName
+        startupConfigurationFailure = nil
+        Logger.log("[Startup Configuration] stage=profile_load begin")
+        updateConfig(showNotification: false, showError: false) { [weak self] error in
+            guard let self = self, self.ownsRuntimeControl, !self.isTerminating, !self.isRestarting else { return }
+            guard RemoteControlManager.selectConfig == nil else {
+                self.finishLocalStartupForRemoteControl()
+                return
+            }
+            let wantsEnhanced = ClaudeProxyLockPolicy.requiresEnhancedMode(
+                lockEnabled: Settings.claudeProxyLockEnabled, preferredEnhancedMode: Settings.enhancedMode
+            )
+            if let error {
+                let safe = RuntimeConfigApplyDiagnostics.sanitize(error)
+                Logger.log("[Startup Configuration] stage=profile_load outcome=failed enhanced_pending=\(wantsEnhanced) reason=\(safe)", level: .error)
+                if wantsEnhanced, ConfigManager.selectConfigName == profile {
+                    self.startupConfigurationFailure = (profile, safe)
+                }
+            } else {
+                Logger.log("[Startup Configuration] stage=profile_load outcome=verified")
+            }
             self.completeInitialConfigLoadForProxyRecovery(error: error)
             self.updateLoggingLevel()
+            // A modal startup alert must not block restoration of the requested mode.
             self.restoreEnhancedModeIfNeeded()
+            if let error, !wantsEnhanced, ConfigManager.selectConfigName == profile {
+                if self.confirmedRuntimeProfileName == nil, self.enhancedModeOwnershipBlock == nil,
+                   !ConfigManager.shared.isEnhancedModeActive {
+                    self.fenceFailedBuiltInRecovery()
+                    Logger.log("[Startup Configuration] stage=failed outcome=blocked baseline_kind=startup listeners=suspended", level: .error)
+                }
+                UpdateConfigAction.showError(text: error, configName: profile)
+            }
         }
+    }
+
+    private func finishLocalStartupForRemoteControl() {
+        guard RemoteControlManager.selectConfig != nil else { return }
+        startupConfigurationFailure = nil
+        finishStartupProxyRecovery(generation: startupProxyRecoveryGeneration, success: false,
+                                   reason: "local startup cancelled by remote control selection")
+        startupSystemProxyHealthVerified = false
+        if ConfigManager.shared.proxyPortAutoSet, !ConfigManager.shared.proxyShouldPaused.value {
+            // Preserve intent until a subsequently confirmed local profile requests
+            // recovery, including a return that keeps the same listener ports.
+            wakeSystemProxyRecoveryRequested = true
+        }
+        requestSystemProxyAutoRecovery()
+        Logger.log("[Startup Configuration] stage=skipped reason=remote_control_selected recovery_wait=ended")
     }
 
     private func retryStartupCoreHandoff(resetRecoveryBudget: Bool = false) {
@@ -7302,6 +7504,10 @@ extension AppDelegate {
             } else {
                 self.enhancedModeLifecycle.finishRestore(generation: restoreGeneration)
                 self.enhancedModeMenuItem.state = .on
+                if self.startupConfigurationFailure != nil {
+                    Logger.log("[Startup Configuration] stage=enhanced_restore outcome=verified initial_failure=recovered")
+                    self.startupConfigurationFailure = nil
+                }
                 Logger.log("Enhanced Mode restored successfully")
                 self.scheduleEnhancedModePostToggleRefresh()
             }
@@ -7320,6 +7526,24 @@ extension AppDelegate {
             NSUserNotificationCenter.default.post(title: "ClashFX recovery failed",
                                                   info: "The selected proxy could not be restored. Automatic fallback was blocked. Use Enhanced Mode to retry; check diagnostic logs for details.")
             refreshStatusItemViewStatus()
+            return
+        }
+        if let startupFailure = startupConfigurationFailure,
+           startupFailure.profile == ConfigManager.selectConfigName, confirmedRuntimeProfileName == nil {
+            startupConfigurationFailure = nil
+            Settings.enhancedMode = true
+            enhancedModeMenuItem.isEnabled = true
+            enhancedModeMenuItem.state = .mixed
+            enhancedModeRuntimeHealthSummary = "startup profile unconfirmed; waiting for retry"
+            let reason = RuntimeConfigApplyDiagnostics.sanitize(
+                "Startup profile failed: \(startupFailure.reason); Enhanced Mode failed: \(error)"
+            )
+            Logger.log("[Startup Configuration] stage=failed outcome=blocked baseline_kind=startup no_automatic_bypass reason=\(reason)", level: .error)
+            NSUserNotificationCenter.default.postConfigErrorNotice(msg: reason)
+            if enhancedModeOwnershipBlock == nil {
+                fenceFailedBuiltInRecovery()
+                restoreDNSAfterTun { [weak self] _ in self?.scheduleEnhancedModePostToggleRefresh() }
+            }
             return
         }
         if enhancedModeOwnershipBlock != nil {
@@ -7811,6 +8035,19 @@ extension AppDelegate {
 
     private func restartApp() {
         guard ownsRuntimeControl, !isRestarting else { return }
+        guard !isConfigUpdating, !isConfigUpdateQueued, !runtimeConfigTransactions.isBusy else {
+            Logger.log("[Runtime Checkpoint] stage=restart outcome=blocked reason=config_transaction_in_progress", level: .warning)
+            NSUserNotificationCenter.default.postConfigErrorNotice(msg: NSLocalizedString(
+                "Configuration is switching. Retry restarting after it finishes.", comment: ""
+            ))
+            return
+        }
+        if !ConfigManager.shared.isEnhancedModeActive, ConfigManager.shared.isRunning,
+           !isEnhancedModeTransitionInProgress, RemoteControlManager.selectConfig == nil {
+            // Freeze only a live local built-in profile. A handoff may already
+            // have suspended its listeners; preserve its earlier checkpoint.
+            captureBuiltInRecoveryCheckpoint()
+        }
         isRestarting = true
         cancelDeferredConfigUpdate(reason: "Config update cancelled: application restart")
         invalidateProxyInteractionScope(reason: "application restart")
