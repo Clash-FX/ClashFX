@@ -2149,6 +2149,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 guard isCurrent() else { completion("Runtime validation scope changed"); return }
                 guard endpointError == "" else {
+                    if let endpointError = endpointError { Self.logPortConflictOwner(endpointError) }
                     completion(endpointError?.hasPrefix("error:[port_conflict]") == true
                         ? endpointError : "Runtime configuration structure or endpoints are invalid")
                     return
@@ -3295,6 +3296,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }.resume()
     }
 
+    /// Attributes a classified port conflict to the process holding the port.
+    /// Diagnostics only; nothing is signalled or modified.
+    private static func logPortConflictOwner(_ error: String) {
+        guard error.hasPrefix("error:[port_conflict]"),
+              let range = error.range(of: #"port=(\d+)"#, options: .regularExpression),
+              let port = Int(error[range].dropFirst("port=".count)) else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let result = PortOwnerProbe.owners(ofLocalPort: port)
+            Logger.log("Port conflict on \(port): \(result.summary)", level: .warning)
+        }
+    }
+
     private func probeCoreDNS(
         completion: @escaping (_ healthy: Bool, _ reason: String) -> Void
     ) {
@@ -3591,7 +3604,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case .healthy:
                 Logger.log("Wake recovery: core API is healthy")
                 self.recordWakeRecoveryBreadcrumb("generation \(generation) healthy")
-                self.finishHealthyWakeRecovery()
+                self.finishHealthyWakeRecovery(generation: generation)
             case let .unhealthy(reason):
                 guard attemptsLeft > 1 else {
                     Logger.log("Wake recovery: \(reason); restoring active proxy mode", level: .error)
@@ -3655,7 +3668,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func finishHealthyWakeRecovery() {
+    private func finishHealthyWakeRecovery(generation: Int) {
         if ConfigManager.shared.proxyPortAutoSet,
            !ConfigManager.shared.proxyShouldPaused.value,
            !ConfigManager.shared.isProxySetByOtherVariable.value || Settings.claudeProxyLockEnabled {
@@ -3677,6 +3690,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if !ApiRequest.useDirectApi() {
             resetStreamApi()
+        }
+
+        runWakeDNSListenerLadder(WakeRecoveryLadder(generation: generation))
+    }
+
+    /// A healthy control plane does not prove the DNS listener survived sleep.
+    /// Reload the confirmed configuration in place once (the owned port plan
+    /// keeps the DNS port stable) before falling back to a full restart, which
+    /// is the step that can race for the DNS port.
+    private func runWakeDNSListenerLadder(_ ladder: WakeRecoveryLadder) {
+        guard ConfigManager.shared.isEnhancedModeActive,
+              expectedEnhancedDNSPort > 0,
+              !isWakeEnhancedModeRestarting,
+              !isEnhancedModeRuntimeRecoveryPending else { return }
+        let port = expectedEnhancedDNSPort
+        var ladder = ladder
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let responding = self.expectedEnhancedDNSPortResponses(port) != nil
+            DispatchQueue.main.async {
+                switch ladder.nextStep(currentGeneration: self.wakeRecoveryGeneration,
+                                       dnsListenerResponding: responding) {
+                case .finish, .abandon:
+                    break
+                case .reloadConfig:
+                    Logger.log("Wake recovery: DNS listener on port \(port) is silent; reloading the confirmed configuration in place", level: .warning)
+                    self.recordWakeRecoveryBreadcrumb("DNS listener silent; in-place reload")
+                    self.updateConfig(showNotification: false, showError: false) { error in
+                        if let error = error {
+                            Logger.log("Wake recovery: in-place reload failed (\(error)); rebuilding Enhanced Mode", level: .warning)
+                            self.captureAndRestartEnhancedMode(reason: "wake DNS listener reload failed")
+                            return
+                        }
+                        self.runWakeDNSListenerLadder(ladder)
+                    }
+                case .restartEnhancedMode:
+                    Logger.log("Wake recovery: DNS listener still silent after reload; rebuilding Enhanced Mode", level: .warning)
+                    self.captureAndRestartEnhancedMode(reason: "wake DNS listener unresponsive after reload")
+                }
+            }
         }
     }
 
