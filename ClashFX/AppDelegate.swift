@@ -1721,6 +1721,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             proxyModeMenuItem.isEnabled = false
             let reason = RuntimeConfigApplyDiagnostics.displayReason(startRes)
             Logger.log("[Built-in Handoff] stage=start outcome=failed reason=\(reason)", level: .error)
+            Self.logPortConflictOwner(reason)
             NSUserNotificationCenter.default.postConfigErrorNotice(msg: reason)
             return reason
         }
@@ -3296,15 +3297,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }.resume()
     }
 
-    /// Attributes a classified port conflict to the process holding the port.
-    /// Diagnostics only; nothing is signalled or modified.
+    /// Attributes a port conflict to the process holding the port, whether it
+    /// arrives as a classified `[port_conflict]` or as a raw bind failure from a
+    /// core start. Diagnostics only; nothing is signalled or modified.
     private static func logPortConflictOwner(_ error: String) {
-        guard error.hasPrefix("error:[port_conflict]"),
-              let range = error.range(of: #"port=(\d+)"#, options: .regularExpression),
-              let port = Int(error[range].dropFirst("port=".count)) else { return }
+        var ports: [Int] = []
+        if error.hasPrefix("error:[port_conflict]"),
+           let range = error.range(of: #"port=(\d+)"#, options: .regularExpression),
+           let port = Int(error[range].dropFirst("port=".count)) {
+            ports.append(port)
+        }
+        if let bindFailure = try? NSRegularExpression(pattern: #":(\d+): bind: address already in use"#) {
+            let text = error as NSString
+            for match in bindFailure.matches(in: error, range: NSRange(location: 0, length: text.length)) {
+                if let port = Int(text.substring(with: match.range(at: 1))), !ports.contains(port) {
+                    ports.append(port)
+                }
+            }
+        }
+        guard !ports.isEmpty else { return }
         DispatchQueue.global(qos: .utility).async {
-            let result = PortOwnerProbe.owners(ofLocalPort: port)
-            Logger.log("Port conflict on \(port): \(result.summary)", level: .warning)
+            for port in ports.prefix(4) {
+                let result = PortOwnerProbe.owners(ofLocalPort: port)
+                Logger.log("Port conflict on \(port): \(result.summary)", level: .warning)
+            }
         }
     }
 
@@ -6509,6 +6525,7 @@ extension AppDelegate {
                 clashSuspendCore()
                 if let resumeError = self.startProxy() {
                     Logger.log("[Built-in Handoff] stage=resume outcome=failed transaction=\(transactionID) reason=\(RuntimeConfigApplyDiagnostics.sanitize(resumeError))", level: .error)
+                    Self.logPortConflictOwner(resumeError)
                     finish(resumeError)
                     return
                 }

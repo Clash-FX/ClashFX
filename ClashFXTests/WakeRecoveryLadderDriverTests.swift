@@ -41,7 +41,8 @@ final class WakeRecoveryLadderDriverTests: XCTestCase {
         let h = Harness(probes: [false, true])
         h.run()
         XCTAssertEqual(h.events, ["probe", "reload", "probe"])
-        XCTAssertTrue(h.logs.first?.contains("port 7874 is silent") == true)
+        XCTAssertTrue(h.logs.contains { $0.contains("port 7874 is silent") })
+        XCTAssertEqual(h.logs.filter { $0.contains("probe on port 7874") }.count, 2)
     }
 
     func testSilentAfterReloadRestartsExactlyOnce() {
@@ -76,6 +77,12 @@ final class WakeRecoveryLadderDriverTests: XCTestCase {
         ))
         XCTAssertTrue(reloadStarted)
         XCTAssertTrue(h.events.isEmpty)
+    }
+
+    func testHealthyProbeLeavesPositiveEvidenceInTheLog() {
+        let h = Harness(probes: [true])
+        h.run()
+        XCTAssertEqual(h.logs, ["DNS listener probe on port 7874: responding (wake generation 7)"])
     }
 
     func testUnknownPortStateTakesNoAction() {

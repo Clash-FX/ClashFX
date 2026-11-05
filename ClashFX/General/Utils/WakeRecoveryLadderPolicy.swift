@@ -52,6 +52,8 @@ enum WakeRecoveryLadderDriver {
     static func run(_ ladder: WakeRecoveryLadder, hooks: Hooks) {
         var ladder = ladder
         hooks.probe { responding in
+            let state = responding.map { $0 ? "responding" : "silent" } ?? "unknown"
+            hooks.log("DNS listener probe on port \(hooks.port): \(state) (wake generation \(hooks.generation()))")
             switch ladder.nextStep(currentGeneration: hooks.generation(), dnsListenerResponding: responding) {
             case .finish, .abandon:
                 break
