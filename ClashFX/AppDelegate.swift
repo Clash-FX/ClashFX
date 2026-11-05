@@ -3705,32 +3705,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
               !isWakeEnhancedModeRestarting,
               !isEnhancedModeRuntimeRecoveryPending else { return }
         let port = expectedEnhancedDNSPort
-        var ladder = ladder
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self = self else { return }
-            let responding = self.expectedEnhancedDNSPortResponses(port) != nil
-            DispatchQueue.main.async {
-                switch ladder.nextStep(currentGeneration: self.wakeRecoveryGeneration,
-                                       dnsListenerResponding: responding) {
-                case .finish, .abandon:
-                    break
-                case .reloadConfig:
-                    Logger.log("Wake recovery: DNS listener on port \(port) is silent; reloading the confirmed configuration in place", level: .warning)
-                    self.recordWakeRecoveryBreadcrumb("DNS listener silent; in-place reload")
-                    self.updateConfig(showNotification: false, showError: false) { error in
-                        if let error = error {
-                            Logger.log("Wake recovery: in-place reload failed (\(error)); rebuilding Enhanced Mode", level: .warning)
-                            self.captureAndRestartEnhancedMode(reason: "wake DNS listener reload failed")
-                            return
-                        }
-                        self.runWakeDNSListenerLadder(ladder)
-                    }
-                case .restartEnhancedMode:
-                    Logger.log("Wake recovery: DNS listener still silent after reload; rebuilding Enhanced Mode", level: .warning)
-                    self.captureAndRestartEnhancedMode(reason: "wake DNS listener unresponsive after reload")
+        WakeRecoveryLadderDriver.run(ladder, hooks: WakeRecoveryLadderDriver.Hooks(
+            port: port,
+            generation: { [unowned self] in self.wakeRecoveryGeneration },
+            probe: { [weak self] report in
+                DispatchQueue.global(qos: .utility).async {
+                    let responding = self?.expectedEnhancedDNSPortResponses(port) != nil
+                    DispatchQueue.main.async { report(responding) }
                 }
-            }
-        }
+            },
+            reload: { [unowned self] done in
+                self.recordWakeRecoveryBreadcrumb("DNS listener silent; in-place reload")
+                self.updateConfig(showNotification: false, showError: false, completeHandler: done)
+            },
+            restart: { [unowned self] reason in self.captureAndRestartEnhancedMode(reason: reason) },
+            log: { Logger.log("Wake recovery: \($0)", level: .warning) }
+        ))
     }
 
     private func restoreCoreAfterWake(generation: Int) {

@@ -34,3 +34,41 @@ struct WakeRecoveryLadder {
         return .reloadConfig
     }
 }
+
+/// Runs a `WakeRecoveryLadder` against injected effects so the escalation
+/// wiring can be exercised without a core, a socket or a sleeping machine.
+enum WakeRecoveryLadderDriver {
+    struct Hooks {
+        let port: Int
+        let generation: () -> Int
+        /// Reports whether the DNS listener answers; nil when unknown.
+        let probe: (@escaping (Bool?) -> Void) -> Void
+        /// Reapplies the confirmed configuration; the argument is the error, if any.
+        let reload: (@escaping (String?) -> Void) -> Void
+        let restart: (String) -> Void
+        let log: (String) -> Void
+    }
+
+    static func run(_ ladder: WakeRecoveryLadder, hooks: Hooks) {
+        var ladder = ladder
+        hooks.probe { responding in
+            switch ladder.nextStep(currentGeneration: hooks.generation(), dnsListenerResponding: responding) {
+            case .finish, .abandon:
+                break
+            case .reloadConfig:
+                hooks.log("DNS listener on port \(hooks.port) is silent; reloading the confirmed configuration in place")
+                hooks.reload { error in
+                    if let error = error {
+                        hooks.log("in-place reload failed (\(error)); rebuilding Enhanced Mode")
+                        hooks.restart("wake DNS listener reload failed")
+                        return
+                    }
+                    run(ladder, hooks: hooks)
+                }
+            case .restartEnhancedMode:
+                hooks.log("DNS listener still silent after reload; rebuilding Enhanced Mode")
+                hooks.restart("wake DNS listener unresponsive after reload")
+            }
+        }
+    }
+}

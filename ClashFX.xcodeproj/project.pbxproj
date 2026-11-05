@@ -18,6 +18,7 @@
 		20EA62CA58CD44BAA233D891 /* RuntimeConfigBaselinePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F61787B34BD34C0598E9ED86 /* RuntimeConfigBaselinePolicyTests.swift */; };
 		0FAA83B2921826EA210ED2FE /* PortOwnerProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE95E3888FE1C9BFF32C0A0E /* PortOwnerProbeTests.swift */; };
 		101303E99C101A5E2636C27B /* WakeRecoveryLadderPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B456364BB53970E29EC4D58F /* WakeRecoveryLadderPolicyTests.swift */; };
+		3DF41DF5B8A9C0C7147E1228 /* WakeRecoveryLadderDriverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC08599723920C1BAA112B24 /* WakeRecoveryLadderDriverTests.swift */; };
 		4DB23DDF61AF4622B27E4569 /* RuntimeConfigApplyDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 708A385E376741B0AE829E9B /* RuntimeConfigApplyDiagnosticsTests.swift */; };
 		7D6C2925D5EA49E8B7A3BA92 /* AutomaticRecoverySelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBC68B02EE98476890EF3385 /* AutomaticRecoverySelectionTests.swift */; };
 		DF23D94B74AF497FBE204ABE /* RuntimeConfigTransactionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1C446D08824AFDA0B275B3 /* RuntimeConfigTransactionController.swift */; };
@@ -306,6 +307,7 @@
 		D3FA1C4DEC364BF2A2D771B8 /* RuntimeConfigBaselinePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/RuntimeConfigBaselinePolicy.swift; sourceTree = SOURCE_ROOT; };
 		EE95E3888FE1C9BFF32C0A0E /* PortOwnerProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/PortOwnerProbeTests.swift; sourceTree = SOURCE_ROOT; };
 		B456364BB53970E29EC4D58F /* WakeRecoveryLadderPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/WakeRecoveryLadderPolicyTests.swift; sourceTree = SOURCE_ROOT; };
+		AC08599723920C1BAA112B24 /* WakeRecoveryLadderDriverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/WakeRecoveryLadderDriverTests.swift; sourceTree = SOURCE_ROOT; };
 		238DB3404DCA70F87CF61B82 /* PortOwnerProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/PortOwnerProbe.swift; sourceTree = SOURCE_ROOT; };
 		B8ED4263D73DA361CCEBA09A /* WakeRecoveryLadderPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/WakeRecoveryLadderPolicy.swift; sourceTree = SOURCE_ROOT; };
 		34F52EEF417A4CDC8A1BA55A /* RuntimeConfigApplyDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/RuntimeConfigApplyDiagnostics.swift; sourceTree = SOURCE_ROOT; };
@@ -692,6 +694,7 @@
 				F61787B34BD34C0598E9ED86 /* RuntimeConfigBaselinePolicyTests.swift */,
 				EE95E3888FE1C9BFF32C0A0E /* PortOwnerProbeTests.swift */,
 				B456364BB53970E29EC4D58F /* WakeRecoveryLadderPolicyTests.swift */,
+				AC08599723920C1BAA112B24 /* WakeRecoveryLadderDriverTests.swift */,
 				708A385E376741B0AE829E9B /* RuntimeConfigApplyDiagnosticsTests.swift */,
 				8F281C265AD7417481013E10 /* RuntimeConfigReadbackPolicy.swift */,
 				58973B40BBB044FF82E6B7F8 /* RuntimeConfigTransactionTests.swift */,
@@ -1308,6 +1311,7 @@
 				20EA62CA58CD44BAA233D891 /* RuntimeConfigBaselinePolicyTests.swift in Sources */,
 				0FAA83B2921826EA210ED2FE /* PortOwnerProbeTests.swift in Sources */,
 				101303E99C101A5E2636C27B /* WakeRecoveryLadderPolicyTests.swift in Sources */,
+				3DF41DF5B8A9C0C7147E1228 /* WakeRecoveryLadderDriverTests.swift in Sources */,
 				4DB23DDF61AF4622B27E4569 /* RuntimeConfigApplyDiagnosticsTests.swift in Sources */,
 				D43000000000000000000003 /* TunDNSTransactionController.swift in Sources */,
 				D43100000000000000000002 /* TunDNSTransactionTests.swift in Sources */,
