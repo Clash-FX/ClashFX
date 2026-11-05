@@ -6602,12 +6602,14 @@ extension AppDelegate {
             guard completeProfile else {
                 let reason = RuntimeConfigApplyDiagnostics.displayReason(error ?? "The selected profile was not verified")
                 Logger.log("[Built-in Handoff] stage=profile_apply outcome=fenced session=\(session) baseline_kind=\(RuntimeConfigBaselineKind(confirmedProfile: self.confirmedRuntimeProfileName).rawValue) snapshot_verified=\(self.isCoreConfigSnapshotVerified) transaction_uncertain=\(self.runtimeConfigTransactions.isUncertain) reason=\(reason)", level: .error)
+                if let error { Self.logPortConflictOwner(error) }
                 self.fenceFailedBuiltInRecovery()
                 completion("Built-in profile recovery failed; the incomplete core was stopped. \(reason)")
                 return
             }
             if let error {
                 Logger.log("[Built-in Handoff] stage=profile_apply outcome=profile_retained baseline_kind=profile reason=\(RuntimeConfigApplyDiagnostics.sanitize(error))", level: .warning)
+                Self.logPortConflictOwner(error)
                 clashResumeCallbacks()
                 completion(error)
                 return
