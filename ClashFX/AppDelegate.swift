@@ -3301,26 +3301,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// arrives as a classified `[port_conflict]` or as a raw bind failure from a
     /// core start. Diagnostics only; nothing is signalled or modified.
     private static func logPortConflictOwner(_ error: String) {
-        var ports: [Int] = []
-        if error.hasPrefix("error:[port_conflict]"),
-           let range = error.range(of: #"port=(\d+)"#, options: .regularExpression),
-           let port = Int(error[range].dropFirst("port=".count)) {
-            ports.append(port)
-        }
-        if let bindFailure = try? NSRegularExpression(pattern: #":(\d+): bind: address already in use"#) {
-            let text = error as NSString
-            for match in bindFailure.matches(in: error, range: NSRange(location: 0, length: text.length)) {
-                if let port = Int(text.substring(with: match.range(at: 1))), !ports.contains(port) {
-                    ports.append(port)
-                }
-            }
-        }
+        let ports = Array(PortConflictParser.ports(in: error).prefix(4))
         guard !ports.isEmpty else { return }
         DispatchQueue.global(qos: .utility).async {
-            for port in ports.prefix(4) {
+            for port in ports {
                 let result = PortOwnerProbe.owners(ofLocalPort: port)
                 Logger.log("Port conflict on \(port): \(result.summary)", level: .warning)
             }
+            // The owner of a root-run core is not inspectable here, but whether
+            // the listener is still present, and for how long, is.
+            PortListenProbe.sample(ports: ports) { Logger.log("Port conflict \($0)", level: .warning) }
         }
     }
 
@@ -6483,6 +6473,10 @@ extension AppDelegate {
         isWakeEnhancedModeRestarting = false
         let generation = closeToken.generation
         let transactionID = closeToken.id
+        let timeline = HandoffTimeline(transactionID: "\(transactionID)") {
+            Logger.log("[Built-in Handoff] \($0)")
+        }
+        timeline.mark("close_begin")
         let completionGate = EnhancedModeCompletionGate()
         let finish: (String?) -> Void = { error in
             guard completionGate.claim() else { return }
@@ -6504,6 +6498,7 @@ extension AppDelegate {
         isEnhancedModeRuntimeRecoveryPending = false
         expectedEnhancedDNSPort = 0
         let proceedAfterStop: (String?) -> Void = { [weak self] stopError in
+            timeline.mark("stop_replied", detail: stopError.map { "error=\(RuntimeConfigApplyDiagnostics.sanitize($0))" } ?? "error=none")
             guard let self, isCurrent() else {
                 finish("Enhanced Mode close cancelled: lifecycle changed")
                 return
@@ -6523,7 +6518,10 @@ extension AppDelegate {
                 // listener. Close our own core before checking configured ports;
                 // run() then reopens its cache and preserves custom startup options.
                 clashSuspendCore()
-                if let resumeError = self.startProxy() {
+                timeline.mark("resume_begin")
+                let resumeError = self.startProxy()
+                timeline.mark("resume_end", detail: resumeError == nil ? "outcome=ok" : "outcome=failed")
+                if let resumeError {
                     Logger.log("[Built-in Handoff] stage=resume outcome=failed transaction=\(transactionID) reason=\(RuntimeConfigApplyDiagnostics.sanitize(resumeError))", level: .error)
                     Self.logPortConflictOwner(resumeError)
                     finish(resumeError)
@@ -6550,6 +6548,8 @@ extension AppDelegate {
                 return
             }
             if let dnsError { finish(dnsError); return }
+            timeline.mark("dns_restored")
+            timeline.mark("stop_requested", detail: self.enhancedModeOwnershipBlock == nil ? "path=direct" : "path=ownership_reconcile")
             if let block = self.enhancedModeOwnershipBlock {
                 self.reconcileUncertainEnhancedCoreOwnership(block, completion: proceedAfterStop)
             } else {
