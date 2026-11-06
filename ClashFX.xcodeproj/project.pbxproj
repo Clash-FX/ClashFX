@@ -1858,6 +1858,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(inherited) $(SRCROOT)/Pods/Headers/Public/Yams $(SRCROOT)/Pods/Yams/Sources/CYaml/include";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(inherited) $(BUILT_PRODUCTS_DIR)/SwiftyJSON $(BUILT_PRODUCTS_DIR)/Yams";
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
@@ -1889,6 +1890,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(inherited) $(SRCROOT)/Pods/Headers/Public/Yams $(SRCROOT)/Pods/Yams/Sources/CYaml/include";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(inherited) $(BUILT_PRODUCTS_DIR)/SwiftyJSON $(BUILT_PRODUCTS_DIR)/Yams";
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
