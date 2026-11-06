@@ -1859,12 +1859,12 @@
 			buildSettings = {
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = "$(inherited) $(BUILT_PRODUCTS_DIR)/SwiftyJSON";
+				LIBRARY_SEARCH_PATHS = "$(inherited) $(BUILT_PRODUCTS_DIR)/SwiftyJSON $(BUILT_PRODUCTS_DIR)/Yams";
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clashfx.app.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				OTHER_LDFLAGS = "$(inherited) -lSwiftyJSON";
-				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -fmodule-map-file=$(BUILT_PRODUCTS_DIR)/SwiftyJSON/SwiftyJSON.modulemap";
+				OTHER_LDFLAGS = "$(inherited) -lSwiftyJSON -lYams";
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -fmodule-map-file=$(BUILT_PRODUCTS_DIR)/SwiftyJSON/SwiftyJSON.modulemap -Xcc -fmodule-map-file=$(BUILT_PRODUCTS_DIR)/Yams/Yams.modulemap";
 				SKIP_INSTALL = YES;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				SWIFT_INCLUDE_PATHS = (
@@ -1890,12 +1890,12 @@
 			buildSettings = {
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = "$(inherited) $(BUILT_PRODUCTS_DIR)/SwiftyJSON";
+				LIBRARY_SEARCH_PATHS = "$(inherited) $(BUILT_PRODUCTS_DIR)/SwiftyJSON $(BUILT_PRODUCTS_DIR)/Yams";
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clashfx.app.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				OTHER_LDFLAGS = "$(inherited) -lSwiftyJSON";
-				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -fmodule-map-file=$(BUILT_PRODUCTS_DIR)/SwiftyJSON/SwiftyJSON.modulemap";
+				OTHER_LDFLAGS = "$(inherited) -lSwiftyJSON -lYams";
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -fmodule-map-file=$(BUILT_PRODUCTS_DIR)/SwiftyJSON/SwiftyJSON.modulemap -Xcc -fmodule-map-file=$(BUILT_PRODUCTS_DIR)/Yams/Yams.modulemap";
 				SKIP_INSTALL = YES;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				SWIFT_INCLUDE_PATHS = (
