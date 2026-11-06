@@ -1496,6 +1496,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self, selector: #selector(resetProxySettingOnWakeupFromSleep),
             name: NSWorkspace.didWakeNotification, object: nil
         )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(abandonWakeRecoveryOnSleep),
+            name: NSWorkspace.willSleepNotification, object: nil
+        )
 
         NotificationCenter
             .default
@@ -2759,6 +2763,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return merged
     }
 
+    /// Going back to sleep invalidates any recovery still in flight: its pending
+    /// steps (DNS flush, reload, notification) belong to a wake that is over.
+    /// Bumping the generation makes every queued or in-flight step abandon.
+    @objc func abandonWakeRecoveryOnSleep() {
+        guard !isTerminating else { return }
+        pendingWakeRecoveryWork?.cancel()
+        pendingWakeRecoveryWork = nil
+        wakeRecoveryGeneration += 1
+        Logger.log("[Proxy Path] system going to sleep; abandoning wake recovery (generation \(wakeRecoveryGeneration))", level: .warning)
+    }
+
     @objc func resetProxySettingOnWakeupFromSleep() {
         guard !isTerminating else { return }
         Logger.log("Wake recovery: didWake received")
@@ -3754,10 +3769,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             generation: { [unowned self] in self.wakeRecoveryGeneration },
             probe: { [unowned self] report in
                 self.proxyPathSampler.sample(configName: configName) { verdict, samples in
-                    if verdict != .healthy, verdict != .noSample {
-                        let detail = samples.map { "\(BenchmarkProbeDiagnostic.safeNodeLabel($0.leaf))=\($0.failure.map { "\($0)" } ?? "ok")" }
-                        Logger.log("[Proxy Path] sampled \(detail.joined(separator: ", "))", level: .warning)
-                    }
+                    let detail = samples.map { "\(BenchmarkProbeDiagnostic.safeNodeLabel($0.leaf))=\($0.failure.map { "\($0)" } ?? "ok")" }
+                    let level: ClashLogLevel = (verdict == .healthy || verdict == .noSample) ? .info : .warning
+                    Logger.log("[Proxy Path] verdict \(verdict): \(detail.isEmpty ? "no samples" : detail.joined(separator: ", "))", level: level)
                     report(verdict)
                 }
             },
@@ -3773,7 +3787,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func notifyProxyPathFailure(_ kind: ProxyPathFailureKind) {
-        guard proxyPathNotificationThrottle.shouldNotify(now: Date()) else { return }
+        guard proxyPathNotificationThrottle.shouldNotify(now: Date()) else {
+            Logger.log("[Proxy Path] notification suppressed by throttle (\(kind))", level: .info)
+            return
+        }
+        Logger.log("[Proxy Path] notification posted (\(kind))", level: .warning)
         let message: String
         switch kind {
         case .nodeResolution:

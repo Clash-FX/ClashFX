@@ -161,7 +161,46 @@ final class ProxyPathHealthPolicyTests: XCTestCase {
         let h = Harness([.failing(.nodeResolution)])
         h.generation = 2
         h.run()
-        XCTAssertEqual(h.events, ["probe"])
+        XCTAssertEqual(h.events, [], "a superseded wake must not even probe")
+    }
+
+    func testDriverDoesNotProbeAfterASleepBumpsTheGenerationMidLadder() {
+        let h = Harness([.failing(.nodeResolution), .failing(.nodeResolution), .failing(.nodeResolution)])
+        h.run()
+        XCTAssertEqual(h.events, ["probe", "flush", "probe", "reload", "probe", "notify:nodeResolution"])
+
+        // Same ladder, but the system goes back to sleep while the flush settles.
+        let slept = Harness([.failing(.nodeResolution), .failing(.nodeResolution)])
+        ProxyPathRecoveryDriver.run(ProxyPathRecoveryLadder(generation: 1), hooks: .init(
+            generation: { slept.generation },
+            probe: { report in
+                slept.events.append("probe")
+                report(slept.verdicts.removeFirst())
+            },
+            flushDNSCache: { done in slept.events.append("flush"); slept.generation += 1; done() },
+            reloadConfig: { done in slept.events.append("reload"); done(nil) },
+            after: { _, block in block() },
+            notify: { slept.events.append("notify:\($0)") },
+            log: { _ in }
+        ))
+        XCTAssertEqual(slept.events, ["probe", "flush"])
+    }
+
+    func testDriverStopsWhenTheGenerationChangesDuringTheReload() {
+        let h = Harness([.failing(.nodeResolution), .failing(.nodeResolution), .failing(.nodeResolution)])
+        ProxyPathRecoveryDriver.run(ProxyPathRecoveryLadder(generation: 1), hooks: .init(
+            generation: { h.generation },
+            probe: { report in
+                h.events.append("probe")
+                report(h.verdicts.removeFirst())
+            },
+            flushDNSCache: { done in h.events.append("flush"); done() },
+            reloadConfig: { done in h.events.append("reload"); h.generation += 1; done(nil) },
+            after: { _, block in block() },
+            notify: { h.events.append("notify:\($0)") },
+            log: { _ in }
+        ))
+        XCTAssertEqual(h.events, ["probe", "flush", "probe", "reload"])
     }
 
     // MARK: throttle

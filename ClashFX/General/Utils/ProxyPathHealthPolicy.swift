@@ -92,7 +92,7 @@ struct ProxyPathRecoveryLadder {
         case abandon
     }
 
-    private let generation: Int
+    let generation: Int
     private var stage = 0
 
     init(generation: Int) {
@@ -132,6 +132,12 @@ enum ProxyPathRecoveryDriver {
 
     static func run(_ ladder: ProxyPathRecoveryLadder, hooks: Hooks) {
         var ladder = ladder
+        // A superseded wake (or a sleep) must not even probe: the probe is
+        // network traffic and its verdict would be discarded anyway.
+        guard ladder.generation == hooks.generation() else {
+            hooks.log("superseded by a newer wake or sleep; abandoning before the next probe")
+            return
+        }
         hooks.probe { verdict in
             let step = ladder.nextStep(currentGeneration: hooks.generation(), verdict: verdict)
             if verdict != .healthy, verdict != .noSample {
