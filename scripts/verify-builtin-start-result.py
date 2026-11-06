@@ -70,6 +70,8 @@ func clash_checkSecret() -> Bridge { Bridge(value: "") }
 func clash_setSecret(_ value: String) {}
 func setUIPath(_ value: String) { fatalError("No dashboard allowed") }
 final class Probe {
+    // Diagnostic-only in production (reads the port owner); not part of the start-result contract.
+    static func logPortConflictOwner(_ error: String) {}
     var automaticRecoverySelections: [String: String]?
     var automaticRecoveryNeedsRetry = false
     var runtimeConfigTransactions = Transactions()

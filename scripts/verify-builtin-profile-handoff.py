@@ -168,6 +168,8 @@ enum ProfileApplyOutcome {
 }
 
 final class AppDelegateFixture {
+    // Diagnostic-only in production (reads the port owner); not part of the handoff contract.
+    static func logPortConflictOwner(_ error: String) {}
     var ownsRuntimeControl = true
     var isEnhancedModeTransitionInProgress = false
     var isConfigUpdating = false
@@ -724,7 +726,9 @@ def main():
         binary = directory / "harness"
         target = f"{platform.machine()}-apple-macosx12.0"
         subprocess.run(
-            ["swiftc", "-swift-version", "5", "-target", target, str(source), "-o", str(binary)],
+            ["swiftc", "-swift-version", "5", "-target", target,
+             str(ROOT / "ClashFX/General/Utils/HandoffDiagnostics.swift"),
+             str(source), "-o", str(binary)],
             check=True,
         )
         result = subprocess.run(
