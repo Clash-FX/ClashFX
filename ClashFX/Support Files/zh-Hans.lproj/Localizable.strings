@@ -942,3 +942,11 @@
 "Configuration switch failed; the previously verified profile configuration was restored. %@" = "切换配置失败；已恢复上一个已验证的订阅配置。%@";
 
 "Configuration is switching. Retry restarting after it finishes." = "正在切换配置，请等待完成后重试重启。";
+
+"Proxy Path Check" = "代理路径检查";
+
+"Proxy node hostnames cannot be resolved. The DNS cache was cleared and the configuration reloaded, but the problem remains. The subscription's DNS servers may be stale; update the subscription or switch configuration." = "代理节点的域名无法解析。已清除 DNS 缓存并重新加载配置，问题仍然存在。当前订阅的 DNS 服务器可能已失效，请更新订阅或切换配置。";
+
+"Proxy nodes are not responding. Check the network, or switch node or configuration." = "代理节点没有响应。请检查网络，或切换节点或配置。";
+
+"Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration." = "代理节点持续失败，且无法确定原因。已清除 DNS 缓存并重新加载配置，问题仍然存在。请更新订阅或切换配置。";

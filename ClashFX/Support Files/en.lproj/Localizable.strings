@@ -904,3 +904,11 @@
 "Configuration switch failed; the previously verified profile configuration was restored. %@" = "Configuration switch failed; the previously verified profile configuration was restored. %@";
 
 "Configuration is switching. Retry restarting after it finishes." = "Configuration is switching. Retry restarting after it finishes.";
+
+"Proxy Path Check" = "Proxy Path Check";
+
+"Proxy node hostnames cannot be resolved. The DNS cache was cleared and the configuration reloaded, but the problem remains. The subscription's DNS servers may be stale; update the subscription or switch configuration." = "Proxy node hostnames cannot be resolved. The DNS cache was cleared and the configuration reloaded, but the problem remains. The subscription's DNS servers may be stale; update the subscription or switch configuration.";
+
+"Proxy nodes are not responding. Check the network, or switch node or configuration." = "Proxy nodes are not responding. Check the network, or switch node or configuration.";
+
+"Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration." = "Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration.";

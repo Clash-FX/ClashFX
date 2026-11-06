@@ -286,6 +286,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingProxyBypassReloadWork: DispatchWorkItem?
     private var startupProxyRecoveryGeneration = 0
     private var wakeRecoveryGeneration = 0
+    private var proxyPathNotificationThrottle = ProxyPathNotificationThrottle(interval: 30 * 60)
+    private let proxyPathSampler = ProxyPathSampler()
+    private static let proxyPathCheckDelayAfterWake: TimeInterval = 8
     private let wakeRecoveryBreadcrumbLock = NSLock()
     private var wakeRecoveryBreadcrumbToken = 0
     private var wakeRecoveryBreadcrumb = "idle"
@@ -3699,6 +3702,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         runWakeDNSListenerLadder(WakeRecoveryLadder(generation: generation))
+        scheduleProxyPathCheck(afterWake: generation)
     }
 
     /// A healthy control plane does not prove the DNS listener survived sleep.
@@ -3727,6 +3731,62 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             restart: { [unowned self] reason in self.captureAndRestartEnhancedMode(reason: reason) },
             log: { Logger.log("Wake recovery: \($0)", level: .warning) }
         ))
+    }
+
+    /// The core can be healthy while every selected node fails (stale node DNS,
+    /// an expired subscription), which the DIRECT-only data-plane monitor cannot
+    /// see. Probe the selected nodes once the wake has settled.
+    private func scheduleProxyPathCheck(afterWake generation: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.proxyPathCheckDelayAfterWake) { [weak self] in
+            guard let self = self,
+                  generation == self.wakeRecoveryGeneration,
+                  ConfigManager.shared.isRunning,
+                  !self.isTerminating,
+                  !self.isWakeEnhancedModeRestarting,
+                  !self.isEnhancedModeRuntimeRecoveryPending else { return }
+            self.runProxyPathRecovery(ProxyPathRecoveryLadder(generation: generation))
+        }
+    }
+
+    private func runProxyPathRecovery(_ ladder: ProxyPathRecoveryLadder) {
+        let configName = ConfigManager.selectConfigName
+        ProxyPathRecoveryDriver.run(ladder, hooks: ProxyPathRecoveryDriver.Hooks(
+            generation: { [unowned self] in self.wakeRecoveryGeneration },
+            probe: { [unowned self] report in
+                self.proxyPathSampler.sample(configName: configName) { verdict, samples in
+                    if verdict != .healthy, verdict != .noSample {
+                        let detail = samples.map { "\(BenchmarkProbeDiagnostic.safeNodeLabel($0.leaf))=\($0.failure.map { "\($0)" } ?? "ok")" }
+                        Logger.log("[Proxy Path] sampled \(detail.joined(separator: ", "))", level: .warning)
+                    }
+                    report(verdict)
+                }
+            },
+            flushDNSCache: { [unowned self] done in self.proxyPathSampler.flushDNSCache(completion: done) },
+            reloadConfig: { [unowned self] done in
+                guard !self.isConfigUpdating else { done("configuration update in progress"); return }
+                self.updateConfig(showNotification: false, showError: false, completeHandler: done)
+            },
+            after: { delay, block in DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: block) },
+            notify: { [unowned self] kind in self.notifyProxyPathFailure(kind) },
+            log: { Logger.log("[Proxy Path] \($0)", level: .warning) }
+        ))
+    }
+
+    private func notifyProxyPathFailure(_ kind: ProxyPathFailureKind) {
+        guard proxyPathNotificationThrottle.shouldNotify(now: Date()) else { return }
+        let message: String
+        switch kind {
+        case .nodeResolution:
+            message = NSLocalizedString("Proxy node hostnames cannot be resolved. The DNS cache was cleared and the configuration reloaded, but the problem remains. The subscription's DNS servers may be stale; update the subscription or switch configuration.", comment: "")
+        case .unreachable:
+            message = NSLocalizedString("Proxy nodes are not responding. Check the network, or switch node or configuration.", comment: "")
+        case .unknown:
+            message = NSLocalizedString("Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration.", comment: "")
+        }
+        NSUserNotificationCenter.default.post(
+            title: NSLocalizedString("Proxy Path Check", comment: ""),
+            info: message
+        )
     }
 
     private func restoreCoreAfterWake(generation: Int) {
