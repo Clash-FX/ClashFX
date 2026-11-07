@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.16 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.16 (Lab)</h2><p>See release notes on GitHub.</p>
+  ]]></description>
+  <pubDate>Sat, 07 Nov 2026 04:00:46 +0000</pubDate>
+  <sparkle:version>1001011016</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.16</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.16/ClashFX.dmg"
+    sparkle:version="1001011016"
+    sparkle:shortVersionString="1.1.11.16"
+    sparkle:edSignature="XJAF++f7Sdu1s+EtA+3bhNJoIQWLKemlTh5wQXhcvQYa+eyTR+CxZAie9URqsN4WGQ+2iF6fIkdtr1bhF5p0Cw=="
+    length="96192508"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.15 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.15 (Lab)</h2><p>See release notes on GitHub.</p>
