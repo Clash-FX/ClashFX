@@ -891,3 +891,11 @@
 /* Proxy menu selection display */
 "Show Final Node in Proxy Menu" = "Показывать конечный узел в меню прокси";
 "By default, shows the selected node or group (such as Proxies). Enable to show the final node." = "По умолчанию отображается выбранный узел или группа (например, Proxies). Включите для отображения конечного узла.";
+
+"Proxy Path Check" = "Проверка прокси-пути";
+
+"Proxy node hostnames cannot be resolved. The DNS cache was cleared and the configuration reloaded, but the problem remains. The subscription's DNS servers may be stale; update the subscription or switch configuration." = "Не удаётся разрешить имена хостов прокси-узлов. Кэш DNS очищен, конфигурация перезагружена, но проблема сохраняется. Возможно, DNS-серверы подписки устарели: обновите подписку или переключите конфигурацию.";
+
+"Proxy nodes are not responding. Check the network, or switch node or configuration." = "Прокси-узлы не отвечают. Проверьте сеть или переключите узел или конфигурацию.";
+
+"Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration." = "Прокси-узлы не работают, причину определить не удалось. Кэш DNS очищен, конфигурация перезагружена, но проблема сохраняется. Обновите подписку или переключите конфигурацию.";

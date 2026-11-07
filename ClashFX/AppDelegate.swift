@@ -286,6 +286,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingProxyBypassReloadWork: DispatchWorkItem?
     private var startupProxyRecoveryGeneration = 0
     private var wakeRecoveryGeneration = 0
+    private var proxyPathNotificationThrottle = ProxyPathNotificationThrottle(interval: 30 * 60)
+    private let proxyPathSampler = ProxyPathSampler()
+    private static let proxyPathCheckDelayAfterWake: TimeInterval = 8
     private let wakeRecoveryBreadcrumbLock = NSLock()
     private var wakeRecoveryBreadcrumbToken = 0
     private var wakeRecoveryBreadcrumb = "idle"
@@ -1493,6 +1496,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self, selector: #selector(resetProxySettingOnWakeupFromSleep),
             name: NSWorkspace.didWakeNotification, object: nil
         )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(abandonWakeRecoveryOnSleep),
+            name: NSWorkspace.willSleepNotification, object: nil
+        )
 
         NotificationCenter
             .default
@@ -1721,6 +1728,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             proxyModeMenuItem.isEnabled = false
             let reason = RuntimeConfigApplyDiagnostics.displayReason(startRes)
             Logger.log("[Built-in Handoff] stage=start outcome=failed reason=\(reason)", level: .error)
+            Self.logPortConflictOwner(reason)
             NSUserNotificationCenter.default.postConfigErrorNotice(msg: reason)
             return reason
         }
@@ -2149,6 +2157,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 guard isCurrent() else { completion("Runtime validation scope changed"); return }
                 guard endpointError == "" else {
+                    if let endpointError = endpointError { Self.logPortConflictOwner(endpointError) }
                     completion(endpointError?.hasPrefix("error:[port_conflict]") == true
                         ? endpointError : "Runtime configuration structure or endpoints are invalid")
                     return
@@ -2754,6 +2763,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return merged
     }
 
+    /// Going back to sleep invalidates any recovery still in flight: its pending
+    /// steps (DNS flush, reload, notification) belong to a wake that is over.
+    /// Bumping the generation makes every queued or in-flight step abandon.
+    @objc func abandonWakeRecoveryOnSleep() {
+        guard !isTerminating else { return }
+        pendingWakeRecoveryWork?.cancel()
+        pendingWakeRecoveryWork = nil
+        wakeRecoveryGeneration += 1
+        Logger.log("[Proxy Path] system going to sleep; abandoning wake recovery (generation \(wakeRecoveryGeneration))", level: .warning)
+    }
+
     @objc func resetProxySettingOnWakeupFromSleep() {
         guard !isTerminating else { return }
         Logger.log("Wake recovery: didWake received")
@@ -3295,6 +3315,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }.resume()
     }
 
+    /// Attributes a port conflict to the process holding the port, whether it
+    /// arrives as a classified `[port_conflict]` or as a raw bind failure from a
+    /// core start. Diagnostics only; nothing is signalled or modified.
+    private static func logPortConflictOwner(_ error: String) {
+        let ports = Array(PortConflictParser.ports(in: error).prefix(4))
+        guard !ports.isEmpty else { return }
+        DispatchQueue.global(qos: .utility).async {
+            for port in ports {
+                let result = PortOwnerProbe.owners(ofLocalPort: port)
+                Logger.log("Port conflict on \(port): \(result.summary)", level: .warning)
+            }
+            // The owner of a root-run core is not inspectable here, but whether
+            // the listener is still present, and for how long, is.
+            PortListenProbe.sample(ports: ports) { Logger.log("Port conflict \($0)", level: .warning) }
+        }
+    }
+
     private func probeCoreDNS(
         completion: @escaping (_ healthy: Bool, _ reason: String) -> Void
     ) {
@@ -3591,7 +3628,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case .healthy:
                 Logger.log("Wake recovery: core API is healthy")
                 self.recordWakeRecoveryBreadcrumb("generation \(generation) healthy")
-                self.finishHealthyWakeRecovery()
+                self.finishHealthyWakeRecovery(generation: generation)
             case let .unhealthy(reason):
                 guard attemptsLeft > 1 else {
                     Logger.log("Wake recovery: \(reason); restoring active proxy mode", level: .error)
@@ -3655,7 +3692,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func finishHealthyWakeRecovery() {
+    private func finishHealthyWakeRecovery(generation: Int) {
         if ConfigManager.shared.proxyPortAutoSet,
            !ConfigManager.shared.proxyShouldPaused.value,
            !ConfigManager.shared.isProxySetByOtherVariable.value || Settings.claudeProxyLockEnabled {
@@ -3678,6 +3715,96 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !ApiRequest.useDirectApi() {
             resetStreamApi()
         }
+
+        runWakeDNSListenerLadder(WakeRecoveryLadder(generation: generation))
+        scheduleProxyPathCheck(afterWake: generation)
+    }
+
+    /// A healthy control plane does not prove the DNS listener survived sleep.
+    /// Reload the confirmed configuration in place once (the owned port plan
+    /// keeps the DNS port stable) before falling back to a full restart, which
+    /// is the step that can race for the DNS port.
+    private func runWakeDNSListenerLadder(_ ladder: WakeRecoveryLadder) {
+        guard ConfigManager.shared.isEnhancedModeActive,
+              expectedEnhancedDNSPort > 0,
+              !isWakeEnhancedModeRestarting,
+              !isEnhancedModeRuntimeRecoveryPending else { return }
+        let port = expectedEnhancedDNSPort
+        WakeRecoveryLadderDriver.run(ladder, hooks: WakeRecoveryLadderDriver.Hooks(
+            port: port,
+            generation: { [unowned self] in self.wakeRecoveryGeneration },
+            probe: { [weak self] report in
+                DispatchQueue.global(qos: .utility).async {
+                    let responding = self?.expectedEnhancedDNSPortResponses(port) != nil
+                    DispatchQueue.main.async { report(responding) }
+                }
+            },
+            reload: { [unowned self] done in
+                self.recordWakeRecoveryBreadcrumb("DNS listener silent; in-place reload")
+                self.updateConfig(showNotification: false, showError: false, completeHandler: done)
+            },
+            restart: { [unowned self] reason in self.captureAndRestartEnhancedMode(reason: reason) },
+            log: { Logger.log("Wake recovery: \($0)", level: .warning) }
+        ))
+    }
+
+    /// The core can be healthy while every selected node fails (stale node DNS,
+    /// an expired subscription), which the DIRECT-only data-plane monitor cannot
+    /// see. Probe the selected nodes once the wake has settled.
+    private func scheduleProxyPathCheck(afterWake generation: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.proxyPathCheckDelayAfterWake) { [weak self] in
+            guard let self = self,
+                  generation == self.wakeRecoveryGeneration,
+                  ConfigManager.shared.isRunning,
+                  !self.isTerminating,
+                  !self.isWakeEnhancedModeRestarting,
+                  !self.isEnhancedModeRuntimeRecoveryPending else { return }
+            self.runProxyPathRecovery(ProxyPathRecoveryLadder(generation: generation))
+        }
+    }
+
+    private func runProxyPathRecovery(_ ladder: ProxyPathRecoveryLadder) {
+        let configName = ConfigManager.selectConfigName
+        ProxyPathRecoveryDriver.run(ladder, hooks: ProxyPathRecoveryDriver.Hooks(
+            generation: { [unowned self] in self.wakeRecoveryGeneration },
+            probe: { [unowned self] report in
+                self.proxyPathSampler.sample(configName: configName) { verdict, samples in
+                    let detail = samples.map { "\(BenchmarkProbeDiagnostic.safeNodeLabel($0.leaf))=\($0.failure.map { "\($0)" } ?? "ok")" }
+                    let level: ClashLogLevel = (verdict == .healthy || verdict == .noSample) ? .info : .warning
+                    Logger.log("[Proxy Path] verdict \(verdict): \(detail.isEmpty ? "no samples" : detail.joined(separator: ", "))", level: level)
+                    report(verdict)
+                }
+            },
+            flushDNSCache: { [unowned self] done in self.proxyPathSampler.flushDNSCache(completion: done) },
+            reloadConfig: { [unowned self] done in
+                guard !self.isConfigUpdating else { done("configuration update in progress"); return }
+                self.updateConfig(showNotification: false, showError: false, completeHandler: done)
+            },
+            after: { delay, block in DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: block) },
+            notify: { [unowned self] kind in self.notifyProxyPathFailure(kind) },
+            log: { Logger.log("[Proxy Path] \($0)", level: .warning) }
+        ))
+    }
+
+    private func notifyProxyPathFailure(_ kind: ProxyPathFailureKind) {
+        guard proxyPathNotificationThrottle.shouldNotify(now: Date()) else {
+            Logger.log("[Proxy Path] notification suppressed by throttle (\(kind))", level: .info)
+            return
+        }
+        Logger.log("[Proxy Path] notification posted (\(kind))", level: .warning)
+        let message: String
+        switch kind {
+        case .nodeResolution:
+            message = NSLocalizedString("Proxy node hostnames cannot be resolved. The DNS cache was cleared and the configuration reloaded, but the problem remains. The subscription's DNS servers may be stale; update the subscription or switch configuration.", comment: "")
+        case .unreachable:
+            message = NSLocalizedString("Proxy nodes are not responding. Check the network, or switch node or configuration.", comment: "")
+        case .unknown:
+            message = NSLocalizedString("Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration.", comment: "")
+        }
+        NSUserNotificationCenter.default.post(
+            title: NSLocalizedString("Proxy Path Check", comment: ""),
+            info: message
+        )
     }
 
     private func restoreCoreAfterWake(generation: Int) {
@@ -6424,6 +6551,10 @@ extension AppDelegate {
         isWakeEnhancedModeRestarting = false
         let generation = closeToken.generation
         let transactionID = closeToken.id
+        let timeline = HandoffTimeline(transactionID: "\(transactionID)") {
+            Logger.log("[Built-in Handoff] \($0)")
+        }
+        timeline.mark("close_begin")
         let completionGate = EnhancedModeCompletionGate()
         let finish: (String?) -> Void = { error in
             guard completionGate.claim() else { return }
@@ -6445,6 +6576,7 @@ extension AppDelegate {
         isEnhancedModeRuntimeRecoveryPending = false
         expectedEnhancedDNSPort = 0
         let proceedAfterStop: (String?) -> Void = { [weak self] stopError in
+            timeline.mark("stop_replied", detail: stopError.map { "error=\(RuntimeConfigApplyDiagnostics.sanitize($0))" } ?? "error=none")
             guard let self, isCurrent() else {
                 finish("Enhanced Mode close cancelled: lifecycle changed")
                 return
@@ -6464,8 +6596,12 @@ extension AppDelegate {
                 // listener. Close our own core before checking configured ports;
                 // run() then reopens its cache and preserves custom startup options.
                 clashSuspendCore()
-                if let resumeError = self.startProxy() {
+                timeline.mark("resume_begin")
+                let resumeError = self.startProxy()
+                timeline.mark("resume_end", detail: resumeError == nil ? "outcome=ok" : "outcome=failed")
+                if let resumeError {
                     Logger.log("[Built-in Handoff] stage=resume outcome=failed transaction=\(transactionID) reason=\(RuntimeConfigApplyDiagnostics.sanitize(resumeError))", level: .error)
+                    Self.logPortConflictOwner(resumeError)
                     finish(resumeError)
                     return
                 }
@@ -6490,6 +6626,8 @@ extension AppDelegate {
                 return
             }
             if let dnsError { finish(dnsError); return }
+            timeline.mark("dns_restored")
+            timeline.mark("stop_requested", detail: self.enhancedModeOwnershipBlock == nil ? "path=direct" : "path=ownership_reconcile")
             if let block = self.enhancedModeOwnershipBlock {
                 self.reconcileUncertainEnhancedCoreOwnership(block, completion: proceedAfterStop)
             } else {
@@ -6542,12 +6680,14 @@ extension AppDelegate {
             guard completeProfile else {
                 let reason = RuntimeConfigApplyDiagnostics.displayReason(error ?? "The selected profile was not verified")
                 Logger.log("[Built-in Handoff] stage=profile_apply outcome=fenced session=\(session) baseline_kind=\(RuntimeConfigBaselineKind(confirmedProfile: self.confirmedRuntimeProfileName).rawValue) snapshot_verified=\(self.isCoreConfigSnapshotVerified) transaction_uncertain=\(self.runtimeConfigTransactions.isUncertain) reason=\(reason)", level: .error)
+                if let error { Self.logPortConflictOwner(error) }
                 self.fenceFailedBuiltInRecovery()
                 completion("Built-in profile recovery failed; the incomplete core was stopped. \(reason)")
                 return
             }
             if let error {
                 Logger.log("[Built-in Handoff] stage=profile_apply outcome=profile_retained baseline_kind=profile reason=\(RuntimeConfigApplyDiagnostics.sanitize(error))", level: .warning)
+                Self.logPortConflictOwner(error)
                 clashResumeCallbacks()
                 completion(error)
                 return

@@ -901,3 +901,11 @@
 "Configuration switch failed; the previously verified profile configuration was restored. %@" = "切換設定失敗；已恢復上一個已驗證的訂閱設定。%@";
 
 "Configuration is switching. Retry restarting after it finishes." = "正在切換設定，請等待完成後再重試重新啟動。";
+
+"Proxy Path Check" = "代理路徑檢查";
+
+"Proxy node hostnames cannot be resolved. The DNS cache was cleared and the configuration reloaded, but the problem remains. The subscription's DNS servers may be stale; update the subscription or switch configuration." = "代理節點的網域名稱無法解析。已清除 DNS 快取並重新載入設定，問題仍然存在。目前訂閱的 DNS 伺服器可能已失效，請更新訂閱或切換設定。";
+
+"Proxy nodes are not responding. Check the network, or switch node or configuration." = "代理節點沒有回應。請檢查網路，或切換節點或設定。";
+
+"Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration." = "代理節點持續失敗，且無法確定原因。已清除 DNS 快取並重新載入設定，問題仍然存在。請更新訂閱或切換設定。";

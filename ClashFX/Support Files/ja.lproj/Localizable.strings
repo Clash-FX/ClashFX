@@ -891,3 +891,11 @@
 /* Proxy menu selection display */
 "Show Final Node in Proxy Menu" = "プロキシメニューに最終ノードを表示";
 "By default, shows the selected node or group (such as Proxies). Enable to show the final node." = "通常は選択したノードまたはグループ（Proxies など）を表示します。有効にすると最終ノードを表示します。";
+
+"Proxy Path Check" = "プロキシ経路の確認";
+
+"Proxy node hostnames cannot be resolved. The DNS cache was cleared and the configuration reloaded, but the problem remains. The subscription's DNS servers may be stale; update the subscription or switch configuration." = "プロキシノードのホスト名を解決できません。DNS キャッシュを消去して設定を再読み込みしましたが、問題は解消していません。現在のサブスクリプションの DNS サーバが無効になっている可能性があります。サブスクリプションを更新するか、設定を切り替えてください。";
+
+"Proxy nodes are not responding. Check the network, or switch node or configuration." = "プロキシノードが応答しません。ネットワークを確認するか、ノードまたは設定を切り替えてください。";
+
+"Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration." = "プロキシノードが失敗し続けており、原因を特定できません。DNS キャッシュを消去して設定を再読み込みしましたが、問題は解消していません。サブスクリプションを更新するか、設定を切り替えてください。";

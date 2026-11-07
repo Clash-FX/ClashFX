@@ -1,3 +1,29 @@
+## ClashFX 1.1.11.16 (Lab)
+
+### 中文
+
+- 修复睡眠唤醒后增强模式 DNS 监听可能静默失效的问题：先原地重载已确认的配置，仍无响应才重建增强模式，避免争抢 DNS 端口。
+- 新增唤醒后代理路径健康检查：最多采样 3 个当前选中的节点。采样节点全部失败时（例如订阅里的 DNS 已过期），区分节点域名无法解析、节点不可达和原因不明，并根据每次探测结果决定是否清理 DNS 缓存、重载配置、稍后复测或发出通知。通知只在探测仍失败时发出，30 分钟内最多一次。
+- 系统再次进入睡眠时放弃尚未完成的唤醒恢复，避免在睡眠过渡期继续清理缓存、重载或弹出通知。
+- 增强诊断日志：端口冲突时记录占用进程，记录增强模式关闭交接的时间线和监听端口采样，以及唤醒后 DNS 探测结果。
+- 新增提示已本地化（简体中文、繁体中文、英文、日文、俄文）。
+
+已知问题：启动或切换增强模式时 7890/7891 端口可能短暂冲突，通常几秒内自动恢复，早于本版本，仍在排查。
+
+本版本为实验性 Lab。最低系统要求保持 macOS 10.14（Apple Silicon 为 macOS 11）。已完成隔离回归、单元测试和真机睡眠唤醒验证；macOS 10.14 与 Intel 实机运行、完整交互 GUI／授权弹窗验收仍未完成。
+
+### English
+
+- Fix the Enhanced Mode DNS listener silently failing after wake: reload the confirmed configuration in place first and rebuild Enhanced Mode only if the listener stays silent, avoiding a race for the DNS port.
+- Add a post-wake proxy path check that samples up to 3 selected nodes. If all sampled nodes fail (for example, because the subscription DNS is stale), distinguish hostname resolution failures, unreachable nodes, and unknown causes. Each probe result determines whether to clear the DNS cache, reload the configuration, retry after a short wait, or notify. Notifications are sent only when probes still indicate failure, at most once every 30 minutes.
+- Abandon unfinished wake recovery when the system goes back to sleep, so it no longer flushes, reloads or notifies during the sleep transition.
+- Improve diagnostics: name the process holding a conflicting port, log a timeline and listener sampling for the Enhanced Mode close handoff, and log wake DNS probe results.
+- Localize the new notifications (Simplified and Traditional Chinese, English, Japanese, Russian).
+
+Known issue: ports 7890/7891 can briefly conflict during startup or Enhanced Mode handoff and normally recover within seconds. This predates this release and is still under investigation.
+
+Experimental Lab release. Minimum macOS remains 10.14 (macOS 11 for Apple Silicon). Isolated regressions, unit tests and real-hardware sleep/wake validation are complete; macOS 10.14 and Intel runtime testing and full interactive GUI/authorization-dialog acceptance remain unverified.
+
 ## ClashFX 1.1.11.15 (Lab)
 
 ### 中文
