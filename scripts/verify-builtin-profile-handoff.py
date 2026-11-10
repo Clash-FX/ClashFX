@@ -260,6 +260,14 @@ final class AppDelegateFixture {
     }
     func refreshStatusItemViewStatus() { events.append("refresh-status") }
 
+    // The real helper waits for the proxy port to become bindable; this
+    // harness has no sockets, so the port is always already free.
+    func waitForBuiltInProxyPort(timeout: TimeInterval = 15,
+                                 isCurrent: @escaping () -> Bool,
+                                 completion: @escaping (String?) -> Void) {
+        completion(nil)
+    }
+
     func startProxy() -> String? {
         startProxyCallCount += 1
         events.append("start-proxy-call-\(startProxyCallCount)")
@@ -707,8 +715,8 @@ def main():
     elif args.negative_control == "duplicate-start":
         disable = replace_once(
             disable,
-            "                clashSuspendCore()\n                if let resumeError = self.startProxy() {",
-            "                clashSuspendCore()\n                _ = self.startProxy()\n                if let resumeError = self.startProxy() {",
+            "                    let resumeError = self.startProxy()\n",
+            "                    _ = self.startProxy()\n                    let resumeError = self.startProxy()\n",
             "single configured start call",
         )
         expected_negative_failure = "close invoked startProxy more than once"
