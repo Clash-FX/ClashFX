@@ -379,19 +379,30 @@ final class TunDNSTransactionTests: XCTestCase {
         wait(for: [recovered], timeout: 2)
     }
 
-    func testApplyAndCacheFailureRetainRecoveryEvidence() {
-        for error in ["commit failed", "cache failed"] {
-            let f = Fixture()
-            if error == "commit failed" { f.applyError = error } else { f.flushError = error }
-            let done = expectation(description: error)
-            f.apply { outcome in
-                XCTAssertNotNil(outcome)
-                XCTAssertFalse(f.snapshot.isEmpty)
-                XCTAssertFalse(f.events.contains("clear"))
-                done.fulfill()
-            }
-            wait(for: [done], timeout: 2)
+    func testApplyFailureRetainsRecoveryEvidence() {
+        let f = Fixture()
+        f.applyError = "commit failed"
+        let done = expectation(description: "commit failed")
+        f.apply { outcome in
+            XCTAssertNotNil(outcome)
+            XCTAssertFalse(f.snapshot.isEmpty)
+            XCTAssertFalse(f.events.contains("clear"))
+            done.fulfill()
         }
+        wait(for: [done], timeout: 2)
+    }
+
+    func testCacheRefreshFailureDoesNotFailApplyAndRetainsJournal() {
+        let f = Fixture()
+        f.flushError = "cache failed"
+        let done = expectation(description: "cache failed")
+        f.apply { outcome in
+            XCTAssertNil(outcome)
+            XCTAssertFalse(f.snapshot.isEmpty)
+            XCTAssertFalse(f.events.contains("clear"))
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 2)
     }
 
     func testFailedRestoreKeepsJournalForNextLaunch() {
