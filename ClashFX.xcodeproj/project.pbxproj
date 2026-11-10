@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5A1C0DE0A11CE000000000A2 /* RuntimePortHandoffWaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1C0DE0A11CE000000000A1 /* RuntimePortHandoffWaiter.swift */; };
+		5A1C0DE0A11CE000000000A3 /* RuntimePortHandoffWaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1C0DE0A11CE000000000A1 /* RuntimePortHandoffWaiter.swift */; };
+		5A1C0DE0A11CE000000000B2 /* RuntimePortHandoffWaiterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1C0DE0A11CE000000000B1 /* RuntimePortHandoffWaiterTests.swift */; };
 		065DFBEA746245C7940EAA04 /* RuntimeConfigBaselinePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3FA1C4DEC364BF2A2D771B8 /* RuntimeConfigBaselinePolicy.swift */; };
 		1877BFE54B427BE2E2A58EB0 /* PortOwnerProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 238DB3404DCA70F87CF61B82 /* PortOwnerProbe.swift */; };
 		A2C35CA13FF403B9A8B064E6 /* WakeRecoveryLadderPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8ED4263D73DA361CCEBA09A /* WakeRecoveryLadderPolicy.swift */; };
@@ -314,6 +317,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		5A1C0DE0A11CE000000000A1 /* RuntimePortHandoffWaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/RuntimePortHandoffWaiter.swift; sourceTree = SOURCE_ROOT; };
+		5A1C0DE0A11CE000000000B1 /* RuntimePortHandoffWaiterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/RuntimePortHandoffWaiterTests.swift; sourceTree = SOURCE_ROOT; };
 		D3FA1C4DEC364BF2A2D771B8 /* RuntimeConfigBaselinePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFX/General/Utils/RuntimeConfigBaselinePolicy.swift; sourceTree = SOURCE_ROOT; };
 		EE95E3888FE1C9BFF32C0A0E /* PortOwnerProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/PortOwnerProbeTests.swift; sourceTree = SOURCE_ROOT; };
 		B456364BB53970E29EC4D58F /* WakeRecoveryLadderPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashFXTests/WakeRecoveryLadderPolicyTests.swift; sourceTree = SOURCE_ROOT; };
@@ -706,6 +711,7 @@
 
 				D3FA1C4DEC364BF2A2D771B8 /* RuntimeConfigBaselinePolicy.swift */,
 				238DB3404DCA70F87CF61B82 /* PortOwnerProbe.swift */,
+				5A1C0DE0A11CE000000000A1 /* RuntimePortHandoffWaiter.swift */,
 				B8ED4263D73DA361CCEBA09A /* WakeRecoveryLadderPolicy.swift */,
 				1A66C185A1200CD4D7A1086A /* ProxyServerIndex.swift */,
 				ADB78CA7EA1190E3807622A1 /* ProxyPathHealthPolicy.swift */,
@@ -713,6 +719,7 @@
 				34F52EEF417A4CDC8A1BA55A /* RuntimeConfigApplyDiagnostics.swift */,
 				F61787B34BD34C0598E9ED86 /* RuntimeConfigBaselinePolicyTests.swift */,
 				EE95E3888FE1C9BFF32C0A0E /* PortOwnerProbeTests.swift */,
+				5A1C0DE0A11CE000000000B1 /* RuntimePortHandoffWaiterTests.swift */,
 				B456364BB53970E29EC4D58F /* WakeRecoveryLadderPolicyTests.swift */,
 				597E154E0DB3CF517418050F /* ProxyServerIndexTests.swift */,
 				4222B585D264F24F1A26E01C /* ProxyPathHealthPolicyTests.swift */,
@@ -1330,6 +1337,7 @@
 			files = (
 				A0CFFA07C45C4F11AE2A3D77 /* RuntimeConfigBaselinePolicy.swift in Sources */,
 				E224E46DB32CCCF4ADA7F692 /* PortOwnerProbe.swift in Sources */,
+				5A1C0DE0A11CE000000000A2 /* RuntimePortHandoffWaiter.swift in Sources */,
 				40137CECEAA1A1F7A7AD1290 /* WakeRecoveryLadderPolicy.swift in Sources */,
 				581CBBBC81D5AC7FB9570336 /* ProxyServerIndex.swift in Sources */,
 				7DDCAE21FA5CE8D1A0A6E134 /* ProxyPathHealthPolicy.swift in Sources */,
@@ -1337,6 +1345,7 @@
 				61692D79102849F8B2A21EB5 /* RuntimeConfigApplyDiagnostics.swift in Sources */,
 				20EA62CA58CD44BAA233D891 /* RuntimeConfigBaselinePolicyTests.swift in Sources */,
 				0FAA83B2921826EA210ED2FE /* PortOwnerProbeTests.swift in Sources */,
+				5A1C0DE0A11CE000000000B2 /* RuntimePortHandoffWaiterTests.swift in Sources */,
 				101303E99C101A5E2636C27B /* WakeRecoveryLadderPolicyTests.swift in Sources */,
 				F070F733C95259706543E587 /* ProxyServerIndexTests.swift in Sources */,
 				B1767CF771E19E8A4EA32323 /* ProxyPathHealthPolicyTests.swift in Sources */,
@@ -1424,6 +1433,7 @@
 			files = (
 				065DFBEA746245C7940EAA04 /* RuntimeConfigBaselinePolicy.swift in Sources */,
 				1877BFE54B427BE2E2A58EB0 /* PortOwnerProbe.swift in Sources */,
+				5A1C0DE0A11CE000000000A3 /* RuntimePortHandoffWaiter.swift in Sources */,
 				A2C35CA13FF403B9A8B064E6 /* WakeRecoveryLadderPolicy.swift in Sources */,
 				1ADF62EA75BE53D7C00AACA0 /* ProxyServerIndex.swift in Sources */,
 				F3D4640C0A3AEBB4C3FD1DE1 /* ProxyPathHealthPolicy.swift in Sources */,
