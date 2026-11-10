@@ -1,3 +1,23 @@
+## ClashFX 1.1.11.17 (Lab)
+
+### 中文
+
+- 修复重启后自动恢复增强模式时的连锁失败：系统 DNS 缓存刷新超时不再导致增强模式整体回滚。DNS 已写入并通过校验后，缓存刷新改为尽力而为，失败只记录日志；Helper 刷新命令的超时也从 2 秒放宽到 5 秒。
+- 修复回退到内置核心时被刚退出的外部核心留下的 TCP 连接挡住、无法重新绑定代理端口（EADDRINUSE）的问题：恢复内置核心前先等待端口可绑定，超时则保留可重试状态，不会停止或改动其他进程和端口。
+- 修复增强模式自动恢复在内置核心已停止时只重复报「重启内置核心失败」、从不尝试恢复的问题：现在每次重试都会先等待端口释放，再恢复内置核心并继续恢复增强模式。
+- 修复 Lab 升级弹窗只显示「See release notes on GitHub」的问题：更新说明现在同时显示中文和 English，并随发布流程自动生成。
+
+本版本为实验性 Lab。最低系统要求保持 macOS 10.14（Apple Silicon 为 macOS 11）。已完成单元测试和更新说明格式的回归测试；重启后自动恢复增强模式的真机复现、macOS 10.14 与 Intel 实机运行仍未验证。
+
+### English
+
+- Fix a cascading failure when Enhanced Mode is restored automatically after a restart: a timeout while refreshing the system DNS cache no longer rolls back the whole Enhanced Mode start. Once DNS is written and verified, the cache refresh is best-effort and a failure is only logged; the helper's refresh command timeout is also raised from 2 to 5 seconds.
+- Fix a fallback to the built-in core being blocked by TCP connections left by the external core that had just exited, which prevented rebinding the proxy port (EADDRINUSE). The app now waits for the port to become bindable before resuming the built-in core; on timeout it stays retryable and never stops or changes other processes or ports.
+- Fix the automatic Enhanced Mode restore repeating "Failed to restart built-in core" without ever trying to resume the stopped built-in core. Each retry now waits for the port, resumes the built-in core and then continues restoring Enhanced Mode.
+- Fix the Lab update dialog showing only "See release notes on GitHub". Update notes now appear in both Chinese and English and are generated automatically by the release workflow.
+
+Experimental Lab release. Minimum macOS remains 10.14 (macOS 11 for Apple Silicon). Unit tests and a regression test for the update-notes format are complete; reproducing the post-restart Enhanced Mode restore on real hardware, and macOS 10.14 and Intel runtime testing, remain unverified.
+
 ## ClashFX 1.1.11.16 (Lab)
 
 ### 中文
