@@ -6596,20 +6596,27 @@ extension AppDelegate {
                 // listener. Close our own core before checking configured ports;
                 // run() then reopens its cache and preserves custom startup options.
                 clashSuspendCore()
-                timeline.mark("resume_begin")
-                let resumeError = self.startProxy()
-                timeline.mark("resume_end", detail: resumeError == nil ? "outcome=ok" : "outcome=failed")
-                if let resumeError {
-                    Logger.log("[Built-in Handoff] stage=resume outcome=failed transaction=\(transactionID) reason=\(RuntimeConfigApplyDiagnostics.sanitize(resumeError))", level: .error)
-                    Self.logPortConflictOwner(resumeError)
-                    finish(resumeError)
-                    return
+                timeline.mark("port_wait_begin")
+                self.waitForBuiltInProxyPort(isCurrent: isCurrent) { portError in
+                    timeline.mark("port_wait_end", detail: portError == nil ? "outcome=ready" : "outcome=timeout")
+                    guard isCurrent() else {
+                        finish("Enhanced Mode close cancelled: lifecycle changed")
+                        return
+                    }
+                    // A still-busy port is not fatal here: startProxy reports the
+                    // authoritative bind result and keeps the existing retry state.
+                    if let portError { Logger.log("[Built-in Handoff] stage=port_wait outcome=busy reason=\(RuntimeConfigApplyDiagnostics.sanitize(portError))", level: .warning) }
+                    timeline.mark("resume_begin")
+                    let resumeError = self.startProxy()
+                    timeline.mark("resume_end", detail: resumeError == nil ? "outcome=ok" : "outcome=failed")
+                    if let resumeError {
+                        Logger.log("[Built-in Handoff] stage=resume outcome=failed transaction=\(transactionID) reason=\(RuntimeConfigApplyDiagnostics.sanitize(resumeError))", level: .error)
+                        Self.logPortConflictOwner(resumeError)
+                        finish(resumeError)
+                        return
+                    }
+                    self.completeBuiltInProfileHandoff(isCurrent: isCurrent, completion: finish)
                 }
-                guard isCurrent() else {
-                    finish("Enhanced Mode close cancelled: lifecycle changed")
-                    return
-                }
-                self.completeBuiltInProfileHandoff(isCurrent: isCurrent, completion: finish)
                 return
             }
             self.blockActiveEnhancedModeOwnership(generation: generation, reason: stopError)
@@ -7036,15 +7043,55 @@ extension AppDelegate {
                 self.activeEnhancedModeClientLaunchID = nil
                 self.activeEnhancedModeConfigPath = nil
                 self.refreshStatusItemViewStatus()
-                completion(self.combiningFailure(
-                    error,
-                    resumeError: self.resumeEnhancedModeCallbacksIfNeeded(
-                        alreadySuspended: true,
-                        resumeGate: resumeGate
-                    )
-                ))
+                // Process exit does not prove the kernel released the old
+                // core's TCP endpoints. Wait for the bind to succeed first.
+                let rollbackCurrent: () -> Bool = {
+                    generation == self.enhancedModeGeneration && !self.isTerminating
+                }
+                self.waitForBuiltInProxyPort(isCurrent: rollbackCurrent) { handoffError in
+                    guard rollbackCurrent() else { return }
+                    if let handoffError {
+                        self.isBuiltInCoreResumeRetryAvailable = true
+                        ConfigManager.shared.isRunning = false
+                        self.refreshStatusItemViewStatus()
+                        completion(self.combiningFailure(error, resumeError: handoffError))
+                        return
+                    }
+                    completion(self.combiningFailure(
+                        error,
+                        resumeError: self.resumeEnhancedModeCallbacksIfNeeded(
+                            alreadySuspended: true,
+                            resumeGate: resumeGate
+                        )
+                    ))
+                }
             }
         }
+    }
+
+    /// Waits until the built-in core's bootstrap proxy port can be bound again.
+    /// A just-exited external core can leave TCP endpoints that make the bind
+    /// fail with EADDRINUSE. Never changes ports or stops other processes.
+    private func waitForBuiltInProxyPort(
+        timeout: TimeInterval = 15,
+        isCurrent: @escaping () -> Bool,
+        completion: @escaping (String?) -> Void
+    ) {
+        let port = Settings.proxyPort
+        guard (1 ... 65_535).contains(port) else { completion(nil); return }
+        let endpoint = RuntimePortHandoffWaiter.Endpoint(
+            host: ConfigManager.allowConnectFromLan ? "*" : "127.0.0.1", port: port)
+        RuntimePortHandoffWaiter.wait(for: [endpoint], timeout: timeout, isCurrent: isCurrent,
+            onWaiting: { ports in
+                Logger.log("[Port Handoff] stage=waiting ports=\(ports) reason=bind_unavailable deadline=\(Int(timeout))s", level: .warning)
+            }) { error in
+                if let error {
+                    Logger.log("[Port Handoff] stage=failed reason=\(RuntimeConfigApplyDiagnostics.sanitize(error))", level: .error)
+                } else {
+                    Logger.log("[Port Handoff] stage=bind_ready port=\(port)")
+                }
+                completion(error)
+            }
     }
 
     private func dnsHelperClient() -> TunDNSHelperClient? {
@@ -7609,7 +7656,33 @@ extension AppDelegate {
         }
 
         guard ConfigManager.shared.isRunning else {
-            retryOrFail(NSLocalizedString("Failed to restart built-in core", comment: ""))
+            // A stopped built-in core must be resumed here; repeating the same
+            // failed check can never succeed once the old listener is gone.
+            guard isBuiltInCoreResumeRetryAvailable, enhancedModeOwnershipBlock == nil,
+                  !isRestarting, !isTerminating else {
+                retryOrFail(NSLocalizedString("Failed to restart built-in core", comment: ""))
+                return
+            }
+            let current: () -> Bool = { [weak self] in
+                guard let self else { return false }
+                return self.enhancedModeLifecycle.isCurrentRestore(
+                    restoreGeneration, isTerminating: self.isTerminating) && !self.isRestarting
+            }
+            clashSuspendCore()
+            waitForBuiltInProxyPort(isCurrent: current) { [weak self] handoffError in
+                guard let self, current() else { return }
+                if let handoffError {
+                    retryOrFail(handoffError)
+                    return
+                }
+                if let resumeError = self.checkedResumeBuiltInCore() {
+                    retryOrFail(resumeError)
+                    return
+                }
+                clashResumeCallbacks()
+                Logger.log("[Built-in Handoff] stage=restore_retry outcome=resumed")
+                self.restoreEnhancedMode(attemptsLeft: attemptsLeft, restoreGeneration: restoreGeneration)
+            }
             return
         }
 

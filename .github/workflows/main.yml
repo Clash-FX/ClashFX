@@ -121,6 +121,9 @@ jobs:
     - name: Helper bundle metadata and signature regression
       run: python3 scripts/verify-helper-bundle-metadata.py
 
+    - name: Appcast release-notes regression
+      run: python3 scripts/test_appcast_release_notes.py
+
     - name: free disk space
       run: |
         rm -rf build_derived_data
@@ -209,21 +212,15 @@ jobs:
 
         is_lab = channel == "lab"
         title_suffix = " (Lab)" if is_lab else ""
-        notes_html = f"<h2>ClashFX v{tag}{title_suffix}</h2>"
+        # Shared with the regression test; handles legacy and bilingual layouts.
+        sys.path.insert(0, "scripts")
+        import appcast_release_notes
         try:
-            with open("RELEASE_NOTES.md") as f:
+            with open("RELEASE_NOTES.md", encoding="utf-8") as f:
                 content = f.read()
-            en_section = content.split("---")[0]
-            items = re.findall(r"^- \*\*(.+?)\*\* — (.+)$", en_section, re.MULTILINE)
-            if items:
-                notes_html += "<ul>"
-                for ti, desc in items:
-                    notes_html += f"<li><strong>{ti}</strong> — {desc}</li>"
-                notes_html += "</ul>"
-            else:
-                notes_html += "<p>See release notes on GitHub.</p>"
-        except Exception:
-            notes_html += "<p>See release notes on GitHub.</p>"
+        except OSError:
+            content = ""
+        notes_html = appcast_release_notes.render_html(tag, title_suffix, content)
 
         channel_tag = "          <sparkle:channel>lab</sparkle:channel>\n" if is_lab else ""
 
@@ -296,19 +293,11 @@ jobs:
         NOTES=$(head -50 RELEASE_NOTES.md | jq -Rs .)
 
         CHANGE_TYPE="fix"
-        DESC_EN=""
-        DESC_ZH=""
-        if [ -f RELEASE_NOTES.md ]; then
-          if grep -q "New Features" RELEASE_NOTES.md; then
-            CHANGE_TYPE="feat"
-          fi
-          DESC_EN=$(sed -n 's/^- \*\*.*\*\* — \(.*\)$/\1/p' RELEASE_NOTES.md | head -1)
-          DESC_ZH=$(awk '
-            /^### 改进|^### 新功能/ { in_zh = 1; next }
-            /^---/ && in_zh { exit }
-            in_zh && /^- \*\*/ { print; exit }
-          ' RELEASE_NOTES.md | sed 's/^- \*\*.*\*\* — \(.*\)$/\1/')
+        if grep -q "New Features\|### 新功能" RELEASE_NOTES.md 2>/dev/null; then
+          CHANGE_TYPE="feat"
         fi
+        DESC_EN=$(python3 scripts/appcast_release_notes.py summary en)
+        DESC_ZH=$(python3 scripts/appcast_release_notes.py summary zh)
         DESC_EN=${DESC_EN:-"See release notes on GitHub"}
         DESC_ZH=${DESC_ZH:-"详见 GitHub Release Notes"}
 

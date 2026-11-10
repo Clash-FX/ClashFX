@@ -594,7 +594,13 @@ final class TunDNSTransactionController {
                     _ = settlement.finish("DNS operation superseded")
                     return
                 }
-                _ = settlement.finish(error.map { "DNS applied, but cache refresh failed: \($0)" })
+                // The write is already applied and journaled. A slow or failed
+                // cache refresh (common right after boot, before mDNSResponder
+                // is ready) must not roll back a working TUN takeover.
+                if let error {
+                    self.log("DNS settings applied; best-effort cache refresh failed: \(error)")
+                }
+                _ = settlement.finish(nil)
             }
         }
     }
