@@ -519,6 +519,27 @@ final class TerminationCleanupPolicyTests: XCTestCase {
         XCTAssertFalse(policy.forceDisableProxy)
     }
 
+    func testFailedCleanupRetryCancelsPendingQuitAndQuitsAgain() {
+        let resolution = TerminationCleanupFailureResolution.resolve(.retry)
+        XCTAssertFalse(resolution.allowTermination)
+        XCTAssertTrue(resolution.cancelTerminationCleanup)
+        XCTAssertTrue(resolution.retryQuit)
+    }
+
+    func testFailedCleanupQuitAnywayTerminatesAndKeepsTerminationState() {
+        let resolution = TerminationCleanupFailureResolution.resolve(.quitAnyway)
+        XCTAssertTrue(resolution.allowTermination)
+        XCTAssertFalse(resolution.cancelTerminationCleanup)
+        XCTAssertFalse(resolution.retryQuit)
+    }
+
+    func testFailedCleanupStayOpenRestoresRunningState() {
+        let resolution = TerminationCleanupFailureResolution.resolve(.stayOpen)
+        XCTAssertFalse(resolution.allowTermination)
+        XCTAssertTrue(resolution.cancelTerminationCleanup)
+        XCTAssertFalse(resolution.retryQuit)
+    }
+
     func testFailClosedLockPreservesSystemProxyWhileCleaningEnhancedMode() {
         let policy = TerminationCleanupPolicy.make(observation: TerminationCleanupObservation(
             enhancedModeActive: true, proxyPortAutoSet: true, isProxySetByOther: false,

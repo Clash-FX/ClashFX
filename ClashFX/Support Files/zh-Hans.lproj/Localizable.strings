@@ -950,3 +950,8 @@
 "Proxy nodes are not responding. Check the network, or switch node or configuration." = "代理节点没有响应。请检查网络，或切换节点或配置。";
 
 "Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration." = "代理节点持续失败，且无法确定原因。已清除 DNS 缓存并重新加载配置，问题仍然存在。请更新订阅或切换配置。";
+"ClashFX could not finish restoring network settings." = "ClashFX 未能完成网络设置的恢复。";
+"You can retry, or quit anyway. If you quit anyway, ClashFX will continue restoring on the next launch." = "你可以重试，或仍然退出。若仍然退出，ClashFX 将在下次启动时继续恢复。";
+"Retry" = "重试";
+"Quit Anyway" = "仍然退出";
+"Keep ClashFX Open" = "保持 ClashFX 运行";

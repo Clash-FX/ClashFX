@@ -11,10 +11,16 @@ import Foundation
 import RxSwift
 
 enum TerminalConfirmAction {
+    /// Set when the user chose "Retry" after a failed cleanup, so the quit that
+    /// follows does not ask "Quit ClashFX?" a second time.
+    private static var skipNextConfirmation = false
+
     static func run() -> NSApplication.TerminateReply {
         guard AppDelegate.shared.ownsRuntimeControl else { return .terminateNow }
         guard !AppDelegate.shared.isTerminating else { return .terminateLater }
-        guard confirmAction() else {
+        let skipConfirmation = skipNextConfirmation
+        skipNextConfirmation = false
+        guard skipConfirmation || confirmAction() else {
             return .terminateCancel
         }
         let policy = TerminationCleanupPolicy.make(observation: TerminationCleanupObservation(
@@ -73,15 +79,18 @@ enum TerminalConfirmAction {
 
         let terminationSettlement = ManagedOperationSettlement<Bool> { succeeded in
             DispatchQueue.main.async {
-                if !succeeded {
+                if succeeded {
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                    return
+                }
+                let resolution = TerminationCleanupFailureResolution.resolve(confirmFailureChoice())
+                if resolution.cancelTerminationCleanup {
                     AppDelegate.shared.cancelTerminationCleanup()
                 }
-                NSApp.reply(toApplicationShouldTerminate: succeeded)
-                if !succeeded {
-                    NSAlert.alert(with: NSLocalizedString(
-                        "Proxy cleanup failed. ClashFX remains open; please try quitting again.",
-                        comment: ""
-                    ))
+                NSApp.reply(toApplicationShouldTerminate: resolution.allowTermination)
+                if resolution.retryQuit {
+                    skipNextConfirmation = true
+                    DispatchQueue.main.async { NSApp.terminate(nil) }
                 }
             }
         }
@@ -95,6 +104,29 @@ enum TerminalConfirmAction {
 
         Logger.log("ClashFX quit wait for clean up")
         return .terminateLater
+    }
+
+    /// Asked on the main queue after cleanup could not be confirmed. The app is
+    /// activated first: as a menu-bar app its modal would otherwise open behind
+    /// other windows and look like a hang.
+    private static func confirmFailureChoice() -> TerminationCleanupFailureChoice {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = NSLocalizedString("ClashFX could not finish restoring network settings.", comment: "")
+        alert.informativeText = NSLocalizedString(
+            "You can retry, or quit anyway. If you quit anyway, ClashFX will continue restoring on the next launch.",
+            comment: ""
+        )
+        alert.addButton(withTitle: NSLocalizedString("Retry", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Quit Anyway", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Keep ClashFX Open", comment: ""))
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .retry
+        case .alertSecondButtonReturn: return .quitAnyway
+        default: return .stayOpen
+        }
     }
 
     static func confirmAction() -> Bool {

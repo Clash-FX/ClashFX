@@ -912,3 +912,8 @@
 "Proxy nodes are not responding. Check the network, or switch node or configuration." = "Proxy nodes are not responding. Check the network, or switch node or configuration.";
 
 "Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration." = "Proxy nodes are failing and the cause could not be determined. The DNS cache was cleared and the configuration reloaded, but the problem remains. Update the subscription or switch configuration.";
+"ClashFX could not finish restoring network settings." = "ClashFX could not finish restoring network settings.";
+"You can retry, or quit anyway. If you quit anyway, ClashFX will continue restoring on the next launch." = "You can retry, or quit anyway. If you quit anyway, ClashFX will continue restoring on the next launch.";
+"Retry" = "Retry";
+"Quit Anyway" = "Quit Anyway";
+"Keep ClashFX Open" = "Keep ClashFX Open";
