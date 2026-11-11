@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.18 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.18 (Lab)</h2><h3>中文</h3><ul><li>修复退出时「恢复 DNS」与「恢复系统代理」同时写入系统网络偏好、互相抢锁，导致退出清理失败（`Preferences update currently in progress`）的问题：Helper 现在让所有系统网络偏好写入依次执行，并在锁被外部程序短暂占用时有限次退避重试。需要更新并重新安装 Helper 才生效。</li><li>退出清理未能完成时，不再弹出可能被其他窗口遮住的提示框而看起来像卡死：现在会把 ClashFX 切到前台，并提供「重试」「仍然退出」「保持 ClashFX 运行」三个选项。选择「仍然退出」后，ClashFX 会在下次启动时继续恢复 DNS 和代理设置。</li></ul><h3>English</h3><ul><li>Fix quit-time cleanup failing with "Preferences update currently in progress": restoring DNS and restoring the system proxy both write system network preferences at the same time and raced for the lock. The helper now runs these writes one at a time and retries for a bounded time when an outside program briefly holds the lock. The helper must be updated and reinstalled for this to take effect.</li><li>When quit-time cleanup cannot complete, ClashFX no longer shows a dialog that may be hidden behind other windows and looks like a hang. It now comes to the front and offers Retry, Quit Anyway, or Keep ClashFX Open. After Quit Anyway, ClashFX continues restoring DNS and proxy settings on the next launch.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 11 Nov 2026 14:55:32 +0000</pubDate>
+  <sparkle:version>1001011018</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.18</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.18/ClashFX.dmg"
+    sparkle:version="1001011018"
+    sparkle:shortVersionString="1.1.11.18"
+    sparkle:edSignature="Wqs5+pfvSTOjV6E0CdrmcU1Nzv/o0oH5VNvDaEpJtIQmy1hGbRoYJKhGk15DfonMPzlSqF4toqXFl53QtTviCQ=="
+    length="96201315"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.17 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.17 (Lab)</h2><h3>中文</h3><ul><li>修复重启后自动恢复增强模式时的连锁失败：系统 DNS 缓存刷新超时不再导致增强模式整体回滚。DNS 已写入并通过校验后，缓存刷新改为尽力而为，失败只记录日志；Helper 刷新命令的超时也从 2 秒放宽到 5 秒。</li><li>修复回退到内置核心时被刚退出的外部核心留下的 TCP 连接挡住、无法重新绑定代理端口（EADDRINUSE）的问题：恢复内置核心前先等待端口可绑定，超时则保留可重试状态，不会停止或改动其他进程和端口。</li><li>修复增强模式自动恢复在内置核心已停止时只重复报「重启内置核心失败」、从不尝试恢复的问题：现在每次重试都会先等待端口释放，再恢复内置核心并继续恢复增强模式。</li><li>修复 Lab 升级弹窗只显示「See release notes on GitHub」的问题：更新说明现在同时显示中文和 English，并随发布流程自动生成。</li></ul><h3>English</h3><ul><li>Fix a cascading failure when Enhanced Mode is restored automatically after a restart: a timeout while refreshing the system DNS cache no longer rolls back the whole Enhanced Mode start. Once DNS is written and verified, the cache refresh is best-effort and a failure is only logged; the helper's refresh command timeout is also raised from 2 to 5 seconds.</li><li>Fix a fallback to the built-in core being blocked by TCP connections left by the external core that had just exited, which prevented rebinding the proxy port (EADDRINUSE). The app now waits for the port to become bindable before resuming the built-in core; on timeout it stays retryable and never stops or changes other processes or ports.</li><li>Fix the automatic Enhanced Mode restore repeating "Failed to restart built-in core" without ever trying to resume the stopped built-in core. Each retry now waits for the port, resumes the built-in core and then continues restoring Enhanced Mode.</li><li>Fix the Lab update dialog showing only "See release notes on GitHub". Update notes now appear in both Chinese and English and are generated automatically by the release workflow.</li></ul>
