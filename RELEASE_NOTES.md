@@ -1,3 +1,21 @@
+## ClashFX 1.1.11.18 (Lab)
+
+### 中文
+
+- 修复退出时「恢复 DNS」与「恢复系统代理」同时写入系统网络偏好、互相抢锁，导致退出清理失败（`Preferences update currently in progress`）的问题：Helper 现在让所有系统网络偏好写入依次执行，并在锁被外部程序短暂占用时有限次退避重试。需要更新并重新安装 Helper 才生效。
+- 退出清理未能完成时，不再弹出可能被其他窗口遮住的提示框而看起来像卡死：现在会把 ClashFX 切到前台，并提供「重试」「仍然退出」「保持 ClashFX 运行」三个选项。选择「仍然退出」后，ClashFX 会在下次启动时继续恢复 DNS 和代理设置。
+
+本版本为实验性 Lab。已完成针对锁重试逻辑和退出选项的单元测试；退出时抢锁的真机复现、macOS 10.14 与 Intel 实机运行仍未验证。
+
+### English
+
+- Fix quit-time cleanup failing with "Preferences update currently in progress": restoring DNS and restoring the system proxy both write system network preferences at the same time and raced for the lock. The helper now runs these writes one at a time and retries for a bounded time when an outside program briefly holds the lock. The helper must be updated and reinstalled for this to take effect.
+- When quit-time cleanup cannot complete, ClashFX no longer shows a dialog that may be hidden behind other windows and looks like a hang. It now comes to the front and offers Retry, Quit Anyway, or Keep ClashFX Open. After Quit Anyway, ClashFX continues restoring DNS and proxy settings on the next launch.
+
+Experimental Lab release. Unit tests cover the lock-retry logic and the quit choices; reproducing the quit-time lock race on real hardware, macOS 10.14 and Intel hardware are still unverified.
+
+---
+
 ## ClashFX 1.1.11.17 (Lab)
 
 ### 中文

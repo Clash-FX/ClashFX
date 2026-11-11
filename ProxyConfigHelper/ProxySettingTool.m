@@ -12,6 +12,7 @@
 #import "CommonUtils.h"
 #import "ProxySettingRestorationPolicy.h"
 #import "ProxySettingDNSPolicy.h"
+#import "ProxySettingLockPolicy.h"
 
 static NSString * const ClashFXProxyCaptureErrorKey = @"__ClashFXProxyCaptureError";
 static NSString * const ClashFXCapturedServiceIDsKey = @"__ClashFXCapturedServiceIDs";
@@ -243,14 +244,50 @@ static NSString * const ClashFXDNSExpectedServersKey = @"expectedServers";
 }
 
 - (nullable NSString *)applySCNetworkSettingWithRef:(NSString *(^)(SCPreferencesRef))callback {
+    // Every helper-initiated write to system network preferences (proxy, DNS)
+    // runs one at a time. Otherwise two concurrent XPC calls, such as the DNS
+    // and system-proxy restores issued together at quit, race for the
+    // non-blocking SCPreferences lock and the loser fails immediately.
+    static dispatch_semaphore_t preferencesWriteGate;
+    static dispatch_once_t gateOnce;
+    dispatch_once(&gateOnce, ^{
+        preferencesWriteGate = dispatch_semaphore_create(1);
+    });
+    if (dispatch_semaphore_wait(preferencesWriteGate,
+                                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC))) != 0) {
+        return @"Timed out waiting for another system network preferences operation";
+    }
+    NSString *result = [self applySCNetworkSettingSerializedWithRef:callback];
+    dispatch_semaphore_signal(preferencesWriteGate);
+    return result;
+}
+
+- (nullable NSString *)applySCNetworkSettingSerializedWithRef:(NSString *(^)(SCPreferencesRef))callback {
     SCPreferencesRef ref = SCPreferencesCreateWithAuthorization(nil, CFSTR("com.clashfx.app.Helper.config"), nil, self.authRef);
     if (!ref) {
         return @"Unable to create authorized system network preferences";
     }
-    if (!SCPreferencesLock(ref, false)) {
-        NSString *error = [self preferenceErrorMessageForOperation:@"locking system network preferences"];
+    // The lock can still be held by an outside writer (System Settings, VPN
+    // software, MDM). "Busy" is transient, so retry for a bounded time.
+    __block NSString *lockError = nil;
+    BOOL locked = ClashFXAttemptPreferencesLock(
+        ClashFXPreferencesLockRetryBudget,
+        ClashFXPreferencesLockRetryInterval,
+        ^BOOL(int *status) {
+            if (SCPreferencesLock(ref, false)) {
+                return YES;
+            }
+            *status = SCError();
+            lockError = [self preferenceErrorMessageForOperation:@"locking system network preferences"];
+            return NO;
+        },
+        ^(NSTimeInterval seconds) { [NSThread sleepForTimeInterval:seconds]; },
+        ^NSTimeInterval { return [NSProcessInfo processInfo].systemUptime; },
+        NULL,
+        NULL);
+    if (!locked) {
         CFRelease(ref);
-        return error;
+        return lockError ?: @"Unable to lock system network preferences";
     }
 
     NSString *operationError = callback(ref);

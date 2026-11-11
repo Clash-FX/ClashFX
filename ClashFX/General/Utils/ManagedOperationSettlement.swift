@@ -351,3 +351,34 @@ struct TerminationCleanupPolicy: Equatable {
         )
     }
 }
+
+/// What the user chose after quit-time cleanup could not be confirmed.
+enum TerminationCleanupFailureChoice: Equatable {
+    case retry
+    case quitAnyway
+    case stayOpen
+}
+
+/// How to settle the pending `applicationShouldTerminate` for a given choice.
+/// Quitting anyway keeps the termination state and the persisted DNS recovery
+/// journal, so the next launch continues the restore instead of the app hanging
+/// on a cleanup it cannot complete.
+struct TerminationCleanupFailureResolution: Equatable {
+    let allowTermination: Bool
+    let cancelTerminationCleanup: Bool
+    let retryQuit: Bool
+
+    static func resolve(_ choice: TerminationCleanupFailureChoice) -> TerminationCleanupFailureResolution {
+        switch choice {
+        case .retry:
+            return TerminationCleanupFailureResolution(
+                allowTermination: false, cancelTerminationCleanup: true, retryQuit: true)
+        case .quitAnyway:
+            return TerminationCleanupFailureResolution(
+                allowTermination: true, cancelTerminationCleanup: false, retryQuit: false)
+        case .stayOpen:
+            return TerminationCleanupFailureResolution(
+                allowTermination: false, cancelTerminationCleanup: true, retryQuit: false)
+        }
+    }
+}
