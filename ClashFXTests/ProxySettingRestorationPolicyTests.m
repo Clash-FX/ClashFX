@@ -1,6 +1,7 @@
 #import <XCTest/XCTest.h>
 #import "ProxySettingRestorationPolicy.h"
 #import "../ProxyConfigHelper/CoreSocketOwnership.h"
+#import "../ProxyConfigHelper/ProxySettingLockPolicy.h"
 
 @interface ProxySettingRestorationPolicyTests : XCTestCase
 @end
@@ -101,6 +102,52 @@
     NSDictionary *legacySnapshot = @{ @"wifi": @{ @"HTTPEnable": @0 } };
     XCTAssertNil([self dictionaryForService:@"new-service" inSnapshot:legacySnapshot action:&action]);
     XCTAssertEqual(action, ProxySettingRestorationActionLeaveUntouched);
+}
+
+- (void)testPreferencesLockRetriesBusyUntilAcquired {
+    __block NSTimeInterval clock = 0;
+    __block NSInteger calls = 0;
+    int finalStatus = -1;
+    NSInteger attempts = 0;
+    BOOL ok = ClashFXAttemptPreferencesLock(3.0, 0.1, ^BOOL(int *status) {
+        calls += 1;
+        if (calls < 4) { *status = kSCStatusPrefsBusy; return NO; }
+        return YES;
+    }, ^(NSTimeInterval seconds) { clock += seconds; }, ^NSTimeInterval { return clock; },
+       &finalStatus, &attempts);
+    XCTAssertTrue(ok);
+    XCTAssertEqual(attempts, 4);
+    XCTAssertEqual(finalStatus, kSCStatusOK);
+}
+
+- (void)testPreferencesLockGivesUpAfterBudgetWhileBusy {
+    __block NSTimeInterval clock = 0;
+    int finalStatus = -1;
+    NSInteger attempts = 0;
+    BOOL ok = ClashFXAttemptPreferencesLock(1.0, 0.25, ^BOOL(int *status) {
+        *status = kSCStatusPrefsBusy;
+        return NO;
+    }, ^(NSTimeInterval seconds) { clock += seconds; }, ^NSTimeInterval { return clock; },
+       &finalStatus, &attempts);
+    XCTAssertFalse(ok);
+    XCTAssertEqual(finalStatus, kSCStatusPrefsBusy);
+    XCTAssertGreaterThan(attempts, 1);
+    XCTAssertLessThanOrEqual(clock, 1.0);
+}
+
+- (void)testPreferencesLockDoesNotRetryNonBusyFailures {
+    __block NSTimeInterval clock = 0;
+    int finalStatus = -1;
+    NSInteger attempts = 0;
+    BOOL ok = ClashFXAttemptPreferencesLock(3.0, 0.1, ^BOOL(int *status) {
+        *status = kSCStatusAccessError;
+        return NO;
+    }, ^(NSTimeInterval seconds) { clock += seconds; }, ^NSTimeInterval { return clock; },
+       &finalStatus, &attempts);
+    XCTAssertFalse(ok);
+    XCTAssertEqual(attempts, 1);
+    XCTAssertEqual(finalStatus, kSCStatusAccessError);
+    XCTAssertEqual(clock, 0);
 }
 
 @end
