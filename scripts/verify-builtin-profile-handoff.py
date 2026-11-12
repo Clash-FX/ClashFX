@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Exercise built-in profile handoff and enhanced-mode close retry behavior.
 
-The harness compiles the production handoff, close, and menu-toggle methods with
-private in-memory core, API, lifecycle, and UI stand-ins. It does not start the
-app, helper, embedded core, or system proxy.
+The harness compiles the production handoff, close, profile port gate, and
+menu-toggle code with private in-memory core, API, lifecycle, and UI stand-ins.
 """
 
 from pathlib import Path
@@ -117,9 +116,11 @@ enum EnhancedModeLifecyclePolicy {
 }
 
 final class FakeRuntimeConfigTransactions {
+    struct Receipt { let id: UUID }
     var isUncertain = false
     var isBusy = false
     var confirmedBaselineID: UUID?
+    var confirmed: Receipt? { confirmedBaselineID.map { Receipt(id: $0) } }
     var confirmedBaselineProfile: String?
     var confirmedBaselineMetadata: String?
 }
@@ -202,11 +203,21 @@ final class AppDelegateFixture {
     }
 
     var enhancedModeMenuItem = MenuFixture()
+    var bootstrapPortWaitError: String?
+    var bootstrapWaitUsesStartupOverrides = false
+    var bootstrapPortDeadline: TimeInterval?
+    var observedProfilePortDeadline: TimeInterval?
+    var observedProfileScope: (() -> Bool)?
+    var profileCandidate: [String: Any]?
+    var profileBaseline: [String: Any]?
+    var observedProfileEndpoints = [RuntimePortHandoffWaiter.Endpoint]()
+    var pendingProfilePortWait: ((String?) -> Void)?
     var startProxyCallCount = 0
     var startProxyResults = [String?]()
     var profileNameAfterStart: String? = "saved-profile"
     var profileApplyOutcomes = [ProfileApplyOutcome]()
     var profileApplyCallCount = 0
+    var profileMutationCount = 0
     var baselineIDToPublish: UUID?
     var profileApplyDeferred = false
     var pendingProfileApply: ((String?) -> Void)?
@@ -262,10 +273,13 @@ final class AppDelegateFixture {
 
     // The real helper waits for the proxy port to become bindable; this
     // harness has no sockets, so the port is always already free.
-    func waitForBuiltInProxyPort(timeout: TimeInterval = 15,
+    func waitForBuiltInProxyPort(deadline: TimeInterval,
+                                 useStartupOverrides: Bool = false,
                                  isCurrent: @escaping () -> Bool,
                                  completion: @escaping (String?) -> Void) {
-        completion(nil)
+        bootstrapWaitUsesStartupOverrides = useStartupOverrides
+        bootstrapPortDeadline = deadline
+        completion(bootstrapPortWaitError)
     }
 
     func startProxy() -> String? {
@@ -289,21 +303,57 @@ final class AppDelegateFixture {
         return nil
     }
 
+    func waitForRuntimeProxyPorts(
+        _ endpoints: [RuntimePortHandoffWaiter.Endpoint],
+        stage: String,
+        deadline: TimeInterval,
+        isCurrent: @escaping () -> Bool,
+        completion: @escaping (String?) -> Void
+    ) {
+        observedProfileEndpoints = endpoints
+        pendingProfilePortWait = { error in
+            completion(isCurrent() ? error : "Profile port handoff cancelled")
+        }
+    }
+
+    func finishProfilePortWait(_ error: String? = nil) {
+        guard let pending = pendingProfilePortWait else { return }
+        pendingProfilePortWait = nil
+        pending(error)
+    }
+
     func requestConfigUpdateApplyingRuntimePatch(
         configName: String,
+        portHandoffDeadline: TimeInterval? = nil,
+        handoffIsCurrent: (() -> Bool)? = nil,
         baselineState: ((UUID?) -> Void)? = nil,
         callback: @escaping (String?) -> Void
     ) {
         profileApplyCallCount += 1
+        observedProfilePortDeadline = portHandoffDeadline
+        observedProfileScope = handoffIsCurrent
         events.append("apply-profile:\(configName)")
         baselineState?(nil)
         if let baselineIDToPublish { baselineState?(baselineIDToPublish) }
-        guard !profileApplyDeferred else {
-            pendingProfileApply = callback
-            return
+        let apply = {
+            self.profileMutationCount += 1
+            guard !self.profileApplyDeferred else {
+                self.pendingProfileApply = callback
+                return
+            }
+            self.finishProfileApply(outcome: self.profileApplyOutcomes.isEmpty ? .bootstrap : self.profileApplyOutcomes.removeFirst(),
+                                    callback: callback)
         }
-        finishProfileApply(outcome: profileApplyOutcomes.isEmpty ? .bootstrap : profileApplyOutcomes.removeFirst(),
-                           callback: callback)
+        guard let profileCandidate else { apply(); return }
+        let confirmedRoot = profileBaseline
+        let baselineID = runtimeConfigTransactions.confirmed?.id
+        let current = handoffIsCurrent ?? { true }
+        let result: Result<(Data, [String: Any]), Error> = .success((Data(), profileCandidate))
+        let submit: (String?) -> Void = { error in
+            if let error { callback(error); return }
+            apply()
+        }
+        // EXTRACTED_PROFILE_SUBMIT_GATE
     }
     func finishProfileApply(outcome: ProfileApplyOutcome, callback: @escaping (String?) -> Void) {
         switch outcome {
@@ -335,6 +385,10 @@ final class AppDelegateFixture {
     func finishDeferredProfileApply(_ error: String? = nil) {
         guard let callback = pendingProfileApply else { return }
         pendingProfileApply = nil
+        if error == nil, !profileApplyOutcomes.isEmpty {
+            finishProfileApply(outcome: profileApplyOutcomes.removeFirst(), callback: callback)
+            return
+        }
         callback(error)
     }
     func restoreVerifiedRuntimeBaselineIfAvailable(scope: String, receiptID: UUID) {
@@ -395,6 +449,7 @@ final class AppDelegateFixture {
 
     // EXTRACTED_DISABLE
     // EXTRACTED_HANDOFF
+    // EXTRACTED_PROFILE_PORT_WAIT
     // EXTRACTED_TOGGLE
 }
 
@@ -554,6 +609,11 @@ do {
     wait({ events.contains("post-toggle-refresh") }, "successful close did not complete its toggle callback")
     check(app.startProxyCallCount == 1 && app.profileApplyCallCount == 1,
           "successful close did not perform one configured start and one full-profile apply")
+    check(app.bootstrapWaitUsesStartupOverrides,
+          "close did not use startup overrides for the bootstrap wait")
+    check(app.observedProfilePortDeadline.map { $0 > ProcessInfo.processInfo.systemUptime } == true &&
+          app.observedProfilePortDeadline == app.bootstrapPortDeadline && app.observedProfileScope != nil,
+          "close did not forward the shared deadline and scope to the full-profile port wait")
     check(!callbacksPaused && callbackResumeCount == 1, "verified profile did not resume callbacks")
     for event in ["restore-proxy-group", "restore-outbound-mode", "recreate-proxy-menu",
                   "dashboard-reload", "sync-config"] {
@@ -565,6 +625,110 @@ do {
           "successful close retained a failure or enhanced-mode state")
 }
 print("PASS: verified close restores selection menus and config sync")
+
+// Readiness does not publish Local until the profile transaction has verified it.
+resetHarness()
+do {
+    let app = AppDelegateFixture()
+    app.profileBaseline = ["mixed-port": 35100]
+    app.profileCandidate = ["port": 35101, "socks-port": 35102, "mixed-port": 35100]
+    app.profileApplyDeferred = true
+    app.profileApplyOutcomes = [.fullProfile("profile-A")]
+    app.actionToggleEnhancedMode(nil)
+    wait({ app.pendingProfilePortWait != nil || app.profileMutationCount > 0 },
+         "selected profile port wait was not reached")
+    check(app.pendingProfilePortWait != nil && app.profileMutationCount == 0,
+          "busy profile port allowed mutation before release")
+    check(app.observedProfileEndpoints == [
+        .init(host: "127.0.0.1", port: 35101),
+        .init(host: "127.0.0.1", port: 35102),
+        .init(host: "127.0.0.1", port: 35102, transport: .udp),
+    ], "profile wait did not include the selected HTTP and SOCKS claims")
+    check(app.startProxyCallCount == 1 && callbacksPaused,
+          "selected profile wait did not hold a paused staging core")
+    app.finishProfilePortWait()
+    wait({ app.pendingProfileApply != nil }, "selected profile transaction was not reached")
+    check(callbacksPaused && callbackResumeCount == 0 &&
+          !events.contains("recreate-proxy-menu") && !events.contains("post-toggle-refresh"),
+          "close published Local before the selected profile verified")
+    app.finishDeferredProfileApply()
+    wait({ events.contains("post-toggle-refresh") }, "verified selected profile did not settle close")
+    check(!callbacksPaused && callbackResumeCount == 1 && app.isCoreConfigSnapshotVerified,
+          "verified selected profile did not resume callbacks exactly once")
+}
+print("PASS: profile wait blocks mutation and verification fences Local publication")
+
+resetHarness()
+do {
+    let app = AppDelegateFixture()
+    app.profileBaseline = ["mixed-port": 35100]
+    app.profileCandidate = ["port": 35101]
+    app.actionToggleEnhancedMode(nil)
+    wait({ app.pendingProfilePortWait != nil }, "profile port wait was not reached before timeout")
+    app.finishProfilePortWait("Profile port handoff timed out")
+    wait({ app.presentErrorCount == 1 }, "profile port timeout did not settle")
+    check(app.startProxyCallCount == 1 && app.profileApplyCallCount == 1 && app.profileMutationCount == 0 &&
+          app.fenceCount == 1 && !ConfigManager.shared.isRunning &&
+          app.isBuiltInCoreResumeRetryAvailable && callbacksPaused && callbackResumeCount == 0,
+          "profile port timeout left the unverified staging core active")
+    check(app.lastToggleError?.contains("Profile port handoff timed out") == true,
+          "profile port timeout lost its diagnostic")
+}
+print("PASS: profile port timeout fences staging and exposes retry")
+
+resetHarness()
+do {
+    let app = AppDelegateFixture()
+    ConfigManager.shared.isEnhancedModeActive = false
+    app.profileBaseline = ["mixed-port": 35100]
+    app.profileCandidate = ["port": 35101]
+    clashPauseCallbacks()
+    var result: String?
+    app.completeBuiltInProfileHandoff(portHandoffDeadline: ProcessInfo.processInfo.systemUptime + 2,
+                                     isCurrent: { true }) { result = $0 }
+    wait({ app.pendingProfilePortWait != nil }, "profile port wait was not reached before session change")
+    app.runtimeCoreSessionID = UUID()
+    app.finishProfilePortWait()
+    wait({ result != nil }, "stale profile port wait did not settle")
+    check(app.profileMutationCount == 0 && app.fenceCount == 0 &&
+          callbacksPaused && callbackResumeCount == 0 &&
+          result?.contains("handoff cancelled") == true,
+          "stale profile port wait mutated the new session or resumed its callbacks")
+}
+print("PASS: stale port readiness cannot mutate or publish a new session")
+
+resetHarness()
+do {
+    let app = AppDelegateFixture()
+    app.profileBaseline = ["mixed-port": 35100]
+    app.profileCandidate = ["port": 35101]
+    app.runtimeConfigTransactions.confirmedBaselineID = UUID()
+    app.actionToggleEnhancedMode(nil)
+    wait({ app.pendingProfilePortWait != nil }, "profile port wait was not reached before baseline change")
+    app.runtimeConfigTransactions.confirmedBaselineID = UUID()
+    app.finishProfilePortWait()
+    wait({ app.presentErrorCount == 1 }, "obsolete baseline port wait did not settle")
+    check(app.profileMutationCount == 0 && callbackResumeCount == 0,
+          "port readiness based on an obsolete baseline allowed mutation or publication")
+}
+print("PASS: a replaced baseline receipt invalidates the profile port wait")
+
+// A busy startup/checkpoint port should leave the core stopped and retryable.
+resetHarness()
+do {
+    let app = AppDelegateFixture()
+    app.bootstrapPortWaitError = "Bootstrap port handoff timed out"
+    app.actionToggleEnhancedMode(nil)
+    wait({ app.presentErrorCount == 1 }, "bootstrap port timeout did not settle")
+    check(app.startProxyCallCount == 0 && app.profileApplyCallCount == 0,
+          "bootstrap port timeout attempted to start the core or apply the profile")
+    check(app.lastToggleError?.contains("Bootstrap port handoff timed out") == true,
+          "bootstrap port timeout lost its diagnostic")
+    check(!ConfigManager.shared.isRunning && app.isBuiltInCoreResumeRetryAvailable &&
+          callbacksPaused && callbackResumeCount == 0,
+          "bootstrap port timeout did not retain the stopped-core retry state")
+}
+print("PASS: bootstrap port timeout leaves the core stopped and retryable")
 
 // A stale completion must not fence, resume callbacks, or mutate menus for a newer scope.
 for axis in ["session", "interaction", "remote", "context", "ownership", "lifecycle"] {
@@ -695,13 +859,26 @@ print("PASS: isolated built-in handoff, close, and retry scenarios used in-memor
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--negative-control", choices=["bootstrap-resume", "duplicate-start"])
+    parser.add_argument("--negative-control", choices=["bootstrap-resume", "duplicate-start", "omit-profile-wait"])
     args = parser.parse_args()
 
     delegate = (ROOT / "ClashFX/AppDelegate.swift").read_text()
     disable = extract(delegate, "    private func disableEnhancedMode(")
     handoff = extract(delegate, "    private func completeBuiltInProfileHandoff(")
+    profile_port_wait = extract(delegate, "    private func waitForBuiltInProfilePorts(")
     toggle = extract(delegate, "    @IBAction func actionToggleEnhancedMode(")
+    request = extract(delegate, "    private func requestConfigUpdateApplyingRuntimePatch(")
+    apply = extract(delegate, "    private func applyRuntimeConfiguration(")
+    submit_gate = extract(apply, "DispatchQueue.main.async {\n                        guard let portHandoffDeadline")
+    # The isolated gate uses in-memory candidate bytes and a fake transaction
+    # client. Check the production data flow around the extracted block as well.
+    if request.count("portHandoffDeadline: portHandoffDeadline") != 1:
+        raise AssertionError("the request must pass the deadline through to runtime apply")
+    if "return (try Data(Yams.dump(object: root).utf8), root)" not in apply:
+        raise AssertionError("the port wait and transaction must use the same prepared profile")
+    if not (0 <= apply.find("if let waitError { completion(waitError); return }")
+            < apply.find("self.runtimeConfigTransactions.submit(")):
+        raise AssertionError("a failed port wait must return before transaction submission")
 
     expected_negative_failure = None
     if args.negative_control == "bootstrap-resume":
@@ -720,10 +897,20 @@ def main():
             "single configured start call",
         )
         expected_negative_failure = "close invoked startProxy more than once"
+    elif args.negative_control == "omit-profile-wait":
+        submit_gate = replace_once(
+            submit_gate,
+            "isCurrent: baselineIsCurrent, completion: submit)",
+            "isCurrent: baselineIsCurrent, completion: { _ in })\n                        submit(nil)",
+            "profile port wait before submit",
+        )
+        expected_negative_failure = "busy profile port allowed mutation before release"
 
     swift = (
         PRELUDE.replace("// EXTRACTED_DISABLE", disable)
         .replace("// EXTRACTED_HANDOFF", handoff)
+        .replace("// EXTRACTED_PROFILE_PORT_WAIT", profile_port_wait)
+        .replace("// EXTRACTED_PROFILE_SUBMIT_GATE", submit_gate)
         .replace("// EXTRACTED_TOGGLE", toggle)
         + TESTS
     )
@@ -736,6 +923,7 @@ def main():
         subprocess.run(
             ["swiftc", "-swift-version", "5", "-target", target,
              str(ROOT / "ClashFX/General/Utils/HandoffDiagnostics.swift"),
+             str(ROOT / "ClashFX/General/Utils/RuntimePortHandoffWaiter.swift"),
              str(source), "-o", str(binary)],
             check=True,
         )

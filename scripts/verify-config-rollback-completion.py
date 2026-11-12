@@ -64,6 +64,7 @@ final class Fixture {
         let context = ApiRequest.runtimeConfigContext()
         let remoteID = RemoteControlManager.selectConfig?.uuid
         let lockChange: String? = nil
+        let handoffIsCurrent: (() -> Bool)? = nil
         // CHECKS
         let current = isCurrent
         let completion = finish
