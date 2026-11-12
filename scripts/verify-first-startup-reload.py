@@ -33,6 +33,8 @@ import Dispatch
 
 typealias ErrorString = String
 var events = [String]()
+func clashPauseCallbacks() { events.append("pause-callbacks") }
+func clashResumeCallbacks() { events.append("resume-callbacks") }
 enum Level { case error, warning, info }
 enum Logger {
     static var messages = [String]()
@@ -116,6 +118,9 @@ final class NSUserNotificationCenter {
     func post(title: String, info: String) { events.append("notification") }
     func postConfigErrorNotice(msg: String) { events.append("notification") }
 }
+enum ProxyGroupSelectionController { static var isAnyOperationInProgress = false }
+struct BaselineReceipt { let id = UUID() }
+struct FixtureTransactions { var confirmed: BaselineReceipt? = BaselineReceipt() }
 final class StartupFixture {
     static var shared = StartupFixture()
     var canSwitchProxyControlScope = true
@@ -152,14 +157,94 @@ final class StartupFixture {
     var enhancedModeMenuItem = MenuFixture()
     var loadCompletion: ((String?) -> Void)?
     var showErrors = true
-    func updateConfig(configName: String, showNotification: Bool) {
-        events.append("profile-reload:" + configName)
-    }
-    func updateConfig(showNotification: Bool, showError: Bool,
-                      completeHandler: @escaping (String?) -> Void) {
+    var exerciseProductionPortGate = false
+    var isOutboundModeChangeInFlight = false
+    var outboundModeChangeQueue = [Int]()
+    var runtimeCoreSessionID = UUID()
+    var runtimeConfigurationScope: String { runtimeCoreSessionID.uuidString }
+    let configUpdateTransaction = ConfigUpdateTransactionCoordinator()
+    var enhancedModeGeneration: UInt64 = 1
+    var proxySelectionGeneration: UInt64 = 1
+    var activeConfigUpdateID: UUID? { configUpdateTransaction.activeID }
+    var activeConfigUpdateCompletion: ((String?) -> Void)?
+    var isBuiltInCoreResumeRetryAvailable = false
+    var runtimeConfigTransactions = FixtureTransactions()
+    var bootstrapDeadline: TimeInterval?
+    var profileDeadline: TimeInterval?
+    var pendingBootstrapWait: ((String?) -> Void)?
+    var pendingProfileWait: ((String?) -> Void)?
+    var pendingReadback: (() -> Void)?
+    var observedProfileEndpoints = [RuntimePortHandoffWaiter.Endpoint]()
+
+    func updateConfig(configName: String? = nil, showNotification: Bool = true, showError: Bool = true,
+                      completeHandler: ((String?) -> Void)? = nil) {
+        if exerciseProductionPortGate {
+            productionUpdateConfig(configName: configName, showNotification: showNotification, showError: showError,
+                                   completeHandler: completeHandler)
+            return
+        }
+        if let configName { events.append("profile-reload:" + configName); return }
         events.append("load")
         showErrors = showError
         loadCompletion = completeHandler
+    }
+    func automaticRecoveryConfigurationReloadError() -> String? { nil }
+    func deferConfigUpdate(configName: String?, showNotification: Bool, showError: Bool,
+                           completion: ((String?) -> Void)?) { events.append("defer") }
+    func invalidateProxyInteractionScope(reason: String) { proxySelectionGeneration &+= 1 }
+    func isCurrentClaudeLockChange(_ change: String) -> Bool { claudeLockChange == change }
+    @discardableResult
+    func startProxy() -> String? {
+        guard !ConfigManager.shared.isRunning else { return nil }
+        events.append("start-bootstrap")
+        ConfigManager.shared.isRunning = true
+        runtimeCoreSessionID = UUID()
+        isBuiltInCoreResumeRetryAvailable = false
+        return nil
+    }
+    func waitForBuiltInProxyPort(deadline: TimeInterval, useStartupOverrides: Bool, isCurrent: @escaping () -> Bool,
+                                 completion: @escaping (String?) -> Void) {
+        check(useStartupOverrides, "cold start did not use the effective bootstrap overrides")
+        bootstrapDeadline = deadline
+        pendingBootstrapWait = { error in completion(isCurrent() ? error : "Bootstrap handoff cancelled") }
+    }
+    func waitForRuntimeProxyPorts(_ endpoints: [RuntimePortHandoffWaiter.Endpoint], stage: String, deadline: TimeInterval,
+                                  isCurrent: @escaping () -> Bool, completion: @escaping (String?) -> Void) {
+        check(stage == "selected_profile", "cold start selected the wrong wait stage")
+        observedProfileEndpoints = endpoints
+        profileDeadline = deadline
+        pendingProfileWait = { error in completion(isCurrent() ? error : "Profile handoff cancelled") }
+    }
+    func requestConfigUpdateApplyingRuntimePatch(configName: String, portHandoffDeadline: TimeInterval? = nil,
+                                                 handoffIsCurrent: (() -> Bool)? = nil, baselineState: ((UUID?) -> Void)? = nil,
+                                                 callback: @escaping (String?) -> Void) {
+        let confirmedRoot: [String: Any]? = ["mixed-port": 7088]
+        let candidate: [String: Any] = ["port": 7890, "socks-port": 7891]
+        let baselineID = runtimeConfigTransactions.confirmed?.id
+        let result: Result<(Data, [String: Any]), Error> = .success((Data(), candidate))
+        let generation = proxySelectionGeneration
+        let selectedConfig = ConfigManager.selectConfigName
+        let scope = runtimeConfigurationScope
+        let context = ApiRequest.runtimeConfigContext()
+        let remoteID = RemoteControlManager.selectConfig?.uuid
+        let lockChange = claudeLockChange
+        // PROFILE_REQUEST_SCOPE
+        let current = isCurrent
+        let submit: (String?) -> Void = { error in
+            if let error { callback(error); return }
+            events.append("apply-selected-profile")
+            self.pendingReadback = {
+                self.confirmedRuntimeProfileName = configName
+                self.isCoreConfigSnapshotVerified = true
+                callback(nil)
+            }
+        }
+        // PROFILE_SUBMIT_GATE
+    }
+    func restoreVerifiedRuntimeBaselineIfAvailable(scope: String, receiptID: UUID) {}
+    func finishReloadAfterConfigReadback(transactionID: UUID, showNotification: Bool) {
+        events.append("verified-profile")
+        finishConfigUpdate(transactionID: transactionID, error: nil)
     }
     func completeInitialConfigLoadForProxyRecovery(error: String?) { events.append("initial-complete") }
     func updateLoggingLevel() { events.append("logging") }
@@ -167,10 +252,18 @@ final class StartupFixture {
     func refreshStatusItemViewStatus() { events.append("refresh") }
     func requestSystemProxyAutoRecovery() { events.append("recovery-request") }
     func scheduleEnhancedModePostToggleRefresh() { events.append("refresh-scheduled") }
-    func fenceFailedBuiltInRecovery() { events.append("fence"); ConfigManager.shared.isRunning = false }
+    func fenceFailedBuiltInRecovery() {
+        events.append("fence")
+        ConfigManager.shared.isRunning = false
+        isBuiltInCoreResumeRetryAvailable = true
+    }
     func restoreDNSAfterTun(completion: (Bool) -> Void) { events.append("dns-restore"); completion(true) }
     // LOCAL_ACTIVATION_METHOD
     // STARTUP_METHOD
+    // UPDATE_CONFIG_METHOD
+    // RUNTIME_RELOAD_METHOD
+    // FINISH_CONFIG_METHOD
+    // PROFILE_PORT_WAIT_METHOD
     // FAILED_METHOD
     // OBSERVATION_METHOD
     // REMOTE_SKIP_METHOD
@@ -247,6 +340,86 @@ if case .uncertain = apply() {} else { check(false, "HTTP 408 incorrectly became
 ApiRequest.reply = (nil, 204, nil)
 if case .accepted = apply() {} else { check(false, "HTTP 204 did not succeed") }
 print("PASS: production apply callback details, epoch fences, scope changes and HTTP outcomes")
+
+resetStartup()
+do {
+    let app = StartupFixture()
+    app.exerciseProductionPortGate = true
+    app.loadInitialConfigurationAfterCoreCleanup()
+    wait { app.pendingProfileWait != nil || events.contains("apply-selected-profile") }
+    check(app.pendingProfileWait != nil && !events.contains("apply-selected-profile"),
+          "cold start submitted the selected profile before port readiness")
+    check(app.observedProfileEndpoints == [
+        .init(host: "127.0.0.1", port: 7890),
+        .init(host: "127.0.0.1", port: 7891),
+        .init(host: "127.0.0.1", port: 7891, transport: .udp),
+    ], "cold start did not wait on the finalized profile's distinct listener claims")
+    check(app.profileDeadline.map { $0 > ProcessInfo.processInfo.systemUptime } == true &&
+          app.pendingBootstrapWait == nil && events.contains("pause-callbacks"),
+          "running bootstrap did not enter the selected-profile wait with a bounded deadline")
+    app.pendingProfileWait?(nil)
+    check(app.pendingReadback != nil && !events.contains("resume-callbacks") &&
+          !events.contains("initial-complete") && !app.systemProxyRecoveryObservation().isReady,
+          "port release published the unverified profile")
+    app.pendingReadback?()
+    check(events.firstIndex(of: "verified-profile")! < events.firstIndex(of: "resume-callbacks")! &&
+          events.contains("initial-complete") && app.systemProxyRecoveryObservation().isReady,
+          "verified cold-start profile did not settle the update and release recovery")
+}
+
+resetStartup()
+do {
+    let app = StartupFixture()
+    app.exerciseProductionPortGate = true
+    ConfigManager.shared.isRunning = false
+    app.loadInitialConfigurationAfterCoreCleanup()
+    check(app.pendingBootstrapWait != nil && !events.contains("start-bootstrap") && app.isConfigUpdating,
+          "stopped cold start started the core before its bootstrap wait")
+    let firstDeadline = app.bootstrapDeadline
+    app.pendingBootstrapWait?("Bootstrap port handoff timed out")
+    check(!events.contains("start-bootstrap") && !events.contains("apply-selected-profile") &&
+          !app.isConfigUpdating && app.isBuiltInCoreResumeRetryAvailable,
+          "bootstrap timeout did not settle a stopped, retryable startup")
+    app.loadInitialConfigurationAfterCoreCleanup()
+    check(app.bootstrapDeadline != firstDeadline && app.pendingBootstrapWait != nil,
+          "explicit cold-start retry did not get a fresh wait budget")
+    app.pendingBootstrapWait?(nil)
+    wait { app.pendingProfileWait != nil }
+    check(app.bootstrapDeadline == app.profileDeadline &&
+          events.filter { $0 == "start-bootstrap" }.count == 1,
+          "bootstrap and selected-profile waits did not share one retry deadline")
+    app.pendingProfileWait?("Profile port handoff timed out")
+    check(!events.contains("apply-selected-profile") && events.contains("fence") &&
+          !ConfigManager.shared.isRunning && app.isBuiltInCoreResumeRetryAvailable &&
+          !app.systemProxyRecoveryObservation().isReady,
+          "profile timeout mutated the core or left staging published")
+}
+
+resetStartup()
+do {
+    let app = StartupFixture()
+    app.exerciseProductionPortGate = true
+    app.loadInitialConfigurationAfterCoreCleanup()
+    wait { app.pendingProfileWait != nil }
+    RemoteControlManager.selectConfig = RemoteFixture()
+    app.pendingProfileWait?(nil)
+    check(!events.contains("apply-selected-profile") && !events.contains("verified-profile") &&
+          !events.contains("fence") && !events.contains("alert") && !app.isConfigUpdating,
+          "stale cold-start readiness mutated the replacement controller")
+}
+
+resetStartup()
+do {
+    let app = StartupFixture()
+    app.exerciseProductionPortGate = true
+    app.confirmedRuntimeProfileName = "profile-A"
+    app.updateConfig()
+    wait { app.pendingProfileWait != nil || app.pendingReadback != nil }
+    check(app.pendingProfileWait == nil && app.pendingBootstrapWait == nil && app.pendingReadback != nil,
+          "ordinary verified Local reload entered the cold-start port wait")
+    app.pendingReadback?()
+}
+print("PASS: cold-start bootstrap and selected-profile gates, shared retry deadline, stale scope and verified publication")
 
 resetStartup(true)
 let enhanced = StartupFixture(); enhanced.loadInitialConfigurationAfterCoreCleanup()
@@ -376,13 +549,21 @@ print("PASS: production startup continuation, rollback provenance, failure fenci
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--negative-control', choices=['modal', 'detail'])
+    parser.add_argument('--negative-control', choices=['modal', 'detail', 'startup-port-wait'])
     args = parser.parse_args()
     delegate = (ROOT / 'ClashFX/AppDelegate.swift').read_text()
     api = (ROOT / 'ClashFX/General/ApiRequest.swift').read_text()
     remote_source = (ROOT / 'ClashFX/General/Managers/RemoteControlManager.swift').read_text()
     apply = extract(api, '    static func applyRuntimeConfig(')
     startup = extract(delegate, '    private func loadInitialConfigurationAfterCoreCleanup(')
+    update = extract(delegate, '    func updateConfig(').replace('func updateConfig(', 'func productionUpdateConfig(', 1)
+    runtime_reload = extract(delegate, '    private func requestRuntimeConfigReload(')
+    finish_config = extract(delegate, '    private func finishConfigUpdate(')
+    profile_wait = extract(delegate, '    private func waitForBuiltInProfilePorts(')
+    profile_request = extract(delegate, '    private func requestConfigUpdateApplyingRuntimePatch(')
+    profile_scope = extract(profile_request, 'let isCurrent: () -> Bool = {')
+    profile_apply = extract(delegate, '    private func applyRuntimeConfiguration(')
+    profile_submit = extract(profile_apply, 'DispatchQueue.main.async {\n                        guard let portHandoffDeadline')
     activation = extract(delegate, '    func loadLocalConfigurationIfNeededAfterControlScopeChange(')
     control_update = extract(remote_source, '    static func updateRemoteControl(')
     failed = extract(delegate, '    private func finishFailedEnhancedModeRestore(')
@@ -394,7 +575,31 @@ def main():
     if args.negative_control == 'detail':
         apply = apply.replace('completion(.rejected(RuntimeConfigApplyDiagnostics.displayReason(detail)))',
                               'completion(.rejected("Core rejected the runtime configuration"))')
-    swift = PRELUDE.replace('// LOCAL_ACTIVATION_METHOD', activation).replace('// CONTROL_UPDATE_METHOD', control_update).replace('// APPLY_METHOD', apply).replace('// STARTUP_METHOD', startup).replace('// FAILED_METHOD', failed).replace('// OBSERVATION_METHOD', observation).replace('// REMOTE_SKIP_METHOD', remote_skip).replace('// FINISH_RECOVERY_METHOD', finish_recovery) + TESTS
+    if args.negative_control == 'startup-port-wait':
+        original = 'portHandoffDeadline: portHandoffDeadline, handoffIsCurrent:'
+        if runtime_reload.count(original) != 1:
+            raise AssertionError('expected one runtime reload port deadline')
+        runtime_reload = runtime_reload.replace(original, 'portHandoffDeadline: nil, handoffIsCurrent:')
+    replacements = {
+        '// LOCAL_ACTIVATION_METHOD': activation,
+        '// CONTROL_UPDATE_METHOD': control_update,
+        '// APPLY_METHOD': apply,
+        '// STARTUP_METHOD': startup,
+        '// UPDATE_CONFIG_METHOD': update,
+        '// RUNTIME_RELOAD_METHOD': runtime_reload,
+        '// FINISH_CONFIG_METHOD': finish_config,
+        '// PROFILE_PORT_WAIT_METHOD': profile_wait,
+        '// PROFILE_REQUEST_SCOPE': profile_scope,
+        '// PROFILE_SUBMIT_GATE': profile_submit,
+        '// FAILED_METHOD': failed,
+        '// OBSERVATION_METHOD': observation,
+        '// REMOTE_SKIP_METHOD': remote_skip,
+        '// FINISH_RECOVERY_METHOD': finish_recovery,
+    }
+    swift = PRELUDE
+    for marker, production_code in replacements.items():
+        swift = swift.replace(marker, production_code)
+    swift += TESTS
     utils = ROOT / 'ClashFX/General/Utils'
     with tempfile.TemporaryDirectory(prefix='clashfx-startup-callbacks-') as temp:
         directory = Path(temp)
@@ -402,7 +607,10 @@ def main():
         binary = directory / 'fixture'
         command = ['swiftc', '-swift-version', '5', '-target', platform.machine() + '-apple-macosx12.0',
                    str(utils / 'RuntimeConfigTransactionController.swift'),
-                   str(utils / 'RuntimeConfigApplyDiagnostics.swift'), str(source), '-o', str(binary)]
+                   str(utils / 'RuntimeConfigApplyDiagnostics.swift'),
+                   str(utils / 'RuntimePortHandoffWaiter.swift'),
+                   str(ROOT / 'ClashFX/General/Managers/StartupProxyRecoveryPolicy.swift'),
+                   str(source), '-o', str(binary)]
         subprocess.run(command, check=True)
         subprocess.run([str(binary)], check=True)
 

@@ -1,3 +1,21 @@
+## ClashFX 1.1.11.19 (Lab)
+
+### 中文
+
+- 修复关闭增强模式或启动本地核心时的代理端口冲突。ClashFX 会等待启动配置和所选配置实际使用的代理端口可重新绑定，每次交接的端口等待总上限为 45 秒。macOS 仍保留旧核心的 TCP 连接（TIME_WAIT）时，等待可能持续约 30 秒。
+- 端口等待超时后可重试。交接失效时会取消等待，本地模式会在核心确认完整配置已生效后就绪。
+
+本版本为实验性 Lab。已在 Apple Silicon 真机验证增强模式的开启、关闭和重新开启。最低系统要求为 macOS 10.14（Apple Silicon 为 macOS 11）。macOS 10.14 和 Intel 实机运行仍未验证。
+
+### English
+
+- Fix proxy port conflicts when turning off Enhanced Mode or starting the local core. ClashFX waits for the proxy ports used by the startup and selected configurations to become bindable, with a shared 45-second limit per attempt. When macOS keeps old TCP connections in TIME_WAIT, the wait can take around 30 seconds.
+- A port timeout leaves the operation retryable. ClashFX cancels stale handoffs and marks Local ready after the core confirms the full configuration.
+
+Experimental Lab release. Turning Enhanced Mode on, off, and back on passed on Apple Silicon hardware. The minimum macOS version is 10.14 (11 on Apple Silicon). macOS 10.14 and Intel runtime testing remain unverified.
+
+---
+
 ## ClashFX 1.1.11.18 (Lab)
 
 ### 中文

@@ -1887,23 +1887,74 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             deferConfigUpdate(configName: configName, showNotification: showNotification, showError: showError, completion: completeHandler)
             return
         }
-        invalidateProxyInteractionScope(reason: "configuration reload")
-        isCoreConfigSnapshotVerified = false
-        startProxy()
-        guard ConfigManager.shared.isRunning else {
-            completeHandler?("Proxy core could not start; configured port may be unavailable")
+        // An absent helper process can be one that just exited. Its ports can
+        // still be unavailable when a stopped or staging Local core loads.
+        let needsPortHandoff = !ConfigManager.shared.isEnhancedModeActive &&
+            (!ConfigManager.shared.isRunning || confirmedRuntimeProfileName == nil)
+        guard !needsPortHandoff || didCompleteStaleEnhancedCoreCleanup else {
+            completeHandler?("Local configuration load is waiting for verified external core cleanup.")
             return
         }
+        invalidateProxyInteractionScope(reason: "configuration reload")
+        isCoreConfigSnapshotVerified = false
 
         cancelActiveSpeedTest(reason: "configuration reload", refreshMenu: false)
         isConfigUpdating = true
         clashPauseCallbacks()
         let transactionID = configUpdateTransaction.begin()
         let lifecycleGeneration = enhancedModeGeneration
+        let selectionGeneration = proxySelectionGeneration
+        let selectedConfig = ConfigManager.selectConfigName
+        let config = configName ?? selectedConfig
+        let portHandoffDeadline = needsPortHandoff
+            ? ProcessInfo.processInfo.systemUptime + RuntimePortHandoffWaiter.defaultTimeout : nil
+        activeConfigUpdateCompletion = completeHandler
+
+        let updateIsCurrent: () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return self.activeConfigUpdateID == transactionID && self.enhancedModeGeneration == lifecycleGeneration &&
+                self.ownsRuntimeControl && !self.isTerminating && !self.isRestarting && RemoteControlManager.selectConfig == nil
+        }
+        let canStartCore: () -> Bool = { [weak self] in
+            updateIsCurrent() && self?.proxySelectionGeneration == selectionGeneration &&
+                ConfigManager.selectConfigName == selectedConfig
+        }
+        let startUpdate: (String?) -> Void = { [weak self] portError in
+            guard let self, self.activeConfigUpdateID == transactionID else { return }
+            guard canStartCore() else {
+                self.finishConfigUpdate(transactionID: transactionID, error: "Config update cancelled: core or profile changed.")
+                return
+            }
+            if let portError {
+                self.isBuiltInCoreResumeRetryAvailable = true
+                if showError { NSUserNotificationCenter.default.postConfigErrorNotice(msg: portError) }
+                self.finishConfigUpdate(transactionID: transactionID, error: portError)
+                return
+            }
+            let startupError = self.startProxy()
+            guard ConfigManager.shared.isRunning else {
+                self.finishConfigUpdate(transactionID: transactionID,
+                                        error: startupError ?? "Proxy core could not start; configured port may be unavailable")
+                return
+            }
+            self.requestRuntimeConfigReload(config: config, selectedConfig: configName, showNotification: showNotification,
+                                            showError: showError, transactionID: transactionID,
+                                            lifecycleGeneration: lifecycleGeneration, portHandoffDeadline: portHandoffDeadline,
+                                            handoffIsCurrent: needsPortHandoff ? updateIsCurrent : nil)
+        }
+        if let portHandoffDeadline, !ConfigManager.shared.isRunning {
+            waitForBuiltInProxyPort(deadline: portHandoffDeadline, useStartupOverrides: true,
+                                   isCurrent: canStartCore, completion: startUpdate)
+        } else {
+            startUpdate(nil)
+        }
+    }
+
+    private func requestRuntimeConfigReload(config: String, selectedConfig: String?, showNotification: Bool, showError: Bool,
+                                            transactionID: UUID, lifecycleGeneration: UInt64,
+                                            portHandoffDeadline: TimeInterval?, handoffIsCurrent: (() -> Bool)?) {
         let reloadRuntimeScope = runtimeConfigurationScope
         var validatedBaselineID: UUID?
-        activeConfigUpdateCompletion = completeHandler
-        let config = configName ?? ConfigManager.selectConfigName
 
         ClashProxy.cleanCache()
 
@@ -1931,11 +1982,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.finishConfigUpdate(transactionID: transactionID, error: err)
                 return
             }
-            if let newConfigName = configName { ConfigManager.selectConfigName = newConfigName }
+            if let selectedConfig { ConfigManager.selectConfigName = selectedConfig }
             self.finishReloadAfterConfigReadback(transactionID: transactionID, showNotification: showNotification)
         }
 
         requestConfigUpdateApplyingRuntimePatch(configName: config,
+                                                portHandoffDeadline: portHandoffDeadline, handoffIsCurrent: handoffIsCurrent,
                                                 baselineState: { validatedBaselineID = $0 }, callback: reloadCallback)
     }
 
@@ -2004,6 +2056,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func requestConfigUpdateApplyingRuntimePatch(configName: String,
+                                                         portHandoffDeadline: TimeInterval? = nil,
+                                                         handoffIsCurrent: (() -> Bool)? = nil,
                                                          baselineState: ((UUID?) -> Void)? = nil, callback: @escaping ((ErrorString?) -> Void)) {
         let generation = proxySelectionGeneration
         var selectedConfig = ConfigManager.selectConfigName
@@ -2022,6 +2076,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let isCurrent: () -> Bool = { [weak self] in
             guard let self else { return false }
             return self.ownsRuntimeControl && !self.isTerminating && !self.isRestarting &&
+                (handoffIsCurrent?() ?? true) &&
                 self.proxySelectionGeneration == generation && ConfigManager.selectConfigName == selectedConfig &&
                 self.runtimeConfigurationScope == scope && ApiRequest.runtimeConfigContext() == context &&
                 RemoteControlManager.selectConfig?.uuid == remoteID &&
@@ -2094,7 +2149,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         }
                         DispatchQueue.main.async {
                             guard isCurrent() else { cleanup(); finish("Config update scope changed"); return }
-                            self.applyRuntimeConfiguration(path: candidatePath, profile: configName, isCurrent: isCurrent, baselineState: baselineState,
+                            self.applyRuntimeConfiguration(path: candidatePath, profile: configName, isCurrent: isCurrent,
+                                                           portHandoffDeadline: portHandoffDeadline, baselineState: baselineState,
                                                            onVerifiedRollbackProfile: { selectedConfig = $0 }) { error in
                                 cleanup()
                                 finish(error)
@@ -2345,6 +2401,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyRuntimeConfiguration(path: String, profile: String, isCurrent: @escaping () -> Bool,
+                                           portHandoffDeadline: TimeInterval? = nil,
                                            baselineState: ((UUID?) -> Void)? = nil,
                                            onVerifiedRollbackProfile: ((String) -> Void)? = nil,
                                            completion: @escaping (String?) -> Void) {
@@ -2362,12 +2419,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ApiRequest.readRuntimeProxySelections(context: context) { previousSelections, selectionError in
                 guard current(), let previousSelections else { completion(selectionError ?? "Current manual proxy selections could not be confirmed"); return }
                 let confirmedRoot = self.confirmedRuntimeRoot(scope: scope)
+                let baselineID = self.runtimeConfigTransactions.confirmed?.id
                 let mode = self.claudeLockChange?.runtimeSettings.mode ?? self.desiredOutboundMode ?? ConfigManager.selectOutBoundMode
                 let apiAddress = (confirmedRoot?["external-controller"] as? String)
                     ?? "127.0.0.1:\(ConfigManager.shared.apiPort)"
                 let fallback = Int(Settings.proxyPort)
                 DispatchQueue.global(qos: .userInitiated).async {
-                    let result: Result<Data, Error> = Result {
+                    let result: Result<(Data, [String: Any]), Error> = Result {
                         let text = try String(contentsOfFile: path, encoding: .utf8)
                         guard var root = try Yams.load(yaml: text) as? [String: Any] else {
                             throw NSError(domain: "ClashFX.RuntimeConfig", code: 1)
@@ -2383,11 +2441,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         if context.direct {
                             root = RuntimeConfigReadbackPolicy.preservingBuiltInSessionIPv6(in: root, confirmed: confirmedRoot)
                         }
-                        return try Data(Yams.dump(object: root).utf8)
+                        return (try Data(Yams.dump(object: root).utf8), root)
                     }
-                    DispatchQueue.main.async {
+                    let submit: (String?) -> Void = { waitError in
                         guard current() else { completion("Runtime scope changed while preparing configuration"); return }
-                        guard case let .success(data) = result else { completion("The candidate runtime configuration could not be prepared"); return }
+                        if let waitError { completion(waitError); return }
+                        guard case let .success((data, _)) = result else { completion("The candidate runtime configuration could not be prepared"); return }
                         let previousProfile = self.confirmedRuntimeProfileName
                         let baselineKind = RuntimeConfigBaselineKind(confirmedProfile: previousProfile)
                         Logger.log("[Runtime Configuration] stage=submit baseline_kind=\(baselineKind.rawValue) transport=\(context.direct ? "embedded" : "http")")
@@ -2464,6 +2523,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             case .cancelled: completion("Configuration transaction was cancelled")
                             }
                         }
+                    }
+                    DispatchQueue.main.async {
+                        guard let portHandoffDeadline, case let .success((_, candidate)) = result else {
+                            submit(nil)
+                            return
+                        }
+                        let baselineIsCurrent: () -> Bool = {
+                            current() && self.runtimeConfigTransactions.confirmed?.id == baselineID
+                        }
+                        self.waitForBuiltInProfilePorts(in: candidate, baseline: confirmedRoot, deadline: portHandoffDeadline,
+                                                        isCurrent: baselineIsCurrent, completion: submit)
                     }
                 }
             }
@@ -6596,16 +6666,20 @@ extension AppDelegate {
                 // listener. Close our own core before checking configured ports;
                 // run() then reopens its cache and preserves custom startup options.
                 clashSuspendCore()
+                let portHandoffDeadline = ProcessInfo.processInfo.systemUptime + RuntimePortHandoffWaiter.defaultTimeout
                 timeline.mark("port_wait_begin")
-                self.waitForBuiltInProxyPort(isCurrent: isCurrent) { portError in
-                    timeline.mark("port_wait_end", detail: portError == nil ? "outcome=ready" : "outcome=timeout")
+                self.waitForBuiltInProxyPort(deadline: portHandoffDeadline, useStartupOverrides: true,
+                                             isCurrent: isCurrent) { portError in
+                    timeline.mark("port_wait_end", detail: portError == nil ? "outcome=ready" : "outcome=failed")
                     guard isCurrent() else {
                         finish("Enhanced Mode close cancelled: lifecycle changed")
                         return
                     }
-                    // A still-busy port is not fatal here: startProxy reports the
-                    // authoritative bind result and keeps the existing retry state.
-                    if let portError { Logger.log("[Built-in Handoff] stage=port_wait outcome=busy reason=\(RuntimeConfigApplyDiagnostics.sanitize(portError))", level: .warning) }
+                    if let portError {
+                        self.isBuiltInCoreResumeRetryAvailable = true
+                        finish(portError)
+                        return
+                    }
                     timeline.mark("resume_begin")
                     let resumeError = self.startProxy()
                     timeline.mark("resume_end", detail: resumeError == nil ? "outcome=ok" : "outcome=failed")
@@ -6615,7 +6689,8 @@ extension AppDelegate {
                         finish(resumeError)
                         return
                     }
-                    self.completeBuiltInProfileHandoff(isCurrent: isCurrent, completion: finish)
+                    self.completeBuiltInProfileHandoff(portHandoffDeadline: portHandoffDeadline,
+                                                       isCurrent: isCurrent, completion: finish)
                 }
                 return
             }
@@ -6651,6 +6726,7 @@ extension AppDelegate {
     /// Both the initial close and its retry keep callbacks paused until a full
     /// profile, or a full verified rollback profile, is available.
     private func completeBuiltInProfileHandoff(
+        portHandoffDeadline: TimeInterval? = nil,
         isCurrent: @escaping () -> Bool,
         completion: @escaping (String?) -> Void
     ) {
@@ -6674,6 +6750,7 @@ extension AppDelegate {
         }
         Logger.log("[Built-in Handoff] stage=profile_apply session=\(session) baseline_kind=\(RuntimeConfigBaselineKind(confirmedProfile: confirmedRuntimeProfileName).rawValue)")
         requestConfigUpdateApplyingRuntimePatch(configName: selectedConfig,
+                                               portHandoffDeadline: portHandoffDeadline, handoffIsCurrent: scopeIsCurrent,
                                                baselineState: { validatedBaselineID = $0 }) { [weak self] error in
             guard let self, scopeIsCurrent() else {
                 completion("Built-in profile handoff cancelled: lifecycle changed")
@@ -7069,26 +7146,77 @@ extension AppDelegate {
         }
     }
 
-    /// Waits until the built-in core's bootstrap proxy port can be bound again.
-    /// A just-exited external core can leave TCP endpoints that make the bind
-    /// fail with EADDRINUSE. Never changes ports or stops other processes.
+    /// The core opens bootstrap listeners before synchronously applying its
+    /// frozen checkpoint. Both configurations need to be bindable first.
     private func waitForBuiltInProxyPort(
-        timeout: TimeInterval = 15,
+        deadline: TimeInterval = ProcessInfo.processInfo.systemUptime + RuntimePortHandoffWaiter.defaultTimeout,
+        useStartupOverrides: Bool = false,
         isCurrent: @escaping () -> Bool,
         completion: @escaping (String?) -> Void
     ) {
-        let port = Settings.proxyPort
-        guard (1 ... 65_535).contains(port) else { completion(nil); return }
-        let endpoint = RuntimePortHandoffWaiter.Endpoint(
-            host: ConfigManager.allowConnectFromLan ? "*" : "127.0.0.1", port: port)
-        RuntimePortHandoffWaiter.wait(for: [endpoint], timeout: timeout, isCurrent: isCurrent,
+        let checkpoint = builtInRecoveryCheckpoint
+        let portOverride = useStartupOverrides ? Settings.proxyPort : 0
+        let allowLANOverride = useStartupOverrides && Settings.builtInApiMode ? ConfigManager.allowConnectFromLan : nil
+        let session = runtimeCoreSessionID
+        let current: () -> Bool = { [weak self] in
+            guard let self, isCurrent(), self.ownsRuntimeControl, !self.isRestarting,
+                  self.runtimeCoreSessionID == session, self.builtInRecoveryCheckpoint == checkpoint else { return false }
+            return !useStartupOverrides || (Settings.proxyPort == portOverride &&
+                (Settings.builtInApiMode ? ConfigManager.allowConnectFromLan : nil) == allowLANOverride)
+        }
+        DispatchQueue.global(qos: .utility).async {
+            var endpoints = Set<RuntimePortHandoffWaiter.Endpoint>()
+            if let text = try? String(contentsOfFile: kDefaultConfigFilePath, encoding: .utf8),
+               let root = (try? Yams.load(yaml: text)) as? [String: Any] {
+                endpoints.formUnion(RuntimePortHandoffWaiter.bootstrapEndpoints(in: root, proxyPortOverride: portOverride,
+                                                                              allowLANOverride: allowLANOverride))
+            }
+            if let checkpoint, let text = String(data: checkpoint, encoding: .utf8),
+               let root = (try? Yams.load(yaml: text)) as? [String: Any] {
+                endpoints.formUnion(RuntimePortHandoffWaiter.endpoints(in: root))
+            }
+            let requested = RuntimePortHandoffWaiter.sortedEndpoints(endpoints)
+            DispatchQueue.main.async {
+                self.waitForRuntimeProxyPorts(requested, stage: "bootstrap_checkpoint", deadline: deadline,
+                                              isCurrent: current, completion: completion)
+            }
+        }
+    }
+
+    private func waitForBuiltInProfilePorts(
+        in candidate: [String: Any],
+        baseline: [String: Any]?,
+        deadline: TimeInterval,
+        isCurrent: @escaping () -> Bool,
+        completion: @escaping (String?) -> Void
+    ) {
+        DispatchQueue.global(qos: .utility).async {
+            let endpoints = RuntimePortHandoffWaiter.endpoints(in: candidate, excluding: baseline)
+            DispatchQueue.main.async {
+                self.waitForRuntimeProxyPorts(endpoints, stage: "selected_profile", deadline: deadline,
+                                              isCurrent: isCurrent, completion: completion)
+            }
+        }
+    }
+
+    private func waitForRuntimeProxyPorts(
+        _ endpoints: [RuntimePortHandoffWaiter.Endpoint],
+        stage: String,
+        deadline: TimeInterval,
+        isCurrent: @escaping () -> Bool,
+        completion: @escaping (String?) -> Void
+    ) {
+        let labels = Set(endpoints.map { "\($0.port)/\($0.transport.rawValue)" }).sorted().joined(separator: ",")
+        let started = ProcessInfo.processInfo.systemUptime
+        RuntimePortHandoffWaiter.wait(for: endpoints, deadline: deadline, isCurrent: isCurrent,
             onWaiting: { ports in
-                Logger.log("[Port Handoff] stage=waiting ports=\(ports) reason=bind_unavailable deadline=\(Int(timeout))s", level: .warning)
+                Logger.log("[Port Handoff] stage=\(stage) outcome=waiting ports=\(ports) requested=\(labels)", level: .warning)
             }) { error in
+                let elapsed = Int((ProcessInfo.processInfo.systemUptime - started) * 1_000)
                 if let error {
-                    Logger.log("[Port Handoff] stage=failed reason=\(RuntimeConfigApplyDiagnostics.sanitize(error))", level: .error)
+                    Logger.log("[Port Handoff] stage=\(stage) outcome=failed elapsed_ms=\(elapsed) reason=\(RuntimeConfigApplyDiagnostics.sanitize(error))", level: .error)
                 } else {
-                    Logger.log("[Port Handoff] stage=bind_ready port=\(port)")
+                    Logger.log("[Port Handoff] stage=\(stage) outcome=bind_ready elapsed_ms=\(elapsed) requested=\(labels)")
                 }
                 completion(error)
             }
