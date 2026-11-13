@@ -628,6 +628,25 @@ final class ClaudeProxyLockPolicyTests: XCTestCase {
         ])
     }
 
+    func testRejectionNamesTheMissingDialerGroup() {
+        var root: [String: Any] = [
+            "rules": ["MATCH,Final"],
+            "proxy-groups": [["name": "Final", "type": "select", "proxies": ["Korea"]]],
+            "proxies": [[
+                "name": "Korea",
+                "type": "http",
+                "server": "147.125.251.178",
+                "port": 12323,
+                "dialer-proxy": "Proxies"
+            ]]
+        ]
+        let outcome = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
+        XCTAssertFalse(outcome.applied)
+        XCTAssertTrue(outcome.rejectionReason?.contains("cyclic or unresolved") == true)
+        XCTAssertTrue(outcome.rejectionReason?.contains("\"Proxies\"") == true)
+        XCTAssertTrue(outcome.rejectionReason?.contains("does not exist") == true)
+    }
+
     func testLockDoesNotRelayThroughTheLockedNode() {
         var root: [String: Any] = [
             "rules": ["MATCH,Final"],

@@ -121,6 +121,58 @@ enum ClaudeProxyLockPolicy {
         }
     }
 
+    /// Human-readable reason why `start` is not safe to lock, or nil when no specific cause is found.
+    private static func unsafeReason(
+        for graph: DependencyGraph,
+        from start: String
+    ) -> String? {
+        var active = Set<String>()
+        var completed = Set<String>()
+
+        func visit(_ name: String, referencedBy parent: String?) -> String? {
+            if name == "DIRECT" || name == "REJECT" || completed.contains(name) { return nil }
+            if graph.ambiguousNames.contains(name) {
+                return "The name \"\(name)\" is defined more than once, so its dependencies are ambiguous."
+            }
+            if active.contains(name) {
+                return "\"\(name)\" depends on itself through its dialer chain."
+            }
+            guard let node = graph.nodes[name] else {
+                if let parent {
+                    return "\"\(parent)\" references \"\(name)\", which does not exist in the current profile. " +
+                        "Switch the lock to a node that works with this profile or turn off Claude Proxy Lock."
+                }
+                return nil
+            }
+            active.insert(name)
+            defer { active.remove(name) }
+            var reason: String?
+            switch node {
+            case let .proxy(dialerProxy, unresolved):
+                if unresolved {
+                    reason = "The dialer-proxy of \"\(name)\" could not be resolved."
+                } else if let dialerProxy {
+                    reason = visit(dialerProxy, referencedBy: name)
+                }
+            case let .group(candidates, unresolved):
+                if unresolved || candidates.isEmpty {
+                    reason = "The proxy group \"\(name)\" has members that could not be resolved."
+                } else {
+                    for candidate in candidates {
+                        if let found = visit(candidate, referencedBy: name) {
+                            reason = found
+                            break
+                        }
+                    }
+                }
+            }
+            if reason == nil { completed.insert(name) }
+            return reason
+        }
+
+        return visit(start, referencedBy: nil)
+    }
+
     private struct LocatedProxy {
         var server: String?
         var providerName: String?
@@ -187,7 +239,11 @@ enum ClaudeProxyLockPolicy {
             return rejected("The locked proxy target could not be resolved.")
         }
         if !initialGraph.isSafe(from: trimmed) {
-            return rejected("The locked proxy has cyclic or unresolved dialer dependencies.")
+            let generic = "The locked proxy has cyclic or unresolved dialer dependencies."
+            if let detail = unsafeReason(for: initialGraph, from: trimmed) {
+                return rejected("\(generic) \(detail)")
+            }
+            return rejected(generic)
         }
 
         let located = locatedProxy(in: root, target: trimmed, providers: providers)
