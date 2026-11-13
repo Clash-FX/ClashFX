@@ -2659,6 +2659,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         _ outcome: ClaudeProxyLockPolicy.ApplyOutcome,
         target: String
     ) {
+        if let dropped = outcome.droppedDialerProxy {
+            Logger.log(
+                "[Claude Proxy Lock] \(target) pointed its dialer at \"\(dropped)\", which this profile does not define; ignoring it",
+                level: .warning
+            )
+        }
         if let relay = outcome.relayProxy {
             Logger.log("[Claude Proxy Lock] \(target) exits on the locked node; its server is reached through \(relay)")
         } else {

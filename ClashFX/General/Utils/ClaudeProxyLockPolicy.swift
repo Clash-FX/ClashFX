@@ -27,17 +27,21 @@ enum ClaudeProxyLockPolicy {
         /// Proxy that dials the locked node's server. The locked node remains the exit.
         var relayProxy: String?
         var rejectionReason: String?
+        /// A dialer-proxy on the locked node that named something missing from this profile and was dropped.
+        var droppedDialerProxy: String?
 
         init(
             applied: Bool,
             serverHost: String?,
             relayProxy: String?,
-            rejectionReason: String? = nil
+            rejectionReason: String? = nil,
+            droppedDialerProxy: String? = nil
         ) {
             self.applied = applied
             self.serverHost = serverHost
             self.relayProxy = relayProxy
             self.rejectionReason = rejectionReason
+            self.droppedDialerProxy = droppedDialerProxy
         }
 
         static let rejected = ApplyOutcome(
@@ -233,7 +237,17 @@ enum ClaudeProxyLockPolicy {
             return rejected("The locked proxy target is invalid.")
         }
         let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialGraph = dependencyGraph(in: root, providers: providers)
+        var initialGraph = dependencyGraph(in: root, providers: providers)
+
+        // The mixin can pin the locked node behind a group that only some profiles define.
+        // A dialer that names nothing in this profile is dropped rather than failing the
+        // whole reload; the relay logic below re-attaches a safe MATCH group when available.
+        var droppedDialer: String?
+        if let missing = missingInlineDialer(of: trimmed, in: root, graph: initialGraph) {
+            removeInlineDialer(in: &root, target: trimmed)
+            droppedDialer = missing
+            initialGraph = dependencyGraph(in: root, providers: providers)
+        }
 
         guard initialGraph.knows(trimmed) else {
             return rejected("The locked proxy target could not be resolved.")
@@ -280,7 +294,8 @@ enum ClaudeProxyLockPolicy {
         return ApplyOutcome(
             applied: true,
             serverHost: located?.server,
-            relayProxy: appliedRelay
+            relayProxy: appliedRelay,
+            droppedDialerProxy: droppedDialer
         )
     }
 
@@ -869,6 +884,28 @@ enum ClaudeProxyLockPolicy {
         }
         root = proposedRoot
         return true
+    }
+
+    private static func missingInlineDialer(
+        of target: String,
+        in root: [String: Any],
+        graph: DependencyGraph
+    ) -> String? {
+        guard let proxies = root["proxies"] as? [[String: Any]],
+              let proxy = proxies.first(where: { ($0["name"] as? String) == target }),
+              let raw = proxy["dialer-proxy"] as? String else { return nil }
+        guard let name = normalizedReference(raw),
+              !name.isEmpty, name != "DIRECT", name != "REJECT",
+              graph.nodes[name] == nil, !graph.ambiguousNames.contains(name) else { return nil }
+        return name
+    }
+
+    private static func removeInlineDialer(in root: inout [String: Any], target: String) {
+        guard var proxies = root["proxies"] as? [[String: Any]] else { return }
+        for index in proxies.indices where (proxies[index]["name"] as? String) == target {
+            proxies[index].removeValue(forKey: "dialer-proxy")
+        }
+        root["proxies"] = proxies
     }
 
     private static func setInlineDialer(
