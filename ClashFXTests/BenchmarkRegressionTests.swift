@@ -1136,7 +1136,7 @@ final class ClaudeProxyLockPolicyTests: XCTestCase {
         XCTAssertEqual((root["proxies"] as? [[String: Any]])?.first?["dialer-proxy"] as? String, "DIRECT")
     }
 
-    func testLockedProxyUnknownDialerRejectsWithoutChangingRoot() throws {
+    func testLockedProxyUnknownDialerIsDroppedAndLockStillApplies() {
         var root: [String: Any] = [
             "mode": "global",
             "rules": ["MATCH,DIRECT"],
@@ -1146,14 +1146,14 @@ final class ClaudeProxyLockPolicyTests: XCTestCase {
                 "dialer-proxy": "Missing"
             ]]
         ]
-        let before = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
 
         let outcome = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
 
-        let after = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
-        XCTAssertFalse(outcome.applied)
-        XCTAssertNotNil(outcome.rejectionReason)
-        XCTAssertEqual(after, before)
+        XCTAssertTrue(outcome.applied)
+        XCTAssertNil(outcome.rejectionReason)
+        XCTAssertEqual(outcome.droppedDialerProxy, "Missing")
+        XCTAssertNil((root["proxies"] as? [[String: Any]])?.first?["dialer-proxy"])
+        XCTAssertEqual((root["rules"] as? [String])?.first, "PROCESS-NAME-REGEX,^claude( helper.*)?$,Korea")
     }
 
     func testUnknownLockedTargetRejectsWithoutChangingRoot() throws {
