@@ -1,3 +1,19 @@
+## ClashFX 1.1.11.20 (Lab)
+
+### 中文
+
+- 修复开启 Claude 代理锁时切换订阅失败（"重载配置文件失败：The locked proxy has cyclic or unresolved dialer dependencies"）。当锁定节点的前置拨号组在所选订阅中不存在时，ClashFX 会忽略该拨号设置并继续应用锁定：优先经订阅的兜底（MATCH）组连接节点服务器，没有则直连；Claude 流量的出口仍是锁定节点。循环或有歧义的依赖仍会被拒绝，并给出具体原因。
+
+本版本为实验性 Lab。最低系统要求为 macOS 10.14（Apple Silicon 为 macOS 11）。macOS 10.14 和 Intel 实机运行仍未验证。
+
+### English
+
+- Fix subscription switching failing while Claude Proxy Lock is on ("Reload configuration failed: The locked proxy has cyclic or unresolved dialer dependencies"). When the locked node's dialer group does not exist in the selected profile, ClashFX now ignores that dialer and still applies the lock: the node's server is reached through the profile's MATCH group when one is available, otherwise directly, and Claude traffic still exits on the locked node. Cyclic or ambiguous dependencies are still rejected, with a specific reason.
+
+Experimental Lab release. The minimum macOS version is 10.14 (11 on Apple Silicon). macOS 10.14 and Intel runtime testing remain unverified.
+
+---
+
 ## ClashFX 1.1.11.19 (Lab)
 
 ### 中文

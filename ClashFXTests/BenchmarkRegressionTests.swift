@@ -628,6 +628,63 @@ final class ClaudeProxyLockPolicyTests: XCTestCase {
         ])
     }
 
+    func testMissingDialerGroupIsDroppedAndMatchGroupBecomesTheRelay() {
+        var root: [String: Any] = [
+            "rules": ["MATCH,Final"],
+            "proxy-groups": [["name": "Final", "type": "select", "proxies": ["Japan"]]],
+            "proxies": [[
+                "name": "Korea",
+                "type": "http",
+                "server": "147.125.251.178",
+                "port": 12323,
+                "dialer-proxy": "Proxies"
+            ], [
+                "name": "Japan",
+                "type": "socks5",
+                "server": "203.0.113.10",
+                "port": 1080
+            ]]
+        ]
+        let outcome = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
+        XCTAssertTrue(outcome.applied)
+        XCTAssertEqual(outcome.droppedDialerProxy, "Proxies")
+        XCTAssertEqual(outcome.relayProxy, "Final")
+        let korea = (root["proxies"] as? [[String: Any]])?.first { ($0["name"] as? String) == "Korea" }
+        XCTAssertEqual(korea?["dialer-proxy"] as? String, "Final")
+    }
+
+    func testMissingDialerGroupWithoutRelayDialsDirectly() {
+        var root: [String: Any] = [
+            "rules": ["MATCH,DIRECT"],
+            "proxies": [[
+                "name": "Korea",
+                "type": "http",
+                "server": "147.125.251.178",
+                "port": 12323,
+                "dialer-proxy": "Proxies"
+            ]]
+        ]
+        let outcome = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
+        XCTAssertTrue(outcome.applied)
+        XCTAssertEqual(outcome.droppedDialerProxy, "Proxies")
+        XCTAssertNil(outcome.relayProxy)
+        XCTAssertNil((root["proxies"] as? [[String: Any]])?.first?["dialer-proxy"])
+    }
+
+    func testCyclicDialerStillRejectsWithSpecificReason() {
+        var root: [String: Any] = [
+            "rules": ["MATCH,Final"],
+            "proxies": [[
+                "name": "Korea", "type": "http", "server": "1.2.3.4", "port": 1, "dialer-proxy": "Japan"
+            ], [
+                "name": "Japan", "type": "http", "server": "1.2.3.5", "port": 1, "dialer-proxy": "Korea"
+            ]]
+        ]
+        let outcome = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
+        XCTAssertFalse(outcome.applied)
+        XCTAssertTrue(outcome.rejectionReason?.contains("depends on itself") == true)
+    }
+
     func testLockDoesNotRelayThroughTheLockedNode() {
         var root: [String: Any] = [
             "rules": ["MATCH,Final"],
@@ -1079,7 +1136,7 @@ final class ClaudeProxyLockPolicyTests: XCTestCase {
         XCTAssertEqual((root["proxies"] as? [[String: Any]])?.first?["dialer-proxy"] as? String, "DIRECT")
     }
 
-    func testLockedProxyUnknownDialerRejectsWithoutChangingRoot() throws {
+    func testLockedProxyUnknownDialerIsDroppedAndLockStillApplies() {
         var root: [String: Any] = [
             "mode": "global",
             "rules": ["MATCH,DIRECT"],
@@ -1089,14 +1146,14 @@ final class ClaudeProxyLockPolicyTests: XCTestCase {
                 "dialer-proxy": "Missing"
             ]]
         ]
-        let before = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
 
         let outcome = ClaudeProxyLockPolicy.apply(to: &root, target: "Korea")
 
-        let after = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
-        XCTAssertFalse(outcome.applied)
-        XCTAssertNotNil(outcome.rejectionReason)
-        XCTAssertEqual(after, before)
+        XCTAssertTrue(outcome.applied)
+        XCTAssertNil(outcome.rejectionReason)
+        XCTAssertEqual(outcome.droppedDialerProxy, "Missing")
+        XCTAssertNil((root["proxies"] as? [[String: Any]])?.first?["dialer-proxy"])
+        XCTAssertEqual((root["rules"] as? [String])?.first, "PROCESS-NAME-REGEX,^claude( helper.*)?$,Korea")
     }
 
     func testUnknownLockedTargetRejectsWithoutChangingRoot() throws {

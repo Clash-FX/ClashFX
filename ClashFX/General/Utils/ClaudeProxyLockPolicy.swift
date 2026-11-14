@@ -27,17 +27,21 @@ enum ClaudeProxyLockPolicy {
         /// Proxy that dials the locked node's server. The locked node remains the exit.
         var relayProxy: String?
         var rejectionReason: String?
+        /// A dialer-proxy on the locked node that named something missing from this profile and was dropped.
+        var droppedDialerProxy: String?
 
         init(
             applied: Bool,
             serverHost: String?,
             relayProxy: String?,
-            rejectionReason: String? = nil
+            rejectionReason: String? = nil,
+            droppedDialerProxy: String? = nil
         ) {
             self.applied = applied
             self.serverHost = serverHost
             self.relayProxy = relayProxy
             self.rejectionReason = rejectionReason
+            self.droppedDialerProxy = droppedDialerProxy
         }
 
         static let rejected = ApplyOutcome(
@@ -121,6 +125,58 @@ enum ClaudeProxyLockPolicy {
         }
     }
 
+    /// Human-readable reason why `start` is not safe to lock, or nil when no specific cause is found.
+    private static func unsafeReason(
+        for graph: DependencyGraph,
+        from start: String
+    ) -> String? {
+        var active = Set<String>()
+        var completed = Set<String>()
+
+        func visit(_ name: String, referencedBy parent: String?) -> String? {
+            if name == "DIRECT" || name == "REJECT" || completed.contains(name) { return nil }
+            if graph.ambiguousNames.contains(name) {
+                return "The name \"\(name)\" is defined more than once, so its dependencies are ambiguous."
+            }
+            if active.contains(name) {
+                return "\"\(name)\" depends on itself through its dialer chain."
+            }
+            guard let node = graph.nodes[name] else {
+                if let parent {
+                    return "\"\(parent)\" references \"\(name)\", which does not exist in the current profile. " +
+                        "Switch the lock to a node that works with this profile or turn off Claude Proxy Lock."
+                }
+                return nil
+            }
+            active.insert(name)
+            defer { active.remove(name) }
+            var reason: String?
+            switch node {
+            case let .proxy(dialerProxy, unresolved):
+                if unresolved {
+                    reason = "The dialer-proxy of \"\(name)\" could not be resolved."
+                } else if let dialerProxy {
+                    reason = visit(dialerProxy, referencedBy: name)
+                }
+            case let .group(candidates, unresolved):
+                if unresolved || candidates.isEmpty {
+                    reason = "The proxy group \"\(name)\" has members that could not be resolved."
+                } else {
+                    for candidate in candidates {
+                        if let found = visit(candidate, referencedBy: name) {
+                            reason = found
+                            break
+                        }
+                    }
+                }
+            }
+            if reason == nil { completed.insert(name) }
+            return reason
+        }
+
+        return visit(start, referencedBy: nil)
+    }
+
     private struct LocatedProxy {
         var server: String?
         var providerName: String?
@@ -181,13 +237,27 @@ enum ClaudeProxyLockPolicy {
             return rejected("The locked proxy target is invalid.")
         }
         let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialGraph = dependencyGraph(in: root, providers: providers)
+        var initialGraph = dependencyGraph(in: root, providers: providers)
+
+        // The mixin can pin the locked node behind a group that only some profiles define.
+        // A dialer that names nothing in this profile is dropped rather than failing the
+        // whole reload; the relay logic below re-attaches a safe MATCH group when available.
+        var droppedDialer: String?
+        if let missing = missingInlineDialer(of: trimmed, in: root, graph: initialGraph) {
+            removeInlineDialer(in: &root, target: trimmed)
+            droppedDialer = missing
+            initialGraph = dependencyGraph(in: root, providers: providers)
+        }
 
         guard initialGraph.knows(trimmed) else {
             return rejected("The locked proxy target could not be resolved.")
         }
         if !initialGraph.isSafe(from: trimmed) {
-            return rejected("The locked proxy has cyclic or unresolved dialer dependencies.")
+            let generic = "The locked proxy has cyclic or unresolved dialer dependencies."
+            if let detail = unsafeReason(for: initialGraph, from: trimmed) {
+                return rejected("\(generic) \(detail)")
+            }
+            return rejected(generic)
         }
 
         let located = locatedProxy(in: root, target: trimmed, providers: providers)
@@ -224,7 +294,8 @@ enum ClaudeProxyLockPolicy {
         return ApplyOutcome(
             applied: true,
             serverHost: located?.server,
-            relayProxy: appliedRelay
+            relayProxy: appliedRelay,
+            droppedDialerProxy: droppedDialer
         )
     }
 
@@ -813,6 +884,28 @@ enum ClaudeProxyLockPolicy {
         }
         root = proposedRoot
         return true
+    }
+
+    private static func missingInlineDialer(
+        of target: String,
+        in root: [String: Any],
+        graph: DependencyGraph
+    ) -> String? {
+        guard let proxies = root["proxies"] as? [[String: Any]],
+              let proxy = proxies.first(where: { ($0["name"] as? String) == target }),
+              let raw = proxy["dialer-proxy"] as? String else { return nil }
+        guard let name = normalizedReference(raw),
+              !name.isEmpty, name != "DIRECT", name != "REJECT",
+              graph.nodes[name] == nil, !graph.ambiguousNames.contains(name) else { return nil }
+        return name
+    }
+
+    private static func removeInlineDialer(in root: inout [String: Any], target: String) {
+        guard var proxies = root["proxies"] as? [[String: Any]] else { return }
+        for index in proxies.indices where (proxies[index]["name"] as? String) == target {
+            proxies[index].removeValue(forKey: "dialer-proxy")
+        }
+        root["proxies"] = proxies
     }
 
     private static func setInlineDialer(
