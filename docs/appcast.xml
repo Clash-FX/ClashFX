@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.20 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.20 (Lab)</h2><h3>中文</h3><ul><li>修复开启 Claude 代理锁时切换订阅失败（"重载配置文件失败：The locked proxy has cyclic or unresolved dialer dependencies"）。当锁定节点的前置拨号组在所选订阅中不存在时，ClashFX 会忽略该拨号设置并继续应用锁定：优先经订阅的兜底（MATCH）组连接节点服务器，没有则直连；Claude 流量的出口仍是锁定节点。循环或有歧义的依赖仍会被拒绝，并给出具体原因。</li></ul><h3>English</h3><ul><li>Fix subscription switching failing while Claude Proxy Lock is on ("Reload configuration failed: The locked proxy has cyclic or unresolved dialer dependencies"). When the locked node's dialer group does not exist in the selected profile, ClashFX now ignores that dialer and still applies the lock: the node's server is reached through the profile's MATCH group when one is available, otherwise directly, and Claude traffic still exits on the locked node. Cyclic or ambiguous dependencies are still rejected, with a specific reason.</li></ul>
+  ]]></description>
+  <pubDate>Sat, 14 Nov 2026 04:27:15 +0000</pubDate>
+  <sparkle:version>1001011020</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.20</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.20/ClashFX.dmg"
+    sparkle:version="1001011020"
+    sparkle:shortVersionString="1.1.11.20"
+    sparkle:edSignature="Ak16uwtZoklUSkSQQArlZnBNB8Xb3mOztg9lScJqkWuIduaX1VKSGn/8Fvyc+SfqCVByyRQEqXthoYuu1x2FCA=="
+    length="96236872"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.19 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.19 (Lab)</h2><h3>中文</h3><ul><li>修复关闭增强模式或启动本地核心时的代理端口冲突。ClashFX 会等待启动配置和所选配置实际使用的代理端口可重新绑定，每次交接的端口等待总上限为 45 秒。macOS 仍保留旧核心的 TCP 连接（TIME_WAIT）时，等待可能持续约 30 秒。</li><li>端口等待超时后可重试。交接失效时会取消等待，本地模式会在核心确认完整配置已生效后就绪。</li></ul><h3>English</h3><ul><li>Fix proxy port conflicts when turning off Enhanced Mode or starting the local core. ClashFX waits for the proxy ports used by the startup and selected configurations to become bindable, with a shared 45-second limit per attempt. When macOS keeps old TCP connections in TIME_WAIT, the wait can take around 30 seconds.</li><li>A port timeout leaves the operation retryable. ClashFX cancels stale handoffs and marks Local ready after the core confirms the full configuration.</li></ul>
