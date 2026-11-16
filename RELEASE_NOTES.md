@@ -1,3 +1,19 @@
+## ClashFX 1.1.11.21 (Lab)
+
+### 中文
+
+- 修复关闭增强模式时偶发的"Proxy port handoff timed out"错误。增强模式的核心退出后，系统可能因残留的 TCP 连接（最长约 60 秒）暂时不允许 ClashFX 重新绑定代理端口。代理连接较多时，原来的 45 秒等待不够。现在端口等待总上限延长到 75 秒。
+
+本版本为实验性 Lab。最低系统要求为 macOS 10.14（Apple Silicon 为 macOS 11）。代理连接繁忙时关闭增强模式的实机验证、macOS 10.14 和 Intel 实机运行仍未验证。
+
+### English
+
+- Fix the occasional "Proxy port handoff timed out" error when turning off Enhanced Mode. After the Enhanced Mode core exits, macOS can keep leftover TCP connections (up to about 60 seconds) that stop ClashFX from rebinding the proxy ports. With many proxy connections open, the previous 45-second wait was too short. The shared port wait limit is now 75 seconds.
+
+Experimental Lab release. The minimum macOS version is 10.14 (11 on Apple Silicon). Turning Enhanced Mode off while proxy connections are busy, macOS 10.14 and Intel runtime testing remain unverified.
+
+---
+
 ## ClashFX 1.1.11.20 (Lab)
 
 ### 中文
