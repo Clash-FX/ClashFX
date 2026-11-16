@@ -6,6 +6,25 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.21 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.21 (Lab)</h2><h3>中文</h3><ul><li>修复关闭增强模式时偶发的"Proxy port handoff timed out"错误。增强模式的核心退出后，系统可能因残留的 TCP 连接（最长约 60 秒）暂时不允许 ClashFX 重新绑定代理端口。代理连接较多时，原来的 45 秒等待不够。现在端口等待总上限延长到 75 秒。</li></ul><h3>English</h3><ul><li>Fix the occasional "Proxy port handoff timed out" error when turning off Enhanced Mode. After the Enhanced Mode core exits, macOS can keep leftover TCP connections (up to about 60 seconds) that stop ClashFX from rebinding the proxy ports. With many proxy connections open, the previous 45-second wait was too short. The shared port wait limit is now 75 seconds.</li></ul>
+  ]]></description>
+  <pubDate>Mon, 16 Nov 2026 10:29:12 +0000</pubDate>
+  <sparkle:version>1001011021</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.21</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.21/ClashFX.dmg"
+    sparkle:version="1001011021"
+    sparkle:shortVersionString="1.1.11.21"
+    sparkle:edSignature="9YJJRMJRK1dF2qsApx7/Zi5nPqMJ6ulxoohm6JSNvUttNPFFmmFY6p4dOLV9Hz3DYBi6drJuyST1RNOQUzg8Ag=="
+    length="96235279"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.11.20 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.11.20 (Lab)</h2><h3>中文</h3><ul><li>修复开启 Claude 代理锁时切换订阅失败（"重载配置文件失败：The locked proxy has cyclic or unresolved dialer dependencies"）。当锁定节点的前置拨号组在所选订阅中不存在时，ClashFX 会忽略该拨号设置并继续应用锁定：优先经订阅的兜底（MATCH）组连接节点服务器，没有则直连；Claude 流量的出口仍是锁定节点。循环或有歧义的依赖仍会被拒绝，并给出具体原因。</li></ul><h3>English</h3><ul><li>Fix subscription switching failing while Claude Proxy Lock is on ("Reload configuration failed: The locked proxy has cyclic or unresolved dialer dependencies"). When the locked node's dialer group does not exist in the selected profile, ClashFX now ignores that dialer and still applies the lock: the node's server is reached through the profile's MATCH group when one is available, otherwise directly, and Claude traffic still exits on the locked node. Cyclic or ambiguous dependencies are still rejected, with a specific reason.</li></ul>
