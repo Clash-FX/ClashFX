@@ -98,6 +98,12 @@ final class RuntimePortHandoffWaiterTests: XCTestCase {
         )
     }
 
+    func testDefaultTimeoutOutlastsDarwinFinWait2Timeout() {
+        // Darwin's net.inet.tcp.fin_timeout defaults to 60s; a different UID cannot
+        // rebind until the previous core's half-closed sockets expire.
+        XCTAssertGreaterThan(RuntimePortHandoffWaiter.defaultTimeout, 60)
+    }
+
     func testFreePortCompletesImmediately() throws {
         let held = try XCTUnwrap(listener())
         close(held.fd)

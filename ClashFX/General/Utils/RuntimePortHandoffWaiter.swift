@@ -4,7 +4,11 @@ import Foundation
 /// Process exit does not guarantee Darwin will let a different UID rebind
 /// the proxy's TCP endpoints. Check the requested bind domains before apply.
 enum RuntimePortHandoffWaiter {
-    static let defaultTimeout: TimeInterval = 45
+    /// A root-owned core leaves server-side sockets (FIN_WAIT_2/TIME_WAIT) on its
+    /// ports after it exits, and a different UID cannot rebind until they expire.
+    /// Busy proxy clients keep half-closed sockets for up to
+    /// net.inet.tcp.fin_timeout (60s), so allow that plus a margin.
+    static let defaultTimeout: TimeInterval = 75
 
     enum Transport: String {
         case tcp
